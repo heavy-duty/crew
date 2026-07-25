@@ -55,11 +55,13 @@ hire lands. Each bot stays in its own quarters.
   server-room feel, decoupled from repo count.
 - **Triage is a call.** A holographic call-panel pops up beside the bot — it
   never leaves its quarters (`kind=triage`).
-- **Robots have distinct silhouettes** per vendor: claude (rounded helper,
-  antenna-ball), codex (wide engineer on treads, hard-hat), grok (tall floating
-  monolith, cyclops eye), kimi (small, big cat-eared head).
-- **A box goes cron-silent** → its robot topples with X-eyes and the log prints
-  `⚠ no evidence line — cron silent`. Silence *is* the disconnect signal.
+- **Each vendor is a different creature**, not just a recolor: claude a sleek
+  humanoid android (visor band, chest core), codex an 8-legged spider,
+  grok a floating astronaut (bubble helmet, jetpack), kimi a hovering
+  companion drone (screen-face, ear antennae).
+- **A box goes cron-silent** → its robot **powers down**: it goes grey (lights
+  off), a red **"!"** appears over it, and a red **alarm beacon** flashes in the
+  room. Silence across a `tick.sh` boundary *is* the disconnect signal.
 - **Bottom ticker** streams `SESSION START/END kind=… rc=… dur=… outcome=…`.
 - **Double-click a robot** to open its inspector and message the agent (below).
 
@@ -76,7 +78,7 @@ hire lands. Each bot stays in its own quarters.
 | Operator room         | you — mission control                                   |
 | Triage call-panel     | `kind=triage` (bots call in; they don't walk anywhere)  |
 | Build / review anim   | `SESSION START kind=build\|review`                       |
-| Robot topples         | a missed `tick.sh` boundary (cron silent)               |
+| Robot greys out + "!"  | a missed `tick.sh` boundary (cron silent)              |
 | Chest / antenna color | duty state; body color = agent vendor                   |
 | Vacant room           | an open slot — the layout scales by adding columns      |
 
