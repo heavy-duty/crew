@@ -374,12 +374,13 @@ function outline(x,y,w,h){R(x-1,y,w+2,h,OL);R(x,y-1,w,h+2,OL);}
 /* ===== industrial material system: fixed key light upper-left, flat ramps ===== */
 /* each ramp = [step0 lightest(top) , step1 main , step2 right-face , step3 recess/underside] */
 var RAMP={
-  steel:   ["#9aa0aa","#6b7280","#474d58","#2a2f38"],
-  concrete:["#a29d92","#77736a","#4f4c44","#302e29"],
-  dark:    ["#454b56","#31363f","#20242b","#12151b"],
-  plastic: ["#cdd1d7","#949aa4","#5c626c","#33373f"],
-  glass:   ["#222a33","#161c24","#0d1218","#070a0e"],
-  cable:   ["#3a3a42","#26262c","#17171c","#0c0c0f"]
+  steel:   ["#6e747f","#414651","#282c35","#14161c"],   // dark gunmetal
+  concrete:["#6a665c","#454239","#2b2924","#161512"],   // stained concrete, deep shadow
+  dark:    ["#2b3038","#1b1f26","#12151a","#080a0d"],    // machine housing, near-black
+  plastic: ["#9ba0a8","#6a707a","#404550","#22262d"],
+  glass:   ["#1a2028","#10151b","#090d12","#04070a"],
+  cable:   ["#2c2c33","#1c1c21","#111114","#08080a"],
+  rust:    ["#7a4a26","#5a3418","#3c220e","#241407"]
 };
 function accRamp(a){ return [shade(a,1.28),a,shade(a,0.62),shade(a,0.34)]; }
 /* flat-shaded box lit from upper-left (no outline) */
@@ -395,8 +396,26 @@ function wear(x,y,w,h,c,d){for(var py=0;py<h;py++)for(var px=0;px<w;px++){var m=
 /* exposed conduit run + a junction box */
 function conduit(x,y,w,r){R(x,y,w,3,r[2]);R(x,y,w,1,r[0]);R(x,y+2,w,1,r[3]);for(var i=6;i<w-4;i+=18)R(x+i,y-1,2,5,r[1]);}
 function junctionBox(x,y,r,em){mat(x,y,9,10,r);bolts(x,y,9,10,r);R(x+3,y+3,3,4,RAMP.glass[2]);if(em)R(x+4,y+4,1,2,em);}
-/* hard quantized emissive pool (no gradient, never wraps a silhouette) */
-function emitPool(cx,cy,c){R(cx-6,cy-4,12,8,rgba(c,0.10));R(cx-4,cy-3,8,6,rgba(c,0.16));R(cx-2,cy-2,4,4,rgba(c,0.24));}
+/* hard quantized emissive pool (no gradient, never wraps a silhouette) — punchy vs the dark */
+function emitPool(cx,cy,c){R(cx-9,cy-6,18,12,rgba(c,0.12));R(cx-6,cy-4,12,8,rgba(c,0.22));R(cx-3,cy-2,6,4,rgba(c,0.4));R(cx-1,cy-1,2,2,rgba(c,0.7));}
+/* rust weeping downward from a fastener */
+function rustStreak(x,y,h){for(var j=0;j<h;j++){var a=0.55*(1-j/h);if((j+x)%2===0)R(x,y+j,1,1,rgba(RAMP.rust[1],a));if(j%3===1)R(x+1,y+j,1,1,rgba(RAMP.rust[2],a*0.8));}}
+/* oil / scorch blotch via ordered dither */
+function stain(x,y,w,h,c){for(var py=0;py<h;py++)for(var px=0;px<w;px++){var d=Math.hypot(px-w/2,py-h/2)/(w/2);if(d<1&&((px+py)%2===0||d<0.45))R(x+px,y+py,1,1,rgba(c,0.5*(1-d)));}}
+/* hanging work-lamp with a hard, quantized amber light shaft to the floor */
+function workLamp(cx,topY,floorY){
+  R(cx,topY-7,1,7,RAMP.cable[2]);
+  mat(cx-5,topY,10,4,RAMP.dark); R(cx-5,topY,10,1,RAMP.steel[0]);
+  R(cx-3,topY+3,6,1,"#ffe49a"); R(cx-2,topY+3,4,1,"#fff6d8");        // bulb
+  emitPool(cx,topY+2,"#ffcf5a");
+  var h=floorY-(topY+4);
+  for(var j=0;j<h;j++){var wc=Math.round(3+(j/h)*10);var band=Math.floor(j/(h/3));var a=[0.13,0.08,0.045][band]||0.03;if((j+cx)%2===0)R(cx-wc,topY+4+j,wc*2,1,rgba("#f0b840",a));}
+  R(cx-11,floorY-4,22,4,rgba("#f0b840",0.10)); R(cx-8,floorY-3,16,3,rgba("#f0b840",0.16)); R(cx-5,floorY-2,10,2,rgba("#f0b840",0.24)); // floor pool
+}
+/* stencilled warning placard */
+function placard(x,y,c){mat(x,y,14,8,RAMP.dark);R(x+1,y+1,12,2,c);R(x+1,y+4,12,1,RAMP.steel[1]);R(x+1,y+6,8,1,RAMP.steel[1]);}
+/* small always-on indicator light */
+function led(x,y,c){R(x,y,1,1,c);emitPool(x,y,c);}
 /* tiny 3x5 digit font for counts */
 var FONT={"0":["111","101","101","101","111"],"1":["010","110","010","010","111"],"2":["111","001","111","100","111"],"3":["111","001","111","001","111"],"4":["101","101","111","001","001"],"5":["111","100","111","001","111"],"6":["111","100","111","101","111"],"7":["111","001","010","010","010"],"8":["111","101","111","101","111"],"9":["111","101","111","001","111"],"+":["000","010","111","010","000"]};
 function drawNum(x,y,str,col){for(var i=0;i<str.length;i++){var gl=FONT[str[i]];if(!gl)continue;for(var r=0;r<5;r++)for(var c=0;c<3;c++)if(gl[r][c]==="1")R(x+i*4+c,y+r,1,1,col);}}
@@ -563,16 +582,26 @@ function bakeShell(room,accent,roleTint){
   for(var cxj=0;cxj<=RW;cxj+=3)R(x+cxj*TILE,y,1,h,shade(cr[3],1.25));    // expansion joints (vertical)
   for(var ryj=0;ryj<=RH;ryj+=2)R(x,y+ryj*TILE,w,1,cr[3]);               // expansion joints (horizontal)
   for(var bxj=3;bxj<RW;bxj+=6)for(var byj=2;byj<RH;byj+=4)bolt(x+bxj*TILE-1,y+byj*TILE-1,cr); // floor bolts at joints
-  R(x,y,w,1,shade(cr[0],1.05));R(x,y,1,h,cr[1]);R(x,y+h-1,w,1,"#07080a");R(x+w-1,y,1,h,"#0a0b0e");
+  // ---- floor grime: oil stains, scuff, painted bay markings worn ----
+  stain(x+Math.round(w*0.3),y+Math.round(h*0.6),22,14,"#080706");
+  stain(x+Math.round(w*0.68),y+Math.round(h*0.78),16,10,"#080706");
+  hazard(x+4,y+h-6,w-8,4,shade(acc,0.5));                                // worn caution stripe, front edge
+  R(x,y,w,1,shade(cr[0],1.05));R(x,y,1,h,cr[1]);R(x,y+h-1,w,1,"#050608");R(x+w-1,y,1,h,"#08090b");
+  // darker corners so the emissive reads (hard-stepped, not a gradient)
+  R(x,y,w,3,rgba("#000000",0.18)); R(x,y+h-6,w,6,rgba("#000000",0.22)); R(x,y,4,h,rgba("#000000",0.14)); R(x+w-4,y,4,h,rgba("#000000",0.14));
   // ---- riveted plate-steel back wall ----
   mat(x,y,w,wh,st);
   for(var pw=3;pw<RW;pw+=3)R(x+pw*TILE,y,1,wh,st[3]);                   // vertical plate seams
   R(x,y+Math.round(wh*0.55),w,1,st[3]);                                  // horizontal seam
-  for(var pb=2;pb<RW;pb+=3){bolt(x+pb*TILE-1,y+2,st);bolt(x+pb*TILE-1,y+wh-4,st);} // seam rivets
-  wear(x+8,y+wh-8,14,6,rgba("#1a140c",0.6),2);                          // soot/scuff on the wall
+  for(var pb=2;pb<RW;pb+=3){bolt(x+pb*TILE-1,y+2,st);bolt(x+pb*TILE-1,y+wh-4,st);rustStreak(x+pb*TILE-1,y+wh-3,10);} // rivets weeping rust
+  wear(x+8,y+wh-8,16,7,rgba("#100a06",0.7),3); wear(x+w-26,y+2,14,6,rgba("#0c0906",0.6),2); // heavy soot/scuff
   conduit(x+2,y+wh-5,w-4,RAMP.cable);                                    // conduit run along wall base
-  junctionBox(x+w-16,y+wh-16,st,shade(acc,1.2));                        // junction box
-  R(x,y+wh-2,w,1,shade(acc,0.7)); R(x,y+wh,w,2,cr[3]);                  // accent rail + baseboard
+  junctionBox(x+w-16,y+wh-16,st,shade(acc,1.4));                        // junction box (accent LED)
+  placard(x+Math.round(w*0.5)-7,y+4,shade(acc,0.9));                    // stencilled warning placard
+  led(x+10,y+6,"#ff5c3a"); led(x+w-8,y+wh-11,shade(acc,1.3));           // always-on indicator LEDs
+  R(x,y+wh-2,w,1,shade(acc,0.8)); R(x,y+wh,w,2,cr[3]);                  // accent rail + baseboard
+  // ---- signature hard amber work-lamp light shaft ----
+  workLamp(x+Math.round(w*0.5), y+wh+6, y+h-4);
   roomFrame(x,y,w,h,accent);
 }
 
