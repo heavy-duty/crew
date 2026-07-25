@@ -1,0 +1,78 @@
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="mark">FLEET<b>·</b>FLOOR</span>
+      <span class="sub">heavy-duty/crew — live ops view</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="stat"><span>UTC</span><span class="clock" id="clock">--:--:--</span></div>
+    <button class="btn-ghost" id="about-btn">about the feed</button>
+    <div class="feed"><span class="dot"></span><span>SIMULATED FEED</span></div>
+  </header>
+
+  <div class="stage">
+    <aside class="rail">
+      <h2>Server rooms</h2>
+      <div class="roster" id="roster"></div>
+      <div class="legend">
+        <h2 style="padding:0 0 8px">On the floor</h2>
+        <div class="lg"><span class="sw" style="background:var(--build)"></span>Building — hammering a rack</div>
+        <div class="lg"><span class="sw" style="background:var(--review)"></span>Reviewing — scanning a rack</div>
+        <div class="lg"><span class="sw" style="background:var(--triage)"></span>Triaging — at the whiteboard</div>
+        <div class="lg"><span class="sw" style="background:var(--idle)"></span>Idle — between ticks</div>
+        <div class="lg"><span class="sw" style="background:var(--dead)"></span>Disconnected — cron silent</div>
+        <div class="hint"><b>Racks</b> are repos. <b>Rooms</b> are boxes. <b>Robots</b> are agents.<br>Double-click a robot to message its agent.</div>
+      </div>
+    </aside>
+
+    <main class="floor" id="floor">
+      <canvas id="view"></canvas>
+      <div class="tip" id="tip"><div class="t1"></div><div class="t2"></div></div>
+    </main>
+
+    <aside class="inspector" id="inspector">
+      <div class="insp-head">
+        <div class="badge" id="insp-badge"><canvas id="insp-av" width="34" height="34"></canvas></div>
+        <div class="htxt">
+          <div class="hid" id="insp-id">—</div>
+          <div class="hmeta" id="insp-meta">—</div>
+        </div>
+        <button class="insp-close" id="insp-close" aria-label="Close">×</button>
+      </div>
+      <div class="insp-body">
+        <div class="vitals">
+          <div class="vital"><div class="k">Status</div><div class="v" id="v-status">—</div></div>
+          <div class="vital"><div class="k">Uptime</div><div class="v" id="v-uptime">—</div></div>
+          <div class="vital"><div class="k">Working repo</div><div class="v" id="v-repo">—</div></div>
+          <div class="vital"><div class="k">Last tick</div><div class="v" id="v-tick">—</div></div>
+        </div>
+        <div class="sec-t">Recent duty log</div>
+        <div class="tl" id="v-timeline"></div>
+        <div class="console">
+          <div class="sec-t">Message the agent</div>
+          <textarea id="prompt-in" placeholder="e.g. rebase your open PR on ceremony and re-request review"></textarea>
+          <div class="row">
+            <button class="btn" id="prompt-send">Queue to next tick</button>
+            <span class="note">No inbound path to a box — your message rides the next duty tick (≤5&nbsp;min) over the pull channel.</span>
+          </div>
+          <div class="queue" id="queue"></div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="modal-bg" id="about-bg">
+      <div class="modal">
+        <button class="close" id="about-close" aria-label="Close">×</button>
+        <h3>About this floor</h3>
+        <p>This is a <b>god-view of the heavy-duty/crew fleet</b>. Each server room is a <b>box</b> (an isolated VM), each robot is the <b>agent</b> on that box, each rack is a <b>repo</b> it touches, and the office whiteboard is <b>triage</b>.</p>
+        <p>The feed here is <b>simulated</b>. In production it reads from what the duty engine already emits: one evidence line per <code>tick.sh</code> boundary and <code>SESSION START/END kind=… rc=… dur=…</code> markers in <code>duty.log</code>. Silence across a boundary is the disconnect signal — that's why a quiet box topples over.</p>
+        <p>Because a box has <b>no inbound path</b>, messaging an agent can't push. It writes to a pull channel the box drains on its next tick — modeled here by the message queue in the inspector.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer class="ticker">
+    <div class="th"><span class="live">● duty.log</span><span>fleet stream — newest below</span></div>
+    <div class="log" id="log"></div>
+  </footer>
+</div>
