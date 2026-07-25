@@ -24,43 +24,49 @@ fleet-floor/build.sh
 
 ## What you see
 
-A 3×3 facility: **7 quarters** from `fleet.roster` (one per box), plus an
-**Operator** room (mission control — the human watching the fleet) and a
-**Lounge** commons. Each bot stays in its own quarters.
+A **two-row facility that scrolls horizontally** (wheel / drag / arrow keys, or
+click a bot in the rail). It grows by adding columns — the roster today is the
+**Operator** room (mission control — you), a **Lounge** commons, **7 bot
+quarters** from `fleet.roster`, and a **Vacant** room showing where the next
+hire lands. Each bot stays in its own quarters.
 
-- **Every quarters shows the full repo wall.** All agents have access to every
-  repo, so all six (`ceremony · cast · box · rig · incubator · crew`) appear as
-  colour-coded server racks in every room. The rack the bot is currently working
-  lights up in the duty-state colour.
-- **Robots** are coloured by agent (claude amber · codex teal · grok violet ·
-  kimi pink) with per-vendor silhouettes. Role drives what they do at their
-  workstation:
-  - **builder** — hammers, throws sparks (`kind=build`)
-  - **reviewer** — scans with a magnifier (`kind=review`)
-  - **triage** — **calls it in.** A holographic call-panel pops up beside the bot;
-    it never leaves its quarters (`kind=triage`). `claude-triage`'s quarters is
-    the one with the physical kanban board.
-  - **idle** — wanders its own room between ticks
+- **Rooms are themed by role**, so you can read a bot's job at a glance:
+  - **builder** — fabricator + tool pegboard; hammers at the bench (`kind=build`)
+  - **reviewer** — inspection station (diff monitor + magnifier lamp); scans (`kind=review`)
+  - **triage** — kanban board + call switchboard; the physical board lives here
+- **Workload at a glance = the queue tray.** Beside each bot's workstation is a
+  tray of tickets: **stack height is how much work is queued**, and each ticket
+  is **coloured by repo** — so you see both *how busy* a bot is and *which repos*
+  have pending work, without a rack per repo (which wouldn't scale). The count
+  badge and the rail chip (`… · q4`) show the exact number.
+- **The computer is where they work.** The workstation monitor shows the current
+  task; the tray shows what's pending. Decorative server racks stay for the
+  server-room feel, decoupled from repo count.
+- **Triage is a call.** A holographic call-panel pops up beside the bot — it
+  never leaves its quarters (`kind=triage`).
+- **Robots have distinct silhouettes** per vendor: claude (rounded helper,
+  antenna-ball), codex (wide engineer on treads, hard-hat), grok (tall floating
+  monolith, cyclops eye), kimi (small, big cat-eared head).
 - **A box goes cron-silent** → its robot topples with X-eyes and the log prints
   `⚠ no evidence line — cron silent`. Silence *is* the disconnect signal.
-- **Bottom ticker** streams `SESSION START/END kind=… rc=… dur=… outcome=…` in
-  the real marker vocabulary.
+- **Bottom ticker** streams `SESSION START/END kind=… rc=… dur=… outcome=…`.
 - **Double-click a robot** to open its inspector and message the agent (below).
 
 ## Metaphor → data
 
-| On the floor         | In the fleet                                             |
-|----------------------|----------------------------------------------------------|
-| Quarters (a room)    | a box (isolated VM)                                      |
-| Robot                | the agent on that box                                    |
-| The six racks        | the repos — every box has all of them                    |
-| A rack lit up        | the repo the bot is working right now                    |
-| Operator room        | you — mission control                                    |
-| Triage call-panel    | `kind=triage` (bots call in; they don't walk anywhere)   |
-| Build / review anim  | `SESSION START kind=build\|review`                        |
-| Idle wander          | the gap between ticks                                     |
-| Robot topples        | a missed `tick.sh` boundary (cron silent)                |
-| Antenna / chest color| duty state; body color = agent vendor                    |
+| On the floor          | In the fleet                                            |
+|-----------------------|---------------------------------------------------------|
+| Quarters (a room)     | a box (isolated VM)                                     |
+| Robot (its silhouette)| the agent / vendor on that box                          |
+| Queue-tray height     | how much work is pending for that bot                   |
+| Ticket colour         | which repo a pending item is on                         |
+| Room theme            | the bot's role (builder / reviewer / triage)            |
+| Operator room         | you — mission control                                   |
+| Triage call-panel     | `kind=triage` (bots call in; they don't walk anywhere)  |
+| Build / review anim   | `SESSION START kind=build\|review`                       |
+| Robot topples         | a missed `tick.sh` boundary (cron silent)               |
+| Chest / antenna color | duty state; body color = agent vendor                   |
+| Vacant room           | an open slot — the layout scales by adding columns      |
 
 ## Telemetry contract
 
@@ -82,9 +88,18 @@ Each tick, a box publishes a small status object:
   "tick_at": "2026-07-25T14:32:05Z",
   "session": { "kind": "build", "key": "incubator#41", "started": "14:31:59" },
   "last_end": { "kind": "review", "rc": 0, "dur": 72, "outcome": "approved" },
-  "repos": ["incubator", "ceremony", "box"]
+  "queue": [
+    { "repo": "cast", "kind": "review", "key": "cast#41" },
+    { "repo": "rig",  "kind": "build",  "key": "rig#12" }
+  ]
 }
 ```
+
+The `queue` is the pending work the box has detected but not yet handled — the
+same set the duty modules already compute each tick (ready issues to build, open
+PRs to review, triage signals). The floor renders it directly: **tray height =
+`queue.length`, ticket colour = each item's `repo`.** That's what makes workload
+legible at a glance without a rack per repo.
 
 **Disconnected is derived, not reported:** if `tick_at` is older than two tick
 boundaries (> ~10 min) the box is dead — the same rule the engine uses, where
