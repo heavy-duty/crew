@@ -9,7 +9,7 @@
    ============================================================ */
 
 var TILE=16, reduced=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-var RW=14, RH=12, MARGIN=1, AISLE_X=2, AISLE_Y=2;
+var RW=14, RH=10, MARGIN=1, AISLE_X=2, AISLE_Y=2;
 var ROLETINT={builder:"#e0913d", reviewer:"#4a90d0", triage:"#c98bff"};
 
 var VENDOR={ claude:"#f6a04d", codex:"#37d4a6", grok:"#b07cff", kimi:"#ff72b6" };
@@ -51,6 +51,33 @@ var g, OL="#0a0e18";
 function R(x,y,w,h,c){g.fillStyle=c;g.fillRect(x|0,y|0,w|0,h|0);}
 function block(x,y,w,h,base,hi,lo){R(x,y,w,h,OL);R(x+1,y+1,w-2,h-2,base);R(x+1,y+1,w-2,1,hi);R(x+1,y+1,1,h-2,hi);R(x+1,y+h-2,w-2,1,lo);R(x+w-2,y+1,1,h-2,lo);}
 function outline(x,y,w,h){R(x-1,y,w+2,h,OL);R(x,y-1,w,h+2,OL);}
+
+/* ===== industrial material system: fixed key light upper-left, flat ramps ===== */
+/* each ramp = [step0 lightest(top) , step1 main , step2 right-face , step3 recess/underside] */
+var RAMP={
+  steel:   ["#9aa0aa","#6b7280","#474d58","#2a2f38"],
+  concrete:["#a29d92","#77736a","#4f4c44","#302e29"],
+  dark:    ["#454b56","#31363f","#20242b","#12151b"],
+  plastic: ["#cdd1d7","#949aa4","#5c626c","#33373f"],
+  glass:   ["#222a33","#161c24","#0d1218","#070a0e"],
+  cable:   ["#3a3a42","#26262c","#17171c","#0c0c0f"]
+};
+function accRamp(a){ return [shade(a,1.28),a,shade(a,0.62),shade(a,0.34)]; }
+/* flat-shaded box lit from upper-left (no outline) */
+function mat(x,y,w,h,r){R(x,y,w,h,r[1]);R(x,y,w,1,r[0]);R(x,y,1,h,r[0]);R(x+w-1,y,1,h,r[2]);R(x,y+h-1,w,1,r[3]);}
+function bolt(x,y,r){R(x,y,2,2,r[0]);R(x+1,y+1,1,1,r[3]);}
+function bolts(x,y,w,h,r){bolt(x,y,r);bolt(x+w-2,y,r);bolt(x,y+h-2,r);bolt(x+w-2,y+h-2,r);}
+/* hard contact shadow at an object's base (what seats it once outlines are gone) */
+function contact(cx,baseY,w){var hw=Math.round(w/2);R(cx-hw,baseY,w,2,"rgba(0,0,0,0.5)");R(cx-hw+2,baseY+2,w-4,1,"rgba(0,0,0,0.26)");}
+/* 45° hazard striping clipped to a rect */
+function hazard(x,y,w,h,c){for(var py=0;py<h;py++)for(var px=0;px<w;px++){if(Math.floor((px+py)/4)%2===0)R(x+px,y+py,1,1,c);}}
+/* ordered-dither wear (25/50/75% on the pixel grid) */
+function wear(x,y,w,h,c,d){for(var py=0;py<h;py++)for(var px=0;px<w;px++){var m=(px%2)+ (py%2)*2; if((d>=4)||(d===1&&m===0)||(d===2&&(m===0||m===3))||(d===3&&m!==1))R(x+px,y+py,1,1,c);}}
+/* exposed conduit run + a junction box */
+function conduit(x,y,w,r){R(x,y,w,3,r[2]);R(x,y,w,1,r[0]);R(x,y+2,w,1,r[3]);for(var i=6;i<w-4;i+=18)R(x+i,y-1,2,5,r[1]);}
+function junctionBox(x,y,r,em){mat(x,y,9,10,r);bolts(x,y,9,10,r);R(x+3,y+3,3,4,RAMP.glass[2]);if(em)R(x+4,y+4,1,2,em);}
+/* hard quantized emissive pool (no gradient, never wraps a silhouette) */
+function emitPool(cx,cy,c){R(cx-6,cy-4,12,8,rgba(c,0.10));R(cx-4,cy-3,8,6,rgba(c,0.16));R(cx-2,cy-2,4,4,rgba(c,0.24));}
 /* tiny 3x5 digit font for counts */
 var FONT={"0":["111","101","101","101","111"],"1":["010","110","010","010","111"],"2":["111","001","111","100","111"],"3":["111","001","111","001","111"],"4":["101","101","111","001","001"],"5":["111","100","111","001","111"],"6":["111","100","111","101","111"],"7":["111","001","010","010","010"],"8":["111","101","111","101","111"],"9":["111","101","111","001","111"],"+":["000","010","111","010","000"]};
 function drawNum(x,y,str,col){for(var i=0;i<str.length;i++){var gl=FONT[str[i]];if(!gl)continue;for(var r=0;r<5;r++)for(var c=0;c<3;c++)if(gl[r][c]==="1")R(x+i*4+c,y+r,1,1,col);}}
@@ -73,7 +100,7 @@ function computerDesk(x,y,vendor,wide){
   block(x+w-8,y+13,4,4,"#8a4436","#b45a44","#5a2c22");
   R(x+ (wide?7:6),y+15,5,2,"#d7deea");
 }
-function drawMonitor(x,y,vendor){block(x,y,18,13,"#0c1220","#22304a","#060a12");R(x+2,y+2,14,8,"#0f2036");var cl=["#1d3a54","#25506e","#1d3a54","#2a5a78"];for(var i=0;i<4;i++)R(x+3,y+3+i*2,ri(6,12),1,cl[i%4]);R(x+8,y+13,2,2,"#0c1220");R(x+5,y+15,8,1,"#141c2c");}
+function drawMonitor(x,y){var d=RAMP.dark;mat(x,y,18,13,d);bolts(x,y,18,13,d);R(x+2,y+2,14,8,RAMP.glass[2]);R(x+2,y+2,14,1,RAMP.glass[3]);var cl=[RAMP.steel[2],RAMP.steel[3]];for(var i=0;i<4;i++)R(x+3,y+3+i*2,ri(6,12),1,cl[i%2]);R(x+3,y+11,3,1,d[0]);R(x+8,y+11,2,1,d[0]);R(x+8,y+13,2,2,d[3]);R(x+5,y+15,8,1,RAMP.cable[2]);contact(x+9,y+16,12);}
 function shelf(x,y){
   block(x,y,26,38,"#4a3320","#664628","#2c1e10");
   var sp=["#c0503a","#3f7fb0","#c9a33a","#4f9e5a","#8a5fb0","#c96a3a","#3f9e8a"];
@@ -83,8 +110,8 @@ function plantTall(x,y){R(x+1,y+22,10,2,rgba("#000000",0.3));block(x+2,y+18,8,8,
 function leaf(x,y,dx,dy,gr){var steps=Math.max(Math.abs(dx),Math.abs(dy));for(var i=0;i<=steps;i++){var t=i/steps;R(Math.round(x+dx*t),Math.round(y+dy*t),1,2,gr[i%gr.length]);}R(Math.round(x+dx),Math.round(y+dy)-1,2,2,gr[2]);}
 function plantSmall(x,y){block(x+1,y+6,7,6,"#c98a4a","#e0a860","#8a5a2a");R(x+2,y+6,5,1,"#3a2416");R(x+2,y+2,1,5,"#3fa04d");R(x+4,y+1,1,6,"#57c065");R(x+6,y+3,1,4,"#2f7d3a");R(x+3,y,1,3,"#57c065");}
 function plantHang(x,y){R(x+3,y,1,4,"#3a4a64");block(x,y+4,8,4,"#3f6f8a","#5a8fa8","#284a5e");R(x+1,y+8,1,3,"#3fa04d");R(x+3,y+8,1,4,"#57c065");R(x+5,y+8,1,3,"#2f7d3a");}
-function crate(x,y,accent){block(x,y,10,8,"#6e4a2a","#8a5c34","#4a3018");R(x+2,y+3,6,1,rgba(accent,0.7));R(x+2,y+2,1,4,"#3a2416");R(x+7,y+2,1,4,"#3a2416");}
-function crateStack(x,y,accent){crate(x,y+8,accent);crate(x+9,y+8,"#c9a33a");crate(x+4,y,"#4f9e5a");}
+function crate(x,y,accent){var r=["#8a795b","#6c5e46","#4c4230","#332c1e"];mat(x,y,11,9,r);R(x,y+2,11,1,RAMP.steel[2]);R(x,y+6,11,1,RAMP.steel[2]);R(x+2,y,1,9,RAMP.steel[3]);R(x+8,y,1,9,RAMP.steel[3]);drawNum(x+4,y+3,String(1+(Math.abs(x)%3)),"#b8b2a4");}
+function crateStack(x,y,accent){crate(x,y+9,accent);crate(x+11,y+9,accent);crate(x+5,y,accent);contact(x+8,y+18,24);}
 function chair(x,y){block(x,y+4,8,3,"#26304a","#36445f","#161e2e");block(x+1,y,6,5,"#2c3750","#3c4a68","#1a2234");R(x+1,y+7,1,3,"#161e2e");R(x+6,y+7,1,3,"#161e2e");}
 function rug(x,y,w,h,c1,c2){R(x,y,w,h,shade(c1,0.8));R(x+2,y+2,w-4,h-4,c1);R(x+4,y+4,w-8,h-8,shade(c1,1.15));R(x+6,y+6,w-12,h-12,c2);R(x+1,y+1,2,2,shade(c1,1.3));R(x+w-3,y+1,2,2,shade(c1,1.3));R(x+1,y+h-3,2,2,shade(c1,1.3));R(x+w-3,y+h-3,2,2,shade(c1,1.3));}
 /* big patterned area rug that carpets a room's floor (Habbo-style density) */
@@ -129,10 +156,11 @@ function reviewStation(x,y,accent){ // reviewer: big diff monitor + magnifier la
   outline(x+35,y+4,6,6); R(x+35,y+4,6,6,rgba(accent,0.35)); R(x+36,y+5,4,4,rgba("#bfe6ff",0.4));
 }
 function approveStamp(x,y){block(x,y+4,8,3,"#3a2c1a","#54402a","#221810");R(x+2,y,4,5,"#4f9e5a");R(x+3,y+5,2,2,"#161008");}
-function kanban(x,y){ // triage board
-  outline(x,y,40,26); R(x,y,40,26,"#0a1220"); R(x+1,y+1,38,24,"#e9edf4"); R(x+1,y+1,38,1,"#ffffff");
-  var cols=["#f7bd4e","#5cb4ff","#ff6b6b","#5fce9b"];
-  for(var c=0;c<4;c++){R(x+2+c*9.5,y+2,1,22,"#c3ccd8");R(x+3+c*9.5,y+3,7,1,cols[c]);for(var s=0;s<ri(1,4);s++)R(x+3+c*9.5+(s%2)*4,y+6+s*4,4,2,cols[c]);}
+function kanban(x,y){ // triage dispatch board — steel-framed, grimy slate
+  mat(x,y,40,26,RAMP.dark); bolts(x,y,40,26,RAMP.dark);
+  R(x+2,y+2,36,22,"#3a4048"); R(x+2,y+2,36,1,"#4a515b"); R(x+2,y+23,36,1,"#20242b"); // slate
+  var cols=["#c79a3a","#4a7ea8","#a85248","#4a8a5e"]; // muted markers
+  for(var c=0;c<4;c++){R(x+3+c*9,y+2,1,22,"#2a2f36");R(x+4+c*9,y+4,6,1,cols[c]);for(var s=0;s<ri(1,4);s++)R(x+4+c*9+(s%2)*3,y+7+s*4,4,2,cols[c]);}
 }
 function callConsole(x,y){ // triage: switchboard (others call in)
   block(x,y,20,12,"#1c2740","#2c3c5c","#101827");
@@ -191,29 +219,42 @@ function drawSubfloor(){
   for(var c=1;c<NCOLS;c++){var vx=Math.round((MARGIN+c*(RW+AISLE_X)-AISLE_X/2)*TILE);R(vx-10,0,20,H,"#0a111d");R(vx-10,0,1,H,"#0e1628");for(var y=4;y<H;y+=12)R(vx-2,y,4,6,"#111d2e");}
 }
 
-/* vendor-coloured UI frame — the card border that carries identity */
+/* beveled, riveted, accent-tinted bezel (lit top/left, shadowed bottom/right) */
 function roomFrame(x,y,w,h,c){
-  R(x-3,y-3,w+6,3,shade(c,0.85)); R(x-3,y+h,w+6,3,shade(c,0.7));
-  R(x-3,y-3,3,h+6,shade(c,0.8)); R(x+w,y-3,3,h+6,shade(c,0.65));
-  R(x-3,y-3,14,3,c); R(x-3,y-3,3,14,c);                 // brighter top-left corner
-  R(x+w-11,y-3,14,3,shade(c,0.9)); R(x+w,y-3,3,14,shade(c,0.9));
-  R(x-1,y-1,w+2,1,"#05080f"); R(x-1,y-1,1,h+2,"#05080f");
-  R(x-1,y+h,w+2,1,"#05080f"); R(x+w,y-1,1,h+2,"#05080f");
+  var a=accRamp(c), b=8;
+  R(x-b,y-b,w+2*b,b,a[1]); R(x-b,y-b,b,h+2*b,a[1]);        // top + left plates
+  R(x-b,y+h,w+2*b,b,a[3]); R(x+w,y-b,b,h+2*b,a[3]);        // bottom + right plates (shadow)
+  R(x-b,y-b,w+2*b,1,a[0]); R(x-b,y-b,1,h+2*b,a[0]);        // lit chamfer
+  R(x-b,y+h+b-1,w+2*b,1,"#08090d"); R(x+w+b-1,y-b,1,h+2*b,"#08090d");
+  R(x-2,y-2,w+4,2,a[3]); R(x-2,y-2,2,h+4,a[3]); R(x-2,y+h,w+4,2,a[2]); R(x+w,y-2,2,h+4,a[2]); // inner recess lip
+  for(var i=6;i<w-2;i+=22)bolt(x+i,y-b+3,a);               // rivets along top bezel
+  for(var j=6;j<h-2;j+=22){bolt(x-b+3,y+j,a);bolt(x+w+b-5,y+j,a);}
+  // icon-button grid (control surface) top-right of the bezel
+  for(var k=0;k<3;k++){var bx=x+w+b-4-(k+1)*7; R(bx,y-b+2,5,5,a[2]); R(bx,y-b+2,5,1,a[1]); R(bx+1,y-b+3,3,3,RAMP.dark[2]); R(bx+2,y-b+4,1,1,shade(c,1.1));}
 }
 function bakeShell(room,accent,roleTint){
-  var x=room.x,y=room.y,w=room.w,h=room.h;
-  R(x+5,y+7,w,h,rgba("#000000",0.5));                                   // card shadow
-  // warm, subtly-tiled floor (a big area rug is laid on top later)
-  var fA=mix("#26262e",roleTint||"#3a4055",0.05), fB=shade(fA,1.06);
-  R(x,y,w,h,fA);
-  for(var cx=0;cx<RW;cx++)for(var cy=0;cy<RH;cy++){ if((cx+cy)%2===0)R(x+cx*TILE,y+cy*TILE,TILE,TILE,fB); R(x+cx*TILE,y+cy*TILE,TILE,1,shade(fA,0.86)); R(x+cx*TILE,y+cy*TILE,1,TILE,shade(fA,0.9)); }
-  R(x,y,w,1,shade(fA,1.5));R(x,y,1,h,shade(fA,1.3));R(x,y+h-1,w,1,"#05080f");R(x+w-1,y,1,h,"#070b12");
-  var wh=room.wallH; R(x,y,w,wh,"#2b2f3d");                             // warm-neutral back wall
-  for(var p2=0;p2<RW;p2++){R(x+p2*TILE,y,1,wh,"#232634");R(x+p2*TILE+TILE/2,y+3,1,wh-6,"#343949");}
-  R(x,y,w,1,"#464e66");
-  R(x,y+wh-2,w,1,shade(roleTint||accent,0.55)); R(x,y+wh,w,2,"#141925"); // faint role rail + baseboard
+  var x=room.x,y=room.y,w=room.w,h=room.h, wh=room.wallH;
+  var cr=RAMP.concrete, st=RAMP.steel, acc=roleTint||accent;
+  R(x+5,y+8,w,h,rgba("#000000",0.5));                                   // panel drop shadow
+  // ---- concrete floor: rectangular slabs, quantized darker toward the FRONT ----
+  for(var ry=0;ry<RH;ry++){
+    var q=Math.floor(ry/RH*3.999), base=[cr[1],shade(cr[1],0.86),shade(cr[1],0.72),shade(cr[1],0.6)][q];
+    R(x,y+ry*TILE,w,TILE,base);
+  }
+  for(var cxj=0;cxj<=RW;cxj+=3)R(x+cxj*TILE,y,1,h,shade(cr[3],1.25));    // expansion joints (vertical)
+  for(var ryj=0;ryj<=RH;ryj+=2)R(x,y+ryj*TILE,w,1,cr[3]);               // expansion joints (horizontal)
+  for(var bxj=3;bxj<RW;bxj+=6)for(var byj=2;byj<RH;byj+=4)bolt(x+bxj*TILE-1,y+byj*TILE-1,cr); // floor bolts at joints
+  R(x,y,w,1,shade(cr[0],1.05));R(x,y,1,h,cr[1]);R(x,y+h-1,w,1,"#07080a");R(x+w-1,y,1,h,"#0a0b0e");
+  // ---- riveted plate-steel back wall ----
+  mat(x,y,w,wh,st);
+  for(var pw=3;pw<RW;pw+=3)R(x+pw*TILE,y,1,wh,st[3]);                   // vertical plate seams
+  R(x,y+Math.round(wh*0.55),w,1,st[3]);                                  // horizontal seam
+  for(var pb=2;pb<RW;pb+=3){bolt(x+pb*TILE-1,y+2,st);bolt(x+pb*TILE-1,y+wh-4,st);} // seam rivets
+  wear(x+8,y+wh-8,14,6,rgba("#1a140c",0.6),2);                          // soot/scuff on the wall
+  conduit(x+2,y+wh-5,w-4,RAMP.cable);                                    // conduit run along wall base
+  junctionBox(x+w-16,y+wh-16,st,shade(acc,1.2));                        // junction box
+  R(x,y+wh-2,w,1,shade(acc,0.7)); R(x,y+wh,w,2,cr[3]);                  // accent rail + baseboard
   roomFrame(x,y,w,h,accent);
-  ambient.push({x:x+w/2,y:y+h*0.5,r:Math.max(w,h)*0.55,c:roleTint||accent,i:0.1});
 }
 
 function bakeRoom(room){
@@ -239,7 +280,7 @@ function inspectDesk(x,y){block(x,y+14,42,8,"#3a4a5e","#4e6076","#222d3c");R(x+2
 function verdictLight(x,y,ok){block(x,y,7,17,"#1a2231","#2a3648","#0e141f");R(x+2,y+2,3,3,ok?"#3fd07a":"#243a2e");R(x+2,y+7,3,3,"#3a2e18");R(x+2,y+12,3,3,ok?"#3a2426":"#d0453f");R(x+2,y+17,3,2,"#0e141f");}
 function fileCabinet(x,y){block(x,y,16,26,"#334155","#465a72","#1c2634");for(var d=0;d<3;d++){R(x+2,y+3+d*8,12,6,"#28323f");R(x+6,y+5+d*8,4,1,"#8a97ab");}}
 function docStack(x,y){for(var i=0;i<5;i++)R(x-(i%2),y+8-i*2,12,2,i%2?"#dfe6ef":"#c9d2de");R(x,y+10,12,1,"#9aa6ba");}
-function checklistBoard(x,y){outline(x,y,18,22);R(x,y,18,22,"#e7ecf3");R(x,y,18,1,"#ffffff");for(var i=0;i<5;i++){R(x+2,y+3+i*4,2,2,i<3?"#3fa04d":"#c9ccd2");R(x+5,y+4+i*4,10,1,"#8a97ab");}}
+function checklistBoard(x,y){mat(x,y,18,22,RAMP.dark);R(x+2,y+2,14,18,"#3a4048");R(x+2,y+2,14,1,"#4a515b");for(var i=0;i<5;i++){R(x+3,y+4+i*4,2,2,i<3?"#4a8a5e":"#565d67");R(x+6,y+5+i*4,9,1,"#6a7280");}}
 function switchboard(x,y){block(x,y,28,17,"#1c2740","#2c3c5c","#101827");for(var r=0;r<2;r++)for(var c=0;c<6;c++){var on=(r*6+c+(x%3))%3===0;R(x+3+c*4,y+3+r*5,3,3,on?"#5fce9b":"#22344e");R(x+4+c*4,y+9,1,3,"#3a465e");}R(x+3,y-4,1,4,"#3a465e");R(x+2,y-5,4,2,"#2c3c5c");}
 function phoneBank(x,y){block(x,y+4,13,6,"#1c2740","#2c3c5c","#101827");R(x+2,y,3,5,"#0e1626");R(x+2,y,3,1,"#3a465e");R(x+7,y+5,4,2,"#22344e");}
 function ring2(cx,cy,r,c){for(var a=0;a<6.3;a+=0.5)R(Math.round(cx+Math.cos(a)*r),Math.round(cy+Math.sin(a)*r),1,1,c);}
@@ -254,7 +295,6 @@ function bakeBotRoom(room){
   var hx=Math.round(room.home.x),hy=Math.round(room.home.y);
   wallClock(x+w-15,y+6); plantHang(x+8,y+2);
   // carpet most of the floor, then mark the bot's work-zone
-  bigRug(x+6,wy+7,w-12,h-room.wallH-13,rt);
   floorTape(hx-34,hy-32,72,48,rt);
   if(role==="builder") bakeBuilder(room,x,y,w,h,wy,rt,hx,hy);
   else if(role==="reviewer") bakeReviewer(room,x,y,w,h,wy,rt,hx,hy);
@@ -316,7 +356,6 @@ function bakeOperator(room){
   wallClock(x+w-15,y+6); poster(x+10,y+5,"#3fb0e6"); plantHang(x+w-26,y+2);
   // curved command desk — the operator's station (3 monitors + exec chair)
   var dx=x+Math.round(w/2)-34,dy=wy+24;
-  bigRug(x+6,wy+7,w-12,h-room.wallH-13,"#3a6ea0");
   drawMonitor(dx,dy,"codex"); drawMonitor(dx+24,dy,"codex"); drawMonitor(dx+48,dy,"codex");
   block(dx-4,dy+14,76,9,"#3a2a1a","#5a4028","#241608"); R(dx,dy+16,68,1,"#4a3420");
   block(dx+27,dy+16,18,3,"#20283a","#2e3850","#141c2c");
@@ -339,7 +378,6 @@ function bakeLounge(room){
   block(x+8,wy+10,34,7,"#cdd6e0","#e6ecf3","#9aa8ba"); R(x+10,wy+10,30,1,"#ffffff");
   coffeeMachine(x+12,wy-6); R(x+30,wy+4,8,6,"#2a3648"); R(x+31,wy+5,6,4,"#3a4a5e");
   // lounge seating on a rug (centre-lower)
-  bigRug(x+6,wy+7,w-12,h-room.wallH-13,"#3a7a5a");
   couch(x+w/2-30,y+h-30,"#3a4a6a"); couch(x+w/2+4,y+h-30,"#3a4a6a");
   coffeeTable(x+w/2-8,y+h-15);
   // vending machine (back-right) + arcade-ish console
@@ -376,7 +414,7 @@ function drawRobot(b){
   var trim=off?"#7c8595":VTRIM[b.agent];
   var work=!off&&(b.state==="building"||b.state==="reviewing"||b.state==="triaging");
   var bob=(off||reduced)?0:(moving?Math.round(Math.abs(Math.sin(wp))*2):Math.round(Math.sin(b.phase*2)*0.7));
-  g.globalAlpha=off?0.22:0.32; ellip(x,y+1,10,3,"#04070c"); g.globalAlpha=1;
+  contact(x,y+1,b.agent==="codex"?26:18);
   var ctx={x:x,fy:y-bob,moving:moving,wp:wp,work:work,light:light,base:base,trim:trim,b:b,off:off,blink:off?1:b.blink};
   var top;
   if(b.agent==="claude")top=robotClaude(ctx);
@@ -499,33 +537,37 @@ function drawCallHolo(x,y,b){var pulse=0.6+0.4*Math.sin(b.phase*5);g.globalAlpha
    DYNAMIC LAYER + queue trays
    ============================================================ */
 var sparks=[],packets=[],lights=[];
-function pushLight(x,y,r,c,i){lights.push({x:x,y:y,r:r,c:c,i:i});}
+function pushLight(){}
 function spawnSpark(x,y,c,up){sparks.push({x:x,y:y,vx:rnd(-0.5,0.5),vy:up?rnd(-1.4,-0.6):rnd(-0.3,0.3),life:rnd(0.4,0.9),c:c});}
 function stepSparks(dt){for(var i=sparks.length-1;i>=0;i--){var s=sparks[i];s.x+=s.vx;s.y+=s.vy;s.vy+=0.05;s.life-=dt;if(s.life<=0)sparks.splice(i,1);}}
 function stepPackets(dt){if(packets.length<boxes.length&&chance(0.05)){var b=pick(boxes);if(b.alive){var room=b.room;packets.push({x:room.x+6,y:room.y+room.wallH-3,vx:rnd(14,26),max:room.x+room.w-6,c:rgba(b.color,0.9)});}}for(var i=packets.length-1;i>=0;i--){var k=packets[i];k.x+=k.vx*dt;if(k.x>k.max)packets.splice(i,1);}}
+/* segmented workload gauge — a physical meter, not a rainbow stack */
 function drawQueueTray(b){
-  var q=b.room.queuePos, n=b.workq.length, shown=Math.min(n,9);
-  for(var i=0;i<shown;i++){var rc=REPOCOL[b.workq[i]];var ty=q.y+4-i*3;R(q.x,ty,20,2,shade(rc,0.6));R(q.x,ty,20,1,rc);R(q.x+1,ty,18,1,shade(rc,1.15));}
-  // count badge
-  var top=q.y+4-shown*3-6; R(q.x+6,top,9,7,"#0a1220"); R(q.x+7,top+1,7,5,"#182338");
-  drawNum(q.x+8,top+1,String(n),n>0?"#e6eef7":"#5a6478");
-  if(n>=6)pushLight(q.x+10,q.y-6,26,"#f7bd4e",0.25);   // busy glow
+  var q=b.room.queuePos, n=b.workq.length, cap=10, acc=ROLETINT[b.role]||b.color, d=RAMP.dark;
+  var gx=q.x, gy=q.y-18, gw=12, gh=28;
+  mat(gx,gy,gw,gh,d); bolts(gx,gy,gw,gh,d);
+  R(gx+2,gy+2,gw-4,gh-11,RAMP.glass[2]); R(gx+2,gy+2,gw-4,1,RAMP.glass[3]);   // recessed scale window
+  var barH=gh-13, lvl=Math.round((Math.min(n,cap)/cap)*barH);
+  R(gx+3,gy+2+barH-lvl,gw-6,lvl,shade(acc,0.78)); R(gx+3,gy+2+barH-lvl,gw-6,1,acc);  // fill from bottom
+  if(n>0)emitPool(gx+gw/2,gy+2+barH-lvl,acc);
+  for(var t=0;t<5;t++){R(gx+gw-3,gy+3+t*Math.floor(barH/5),2,1,RAMP.steel[0]);}     // tick marks
+  R(gx+1,gy+gh-8,gw-2,7,"#080b10"); drawNum(gx+3,gy+gh-7,String(n),n>0?shade(acc,1.25):"#586074"); // numeric readout
+  contact(gx+gw/2,gy+gh,gw);
 }
 function drawDynamic(){
   lights.length=0; ambient.forEach(function(a){lights.push(a);});
   rooms.forEach(function(room){if(room.opGlow)pushLight(room.opGlow.x,room.opGlow.y,50,"#5cb4ff",0.22);});
   boxes.forEach(function(b){
     var room=b.room, working=b.alive&&(b.state==="building"||b.state==="reviewing");
-    if(room.deskScreens)room.deskScreens.forEach(function(sc){var col=b.alive?(working?STATE[b.state].c:"#3a78b0"):"#5a3a3a";var ph=Math.floor(b.phase*4);R(sc.x,sc.y+(ph%6),8,1,rgba(col,0.7));pushLight(sc.x+7,sc.y+4,working?24:14,col,working?0.4:0.16);});
-    if(working){var c=STATE[b.state].c;pushLight(b.x,b.y-16,42,c,0.42);if(!reduced&&chance(0.2))spawnSpark(b.x+ (b.state==="building"?8:9),b.y-18,c,true);}
+    if(room.deskScreens)room.deskScreens.forEach(function(sc){var col=b.alive?(working?STATE[b.state].c:"#3a78b0"):"#5a3a3a";var ph=Math.floor(b.phase*4);R(sc.x,sc.y+(ph%6),8,1,rgba(col,0.7));if(b.alive)emitPool(sc.x+4,sc.y+3,col);});
+    if(working){var c=STATE[b.state].c;emitPool(b.x,b.y-14,c);if(!reduced&&chance(0.2))spawnSpark(b.x+ (b.state==="building"?8:9),b.y-18,c,true);}
     if(b.alive)drawQueueTray(b);
-    else{ // powered-down: flashing red alarm beacon on the wall + red room wash
+    else{ // powered-down: flashing red alarm beacon on the wall (hard quantized)
       var p2=reduced?0.7:(0.5+0.5*Math.sin(b.phase*6));
       var bx=room.x+room.w-22, by=room.y+5;
       R(bx-1,by+4,8,2,"#161018"); R(bx,by,6,5,"#2a0e12"); R(bx,by,6,1,"#4a1a20");
       R(bx+1,by+1,4,3,rgba("#ff3b3b",0.35+0.6*p2));
-      pushLight(bx+3,by+3,20,"#ff3b3b",0.3+0.4*p2);
-      pushLight(room.x+room.w/2,room.y+room.h*0.42,room.w*0.5,"#ff3b3b",0.08+0.12*p2);
+      if(p2>0.5)emitPool(bx+3,by+4,"#ff3b3b");
     }
   });
   sparks.forEach(function(s){g.globalAlpha=clamp(s.life,0,1);R(Math.round(s.x),Math.round(s.y),1,1,s.c);});g.globalAlpha=1;
@@ -538,15 +580,9 @@ function ring(x,y,col){R(x-12,y-15,24,1,col);R(x-12,y+14,24,1,col);R(x-13,y-14,1
 /* ============================================================
    ATMOSPHERE
    ============================================================ */
-function drawAtmosphere(){
-  vctx.save();vctx.globalCompositeOperation="lighter";
-  lights.forEach(function(L){var s=worldToScreen(L.x,L.y);if(s.x<-80||s.x>vw+80)return;var r=L.r*scale;var gr=vctx.createRadialGradient(s.x,s.y,0,s.x,s.y,r);gr.addColorStop(0,rgba(L.c,0.5*L.i));gr.addColorStop(0.5,rgba(L.c,0.15*L.i));gr.addColorStop(1,"rgba(0,0,0,0)");vctx.fillStyle=gr;vctx.beginPath();vctx.arc(s.x,s.y,r,0,7);vctx.fill();});
-  dust.forEach(function(d){vctx.fillStyle="rgba(150,180,220,"+(0.05+0.09*d.z)+")";vctx.fillRect(d.x*vw,d.y*vh,d.z<0.6?1:1.5,d.z<0.6?1:1.5);});
-  vctx.restore();
-  var vg=vctx.createRadialGradient(vw/2,vh/2,Math.min(vw,vh)*0.4,vw/2,vh/2,Math.max(vw,vh)*0.8);vg.addColorStop(0,"rgba(0,0,0,0)");vg.addColorStop(1,"rgba(3,6,12,0.66)");vctx.fillStyle=vg;vctx.fillRect(0,0,vw,vh);
-  if(scanPat){vctx.fillStyle=scanPat;vctx.globalAlpha=0.4;vctx.fillRect(0,0,vw,vh);vctx.globalAlpha=1;}
-  drawScrollbar();
-}
+/* flat-shaded model: emissive is baked as hard pools into the art; the visible
+   pass only draws the scrollbar chrome (no gradients, no vignette, no dust) */
+function drawAtmosphere(){ drawScrollbar(); }
 var dust=[];for(var dm=0;dm<60;dm++)dust.push({x:Math.random(),y:Math.random(),z:rnd(.3,1),vy:rnd(.002,.01),vx:rnd(-.004,.004)});
 function stepDust(dt){dust.forEach(function(d){d.y-=d.vy;d.x+=d.vx;if(d.y<0){d.y=1;d.x=Math.random();}if(d.x<0)d.x=1;if(d.x>1)d.x=0;});}
 var scanPat=null;
@@ -594,7 +630,7 @@ function frame(t){
   blit();drawAtmosphere();layoutLabels();
   requestAnimationFrame(frame);
 }
-function resize(){var host=document.getElementById("floor"),r=host.getBoundingClientRect();dpr=Math.min(2,window.devicePixelRatio||1);vw=r.width;vh=r.height;view.width=Math.floor(vw*dpr);view.height=Math.floor(vh*dpr);scale=Math.max(1,vh/H);oy=Math.round((vh-H*scale)/2);camMax=Math.max(0,W*scale-vw);cam=clamp(cam,0,camMax);camTarget=clamp(camTarget,0,camMax);vctx.setTransform(dpr,0,0,dpr,0,0);vctx.imageSmoothingEnabled=false;buildScanPattern();}
+function resize(){var host=document.getElementById("floor"),r=host.getBoundingClientRect();dpr=Math.min(2,window.devicePixelRatio||1);vw=r.width;vh=r.height;view.width=Math.floor(vw*dpr);view.height=Math.floor(vh*dpr);scale=Math.max(1,Math.floor(vh/H));oy=Math.round((vh-H*scale)/2);camMax=Math.max(0,W*scale-vw);cam=clamp(cam,0,camMax);camTarget=clamp(camTarget,0,camMax);vctx.setTransform(dpr,0,0,dpr,0,0);vctx.imageSmoothingEnabled=false;}
 function blit(){vctx.fillStyle="#05080f";vctx.fillRect(0,0,vw,vh);vctx.imageSmoothingEnabled=false;var sx=cam/scale;vctx.drawImage(buf,sx,0,vw/scale,H, 0,oy, vw,H*scale);}
 function worldToScreen(ax,ay){return {x:ax*scale-cam,y:oy+ay*scale};}
 function screenToWorld(sx,sy){return {x:(sx+cam)/scale,y:(sy-oy)/scale};}
