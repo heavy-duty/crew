@@ -9,7 +9,8 @@
    ============================================================ */
 
 var TILE=16, reduced=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-var RW=17, RH=10, MARGIN=1, AISLE_X=2, AISLE_Y=2;
+var RW=20, RH=14, MARGIN=1, AISLE_X=2, AISLE_Y=2;
+var ROLETINT={builder:"#e0913d", reviewer:"#4a90d0", triage:"#c98bff"};
 
 var VENDOR={ claude:"#f6a04d", codex:"#37d4a6", grok:"#b07cff", kimi:"#ff72b6" };
 var REPOS=["ceremony","cast","box","rig","incubator","crew"];
@@ -146,8 +147,8 @@ function rowY(r){return (MARGIN + r*(RH+AISLE_Y))*TILE;}
 function buildRooms(){
   COLDEFS.forEach(function(col,ci){ col.forEach(function(d,ri2){
     var room={def:d,type:d.type,role:d.role,id:d.id,x:colX(ci),y:rowY(ri2),w:RW*TILE,h:RH*TILE,wallH:Math.round(TILE*2.2),racks:[]};
-    room.home={x:room.x+Math.round(room.w*0.36),y:room.y+room.h-30};
-    room.queuePos={x:room.x+room.w-46,y:room.y+room.h-30};
+    room.home={x:room.x+Math.round(room.w*0.40),y:room.y+Math.round(room.h*0.68)};
+    room.queuePos={x:room.x+room.w-54,y:room.y+Math.round(room.h*0.68)-8};
     rooms.push(room);
     if(d.agent){
       var b={id:d.id,agent:d.agent,role:d.role,color:VENDOR[d.agent],room:room,
@@ -180,17 +181,27 @@ function drawSubfloor(){
   for(var c=1;c<NCOLS;c++){var vx=Math.round((MARGIN+c*(RW+AISLE_X)-AISLE_X/2)*TILE);R(vx-10,0,20,H,"#0a111d");R(vx-10,0,1,H,"#0e1628");for(var y=4;y<H;y+=12)R(vx-2,y,4,6,"#111d2e");}
 }
 
-function bakeShell(room,floorA,floorB,accent){
+/* vendor-coloured UI frame — the card border that carries identity */
+function roomFrame(x,y,w,h,c){
+  R(x-3,y-3,w+6,3,shade(c,0.85)); R(x-3,y+h,w+6,3,shade(c,0.7));
+  R(x-3,y-3,3,h+6,shade(c,0.8)); R(x+w,y-3,3,h+6,shade(c,0.65));
+  R(x-3,y-3,14,3,c); R(x-3,y-3,3,14,c);                 // brighter top-left corner
+  R(x+w-11,y-3,14,3,shade(c,0.9)); R(x+w,y-3,3,14,shade(c,0.9));
+  R(x-1,y-1,w+2,1,"#05080f"); R(x-1,y-1,1,h+2,"#05080f");
+  R(x-1,y+h,w+2,1,"#05080f"); R(x+w,y-1,1,h+2,"#05080f");
+}
+function bakeShell(room,accent,roleTint){
   var x=room.x,y=room.y,w=room.w,h=room.h;
-  R(x+4,y+6,w,h,rgba("#000000",0.45));
-  for(var cx=0;cx<RW;cx++)for(var cy=0;cy<RH;cy++){var f=((cx+cy)%2===0)?floorA:floorB;R(x+cx*TILE,y+cy*TILE,TILE,TILE,f);R(x+cx*TILE,y+cy*TILE,TILE,1,shade(f,1.05));R(x+cx*TILE,y+cy*TILE,1,TILE,shade(f,1.03));}
-  R(x,y,w,1,shade(floorA,1.6));R(x,y,1,h,shade(floorA,1.35));R(x,y+h-1,w,1,"#05080f");R(x+w-1,y,1,h,"#070b12");
-  var wh=room.wallH; R(x,y,w,wh,"#2b3145");
-  for(var p2=0;p2<RW;p2++){R(x+p2*TILE,y,1,wh,"#242a3c");R(x+p2*TILE+TILE/2,y+3,1,wh-6,"#30374d");}
-  R(x,y,w,1,"#3c445e");R(x,y+2,w,1,"#202635");
-  R(x,y+wh-2,w,2,accent?shade(accent,0.7):"#1a1f2c");if(accent)R(x,y+wh-2,w,1,accent);
-  R(x,y+wh,w,2,"#151a26");
-  ambient.push({x:x+w/2,y:y+h*0.55,r:Math.max(w,h)*0.6,c:accent||"#3a5a80",i:accent?0.13:0.11});
+  R(x+5,y+7,w,h,rgba("#000000",0.5));                                   // card shadow
+  var fA=roleTint?mix("#212938",roleTint,0.05):"#212938", fB=roleTint?mix("#1b2231",roleTint,0.04):"#1b2231";
+  for(var cx=0;cx<RW;cx++)for(var cy=0;cy<RH;cy++){var f=((cx+cy)%2===0)?fA:fB;R(x+cx*TILE,y+cy*TILE,TILE,TILE,f);R(x+cx*TILE,y+cy*TILE,TILE,1,shade(f,1.05));R(x+cx*TILE,y+cy*TILE,1,TILE,shade(f,1.03));}
+  R(x,y,w,1,shade(fA,1.5));R(x,y,1,h,shade(fA,1.3));R(x,y+h-1,w,1,"#05080f");R(x+w-1,y,1,h,"#070b12");
+  var wh=room.wallH; R(x,y,w,wh,"#272d3f");                             // neutral back wall
+  for(var p2=0;p2<RW;p2++){R(x+p2*TILE,y,1,wh,"#212736");R(x+p2*TILE+TILE/2,y+3,1,wh-6,"#2f3648");}
+  R(x,y,w,1,"#3c445e");
+  R(x,y+wh-2,w,1,shade(roleTint||accent,0.55)); R(x,y+wh,w,2,"#141925"); // faint role rail + baseboard
+  roomFrame(x,y,w,h,accent);
+  ambient.push({x:x+w/2,y:y+h*0.5,r:Math.max(w,h)*0.55,c:roleTint||accent,i:0.1});
 }
 
 function bakeRoom(room){
@@ -200,65 +211,132 @@ function bakeRoom(room){
   bakeBotRoom(room);
 }
 
-/* role-themed bot quarters */
+/* ---- role furniture ---- */
+function crateMini(x,y,rt){block(x,y,7,5,"#6e4a2a","#8a5c34","#4a3018");R(x+1,y+2,5,1,rgba(rt,0.6));}
+function fabBay(x,y,rt){block(x,y,38,38,"#232c40","#37445f","#141b28");R(x+3,y+3,32,3,"#c9a227");R(x+3,y+3,32,1,"#e6c34a");block(x+5,y+9,28,24,"#0c1524","#1c2a40","#060b14");R(x+9,y+28,20,2,shade(rt,0.7));R(x+15,y+15,8,11,rgba(rt,0.55));R(x+15,y+15,8,1,rgba(rt,0.9));R(x+18,y+10,2,5,"#8fd0ff");R(x+4,y+8,30,1,"#3a465e");R(x+18,y+8,1,3,"#3a465e");}
+function conveyor(x,y,w,rt){block(x,y,w,7,"#1a2231","#2a3648","#0e141f");for(var i=0;i<w-4;i+=6)R(x+2+i,y+2,3,3,"#0e141f");for(var j=6;j<w-8;j+=16)crateMini(x+j,y-4,rt);R(x,y-1,w,1,"#3a465e");}
+function pegboard(x,y){block(x,y,24,15,"#3a2c1a","#54402a","#221810");var t=["#b8b8c0","#c9a227","#c0503a","#4f9e5a","#7cc0e6"];for(var i=0;i<5;i++){R(x+3+i*4,y+2,1,3,"#161008");R(x+2+i*4,y+5,3,6,t[i%5]);}}
+function pallet(x,y,rt){R(x,y+16,22,3,"#3a2c1a");for(var i=0;i<3;i++)R(x+2+i*8,y+17,1,2,"#241a0e");crate(x+1,y+8,rt);crate(x+11,y+8,"#c9a33a");crate(x+6,y,"#4f9e5a");}
+function toolbox(x,y){block(x,y+3,16,7,"#c0503a","#d86a4a","#7a2c1e");R(x+2,y+5,12,1,"#7a2c1e");block(x+4,y,8,4,"#8a3a2a","#a84a38","#5a221a");R(x+6,y+1,4,1,"#3a1810");}
+function craneHook(x,ytop,ln){R(x-42,ytop,84,2,"#2a3648");R(x-42,ytop,84,1,"#3e4c62");R(x-42,ytop,1,4,"#2a3648");R(x+41,ytop,1,4,"#2a3648");R(x-4,ytop,8,3,"#54607a");R(x,ytop+2,1,ln,"#3a465e");R(x-2,ytop+2+ln,5,2,"#7a8496");R(x-9,ytop+5+ln,18,3,"#c9a227");R(x-9,ytop+5+ln,18,1,"#e6c34a");R(x-9,ytop+7+ln,18,1,"#8a6c18");}
+function barrel(x,y,c){block(x,y,8,13,shade(c,0.75),shade(c,1.05),shade(c,0.45));R(x+1,y+3,6,1,shade(c,0.6));R(x+1,y+8,6,1,shade(c,0.6));R(x+1,y,6,1,shade(c,1.15));}
+function cart(x,y){block(x,y+6,16,3,"#4a5568","#5e6c82","#2a3444");R(x+2,y+9,2,2,"#1a2028");R(x+12,y+9,2,2,"#1a2028");R(x+3,y+1,10,5,"#dfe6ef");R(x+4,y+2,8,1,"#9aa6ba");R(x+4,y+4,8,1,"#9aa6ba");}
+function screenWall(x,y){for(var i=0;i<3;i++){var mx=x+i*21;block(mx,y,19,15,"#0c1220","#22304a","#060a12");R(mx+2,y+2,15,10,"#0f2036");for(var l=0;l<4;l++){var c=(i+l)%2?"#3a6b4a":"#6b3a3a";R(mx+3,y+3+l*2,ri(6,13),1,c);}}}
+function magnifierRig(x,y){R(x+6,y,2,4,"#3a465e");R(x-2,y+4,14,2,"#3a465e");outline(x-4,y+6,10,10);R(x-4,y+6,10,10,rgba("#bfe6ff",0.28));R(x-3,y+7,8,8,rgba("#dff2ff",0.32));R(x+4,y+15,2,4,"#2a3446");}
+function inspectDesk(x,y){block(x,y+14,42,8,"#3a4a5e","#4e6076","#222d3c");R(x+2,y+16,38,1,"#5a6c82");block(x+4,y,18,13,"#0c1220","#22304a","#060a12");R(x+6,y+2,14,8,"#0f2036");for(var l=0;l<4;l++){var c=l%2?"#3a6b4a":"#6b3a3a";R(x+7,y+3+l*2,ri(6,12),1,c);}R(x+26,y+7,11,7,"#e7ecf3");R(x+27,y+9,9,1,"#9aa6ba");R(x+27,y+11,7,1,"#9aa6ba");R(x+16,y+22,2,4,"#222d3c");R(x+34,y+22,2,4,"#222d3c");}
+function verdictLight(x,y,ok){block(x,y,7,17,"#1a2231","#2a3648","#0e141f");R(x+2,y+2,3,3,ok?"#3fd07a":"#243a2e");R(x+2,y+7,3,3,"#3a2e18");R(x+2,y+12,3,3,ok?"#3a2426":"#d0453f");R(x+2,y+17,3,2,"#0e141f");}
+function fileCabinet(x,y){block(x,y,16,26,"#334155","#465a72","#1c2634");for(var d=0;d<3;d++){R(x+2,y+3+d*8,12,6,"#28323f");R(x+6,y+5+d*8,4,1,"#8a97ab");}}
+function docStack(x,y){for(var i=0;i<5;i++)R(x-(i%2),y+8-i*2,12,2,i%2?"#dfe6ef":"#c9d2de");R(x,y+10,12,1,"#9aa6ba");}
+function checklistBoard(x,y){outline(x,y,18,22);R(x,y,18,22,"#e7ecf3");R(x,y,18,1,"#ffffff");for(var i=0;i<5;i++){R(x+2,y+3+i*4,2,2,i<3?"#3fa04d":"#c9ccd2");R(x+5,y+4+i*4,10,1,"#8a97ab");}}
+function switchboard(x,y){block(x,y,28,17,"#1c2740","#2c3c5c","#101827");for(var r=0;r<2;r++)for(var c=0;c<6;c++){var on=(r*6+c+(x%3))%3===0;R(x+3+c*4,y+3+r*5,3,3,on?"#5fce9b":"#22344e");R(x+4+c*4,y+9,1,3,"#3a465e");}R(x+3,y-4,1,4,"#3a465e");R(x+2,y-5,4,2,"#2c3c5c");}
+function phoneBank(x,y){block(x,y+4,13,6,"#1c2740","#2c3c5c","#101827");R(x+2,y,3,5,"#0e1626");R(x+2,y,3,1,"#3a465e");R(x+7,y+5,4,2,"#22344e");}
+function ring2(cx,cy,r,c){for(var a=0;a<6.3;a+=0.5)R(Math.round(cx+Math.cos(a)*r),Math.round(cy+Math.sin(a)*r),1,1,c);}
+function radar(x,y,rt){R(x,y,16,16,OL);R(x+1,y+1,14,14,"#0a1a20");ring2(x+8,y+8,6,rgba(rt,0.5));ring2(x+8,y+8,3,rgba(rt,0.3));R(x+8,y+8,6,1,rgba(rt,0.7));R(x+8,y+8,1,1,rgba(rt,1));}
+function mapConsole(x,y,rt){block(x,y,36,13,"#12202e","#1e3242","#0a1420");R(x+2,y+2,32,9,"#0e2436");for(var i=0;i<5;i++)R(x+4+i*6,y+4+(i%2)*3,3,2,rgba(rt,0.5));R(x+16,y+6,2,2,rgba(rt,0.9));}
+
+/* dispatcher: common shell + work-zone, then role-specific fill */
 function bakeBotRoom(room){
-  var b=room.box,vc=b.color,role=room.role;
-  bakeShell(room,mix("#1f2739",vc,0.06),mix("#1a2233",vc,0.05),vc);
+  var b=room.box,vc=b.color,role=room.role,rt=ROLETINT[role];
+  bakeShell(room,vc,rt);
   var x=room.x,y=room.y,w=room.w,h=room.h,wy=y+room.wallH;
-  // shared: a couple of decorative server racks (fixed count — not per repo)
-  serverRack(x+4,wy+4,vc); serverTower(x+28,wy+6);
-  wallClock(x+w-14,y+5); wallVent(x+w/2+6,y+4); plantHang(x+w-24,y+2);
-  // workstation (the computer they work at) — left-centre, against wall
-  var wsx=x+Math.round(w*0.30)-17, wsy=wy+6;
-  room.deskScreens=[{x:wsx+3+2,y:wsy+2+2}];
-  computerDesk(wsx,wsy,b.agent,false);
-  chair(wsx+13,wsy+22);
-  // role station on the right side of the back wall
-  if(role==="builder"){ fabricator(x+w-32,wy+4,vc); toolboard(x+w-56,y+5); }
-  else if(role==="reviewer"){ reviewStation(x+w-44,wy+4,vc); approveStamp(x+w-52,y+h-14); }
-  else { kanban(x+w-46,wy+4); callConsole(x+w-52,y+h-20); }   // triage
-  // defined work-zone: mat + role-coloured floor tape + wall charging dock
   var hx=Math.round(room.home.x),hy=Math.round(room.home.y);
-  floorTape(hx-33,hy-32,68,46,vc);
-  rug(hx-28,hy-28,58,40,mix("#242c3e",vc,0.15),shade(vc,0.46));
-  chargeDock(x+Math.round(w*0.49),wy+4,vc);
-  // queue tray + label plate (tickets drawn live)
+  wallClock(x+w-15,y+6); plantHang(x+8,y+2);
+  // work-zone mat under the bot
+  floorTape(hx-34,hy-32,72,48,rt);
+  rug(hx-30,hy-28,64,42,mix("#232b3a",rt,0.12),shade(rt,0.5));
+  if(role==="builder") bakeBuilder(room,x,y,w,h,wy,rt,hx,hy);
+  else if(role==="reviewer") bakeReviewer(room,x,y,w,h,wy,rt,hx,hy);
+  else bakeTriage(room,x,y,w,h,wy,rt,hx,hy);
+  // queue tray
   var q=room.queuePos; block(q.x-4,q.y+6,28,5,"#2a3346","#3a465f","#161d2a"); R(q.x-2,q.y+8,24,1,"#20293a");
-  R(q.x-1,q.y+11,22,3,"#141c2a"); R(q.x,q.y+12,20,1,rgba(vc,0.4));
-  // fill the quarters
-  poster(x+Math.round(w*0.52),y+6,vc);
-  shelf(x+6,y+h-40);
-  plantTall(x+w-16,y+h-28);
-  plantSmall(x+Math.round(w*0.62),y+h-12);
-  crateStack(x+Math.round(w*0.74),y+h-24,vc);
-  chair(hx+20,hy-4);
+  R(q.x-1,q.y+11,22,3,"#141c2a"); R(q.x,q.y+12,20,1,rgba(rt,0.4));
+}
+/* BUILDER — a workshop: fabricator, conveyor, pegboard, crane, workbench, pallets */
+function bakeBuilder(room,x,y,w,h,wy,rt,hx,hy){
+  fabBay(x+6,wy+3,rt);
+  conveyor(x+50,wy+20,w-92,rt);
+  pegboard(x+w-30,wy+3);
+  craneHook(hx,wy+8,hy-66-wy);
+  block(hx-27,hy-30,54,10,"#5a3f26","#7a5636","#3a2716"); R(hx-25,hy-28,50,1,"#6e4c2e");
+  block(hx-8,hy-42,16,12,"#0c1220","#22304a","#060a12"); R(hx-6,hy-40,12,8,"#132338");
+  room.deskScreens=[{x:hx-4,y:hy-38}];
+  toolbox(hx+13,hy-20);
+  pallet(x+8,y+h-32,rt); pallet(x+w-32,y+h-32,rt);
+  crateStack(x+Math.round(w*0.58),y+h-26,rt);
+  barrel(x+Math.round(w*0.72),y+h-42,"#c9a227"); barrel(x+Math.round(w*0.72)+9,y+h-42,"#4f9e5a");
+  plantTall(x+w-16,y+Math.round(h*0.5));
+  for(var s=0;s<Math.floor(w/6)-2;s++)R(x+8+s*6,y+h-7,3,2,s%2?"#c9a227":"#1a1f2c");
+}
+/* REVIEWER — a clinical lab: wall of diff screens, inspection desk, verdict light, files */
+function bakeReviewer(room,x,y,w,h,wy,rt,hx,hy){
+  screenWall(x+8,wy+5);
+  checklistBoard(x+w-26,wy+3);
+  inspectDesk(hx-21,hy-32); room.deskScreens=[{x:hx-15,y:hy-30}];
+  verdictLight(hx+24,hy-34,true);
+  magnifierRig(hx+4,hy-48);
+  fileCabinet(x+8,y+h-34); fileCabinet(x+26,y+h-34);
+  docStack(x+w-32,y+h-14); docStack(x+w-18,y+h-14);
+  cart(x+Math.round(w*0.66),y+h-26); plantTall(x+w-16,y+Math.round(h*0.5));
+  R(x+8,y+h-7,w-16,1,rgba(rt,0.18));
+}
+/* TRIAGE — a dispatch room: kanban, radar, switchboard, map console, phones */
+function bakeTriage(room,x,y,w,h,wy,rt,hx,hy){
+  kanban(x+6,wy+3);
+  radar(x+w-64,wy+5,rt);
+  switchboard(x+w-38,wy+4);
+  block(hx-26,hy-30,52,11,"#26344a","#3a4c66","#141d2a"); R(hx-24,hy-28,48,1,"#42557a");
+  mapConsole(hx-18,hy-44,rt); room.deskScreens=[{x:hx-16,y:hy-42}];
+  phoneBank(hx+12,hy-30);
+  fileCabinet(x+10,y+h-34);
+  crateStack(x+w-32,y+h-26,rt);
+  docStack(x+Math.round(w*0.5),y+h-14);
+  serverTower(x+Math.round(w*0.68),y+h-40); plantTall(x+w-16,y+Math.round(h*0.5));
 }
 
+function couch(x,y,c){block(x,y,34,8,c,shade(c,1.25),shade(c,0.6));block(x,y-8,7,10,c,shade(c,1.25),shade(c,0.6));block(x+28,y-8,7,10,c,shade(c,1.25),shade(c,0.6));R(x+8,y+1,10,3,shade(c,1.15));R(x+19,y+1,10,3,shade(c,1.15));}
+function coffeeTable(x,y){block(x,y,18,6,"#4a3420","#654a2e","#2c1c10");R(x+3,y+2,3,3,"#c0503a");R(x+9,y+2,3,3,"#3f7fb0");R(x+13,y+1,3,2,"#dfe6ef");}
 function bakeOperator(room){
-  bakeShell(room,"#242c3e","#1f2739","#5cb4ff");
+  bakeShell(room,"#5cb4ff","#3a6ea0");
   var x=room.x,y=room.y,w=room.w,h=room.h,wy=y+room.wallH;
-  var dx=x+Math.round(w/2)-17,dy=wy+8;
+  // command wall: fleet board flanked by monitors, wall clock + poster
   fleetBoard(x+Math.round(w/2)-17,y+4);
-  rug(x+w/2-24,dy+16,48,30,"#243a5a","#1a2a44");
-  computerDesk(dx,dy,"codex",true); chair(dx+21,dy+22);
-  room.opGlow={x:dx+17,y:dy+6};
-  poster(x+8,y+5,"#3fb0e6"); wallClock(x+w-14,y+5);
-  block(x+w/2-16,y+h-24,32,7,"#3a4a6a","#4c5f86","#242f48"); block(x+w/2-16,y+h-30,6,8,"#3a4a6a","#4c5f86","#242f48"); block(x+w/2+10,y+h-30,6,8,"#3a4a6a","#4c5f86","#242f48");
-  plantTall(x+6,y+h-30); plantTall(x+w-16,y+h-30); coffeeMachine(x+w-16,wy+6); waterCooler(x+8,wy+6); shelf(x+w-34,y+h-44); plantHang(x+10,y+2);
+  drawMonitor(x+14,wy+3,"codex"); drawMonitor(x+w-32,wy+3,"codex");
+  wallClock(x+w-15,y+6); poster(x+10,y+5,"#3fb0e6"); plantHang(x+w-26,y+2);
+  // curved command desk — the operator's station (3 monitors + exec chair)
+  var dx=x+Math.round(w/2)-34,dy=wy+24;
+  rug(x+w/2-42,dy+13,84,46,"#243a5a","#1a2a44");
+  drawMonitor(dx,dy,"codex"); drawMonitor(dx+24,dy,"codex"); drawMonitor(dx+48,dy,"codex");
+  block(dx-4,dy+14,76,9,"#3a2a1a","#5a4028","#241608"); R(dx,dy+16,68,1,"#4a3420");
+  block(dx+27,dy+16,18,3,"#20283a","#2e3850","#141c2c");
+  block(dx+29,dy+24,14,12,"#1c2436","#2a3550","#12182a"); R(dx+30,dy+24,12,3,"#243050");
+  room.opGlow={x:dx+36,y:dy+6};
+  // kitchenette corner (lower-left) + seating nook (lower-centre) + reference wall (lower-right)
+  coffeeMachine(x+10,y+h-24); waterCooler(x+26,y+h-22);
+  couch(x+Math.round(w*0.42),y+h-22,"#3a4a6a"); coffeeTable(x+Math.round(w*0.44),y+h-13);
+  shelf(x+w-30,y+h-44); fileCabinet(x+w-50,y+h-32);
+  plantTall(x+8,y+h-30); plantTall(x+w-16,y+h-30);
 }
 function bakeLounge(room){
-  bakeShell(room,"#26303a","#212a34","#5fce9b");
+  bakeShell(room,"#5fce9b","#3a7a5a");
   var x=room.x,y=room.y,w=room.w,h=room.h,wy=y+room.wallH;
-  rug(x+w/2-24,y+h/2-14,48,32,"#3a5a4a","#2a4436");
-  outline(x+w/2-16,y+5,32,18);R(x+w/2-16,y+5,32,18,"#0a1220");R(x+w/2-14,y+7,28,14,"#12283e");
-  for(var s=0;s<4;s++)R(x+w/2-12,y+9+s*3,ri(8,24),1,["#5fce9b","#5cb4ff","#f7bd4e","#c98bff"][s]);
-  block(x+8,y+h-26,32,7,"#3a4a6a","#4c5f86","#242f48"); block(x+8,y+h-32,6,8,"#3a4a6a","#4c5f86","#242f48"); block(x+34,y+h-32,6,8,"#3a4a6a","#4c5f86","#242f48");
-  block(x+16,y+h-16,16,5,"#4a3420","#654a2e","#2c1c10"); R(x+20,y+h-14,3,2,"#c0503a"); R(x+26,y+h-14,3,2,"#3f7fb0");
-  block(x+w-18,wy+6,15,28,"#c0503a","#d86a4a","#7a2c1e"); R(x+w-15,wy+9,9,12,"#0e1626"); for(var v=0;v<6;v++)R(x+w-14+(v%3)*3,wy+10+Math.floor(v/3)*4,2,3,["#f7bd4e","#5cb4ff","#5fce9b"][v%3]);
-  plantTall(x+6,y+h-30); plantSmall(x+8,wy+6); plantHang(x+w/2-3,y+2); shelf(x+w-34,y+h-44); wallClock(x+8,y+5);
+  // big wall TV showing fleet stats
+  outline(x+w/2-22,y+4,44,22); R(x+w/2-22,y+4,44,22,"#0a1220"); R(x+w/2-20,y+6,40,18,"#12283e");
+  for(var s=0;s<5;s++)R(x+w/2-17,y+8+s*3,ri(12,34),1,["#5fce9b","#5cb4ff","#f7bd4e","#c98bff","#ff72b6"][s]);
+  wallClock(x+12,y+6); poster(x+w-28,y+5,"#5fce9b"); plantHang(x+w/2-3,y+2);
+  // kitchenette counter (back-left)
+  block(x+8,wy+10,34,7,"#cdd6e0","#e6ecf3","#9aa8ba"); R(x+10,wy+10,30,1,"#ffffff");
+  coffeeMachine(x+12,wy-6); R(x+30,wy+4,8,6,"#2a3648"); R(x+31,wy+5,6,4,"#3a4a5e");
+  // lounge seating on a rug (centre-lower)
+  rug(x+w/2-36,y+h-54,72,46,"#3a5a4a","#2a4436");
+  couch(x+w/2-30,y+h-30,"#3a4a6a"); couch(x+w/2+4,y+h-30,"#3a4a6a");
+  coffeeTable(x+w/2-8,y+h-15);
+  // vending machine (back-right) + arcade-ish console
+  block(x+w-24,wy+6,20,36,"#c0503a","#d86a4a","#7a2c1e"); R(x+w-20,wy+10,12,18,"#0e1626"); for(var v=0;v<9;v++)R(x+w-19+(v%3)*4,wy+11+Math.floor(v/3)*6,3,4,["#f7bd4e","#5cb4ff","#5fce9b"][v%3]); R(x+w-20,wy+30,12,3,"#141c2a");
+  // plants + shelf
+  shelf(x+8,y+h-44); plantTall(x+w-16,y+h-30); plantTall(x+44,y+h-30); plantSmall(x+w-40,y+h-14);
 }
 function bakeVacant(room){
-  bakeShell(room,"#1c222e","#181e28",null);
+  bakeShell(room,"#39435a",null);
   var x=room.x,y=room.y,w=room.w,h=room.h,wy=y+room.wallH;
   // a bare, dust-sheeted room awaiting a new hire
   block(x+w/2-16,y+h/2-6,32,10,"#222b3a","#2c3648","#141a26"); // sheeted desk

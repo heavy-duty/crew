@@ -30,10 +30,21 @@ click a bot in the rail). It grows by adding columns — the roster today is the
 quarters** from `fleet.roster`, and a **Vacant** room showing where the next
 hire lands. Each bot stays in its own quarters.
 
-- **Rooms are themed by role**, so you can read a bot's job at a glance:
-  - **builder** — fabricator + tool pegboard; hammers at the bench (`kind=build`)
-  - **reviewer** — inspection station (diff monitor + magnifier lamp); scans (`kind=review`)
-  - **triage** — kanban board + call switchboard; the physical board lives here
+- **Every room is a UI card in the vendor's colour** — the agent's colour lives
+  in the room's *frame*, not soaked across the floor, so the interiors stay
+  neutral and the fleet still reads as one system. A faint role-coloured rail
+  under the back wall marks the role.
+- **Rooms are strongly themed by role** — a reviewer room looks nothing like a
+  builder one:
+  - **builder** — a *workshop*: fabricator bay, running conveyor, tool pegboard,
+    an overhead crane lifting a girder, a workbench, pallets, hazard striping (`kind=build`)
+  - **reviewer** — a *clinical lab*: a wall of diff screens, an inspection desk
+    with a magnifier lamp, a green/red verdict light, checklists, filing
+    cabinets, document stacks (`kind=review`)
+  - **triage** — a *dispatch room*: the kanban board, a radar, a call
+    switchboard, a map console and phones; the physical board lives here
+  - non-bot rooms: an **Operator** mission-control command center and a **Lounge**
+    commons
 - **Workload at a glance = the queue tray.** Beside each bot's workstation is a
   tray of tickets: **stack height is how much work is queued**, and each ticket
   is **coloured by repo** — so you see both *how busy* a bot is and *which repos*
@@ -60,7 +71,8 @@ hire lands. Each bot stays in its own quarters.
 | Robot (its silhouette)| the agent / vendor on that box                          |
 | Queue-tray height     | how much work is pending for that bot                   |
 | Ticket colour         | which repo a pending item is on                         |
-| Room theme            | the bot's role (builder / reviewer / triage)            |
+| Room frame colour     | the agent / vendor on that box                          |
+| Room contents / theme | the bot's role (workshop / lab / dispatch)              |
 | Operator room         | you — mission control                                   |
 | Triage call-panel     | `kind=triage` (bots call in; they don't walk anywhere)  |
 | Build / review anim   | `SESSION START kind=build\|review`                       |
