@@ -24,15 +24,23 @@ fleet-floor/build.sh
 
 ## What you see
 
-- **7 server rooms** laid out from `fleet.roster`: the three `claude-*` boxes on
-  the left, `codex-*` under the office, `grok-reviewer` / `kimi-reviewer` right.
-- **Robots** colored by agent (claude amber · codex teal · grok violet · kimi
-  pink). Role drives the animation:
-  - **builder** — hammers a rack, throws sparks (`kind=build`)
-  - **reviewer** — runs a scan line down a rack (`kind=review`)
-  - **triage** — walks to the office whiteboard (`kind=triage`)
-  - **idle** — wanders its room between ticks
-- **Racks** are the repos each box works; the active one glows in the state color.
+A 3×3 facility: **7 quarters** from `fleet.roster` (one per box), plus an
+**Operator** room (mission control — the human watching the fleet) and a
+**Lounge** commons. Each bot stays in its own quarters.
+
+- **Every quarters shows the full repo wall.** All agents have access to every
+  repo, so all six (`ceremony · cast · box · rig · incubator · crew`) appear as
+  colour-coded server racks in every room. The rack the bot is currently working
+  lights up in the duty-state colour.
+- **Robots** are coloured by agent (claude amber · codex teal · grok violet ·
+  kimi pink) with per-vendor silhouettes. Role drives what they do at their
+  workstation:
+  - **builder** — hammers, throws sparks (`kind=build`)
+  - **reviewer** — scans with a magnifier (`kind=review`)
+  - **triage** — **calls it in.** A holographic call-panel pops up beside the bot;
+    it never leaves its quarters (`kind=triage`). `claude-triage`'s quarters is
+    the one with the physical kanban board.
+  - **idle** — wanders its own room between ticks
 - **A box goes cron-silent** → its robot topples with X-eyes and the log prints
   `⚠ no evidence line — cron silent`. Silence *is* the disconnect signal.
 - **Bottom ticker** streams `SESSION START/END kind=… rc=… dur=… outcome=…` in
@@ -41,17 +49,18 @@ fleet-floor/build.sh
 
 ## Metaphor → data
 
-| On the floor        | In the fleet                                             |
-|---------------------|----------------------------------------------------------|
-| Server room         | a box (isolated VM)                                      |
-| Robot               | the agent on that box                                    |
-| Rack                | a repo the box touches                                   |
-| Office whiteboard   | triage                                                   |
-| Build / review anim | `SESSION START kind=build\|review`                        |
-| Walk to the office  | `kind=triage`                                            |
-| Idle wander         | the gap between ticks                                     |
-| Robot topples       | a missed `tick.sh` boundary (cron silent)                |
-| Antenna / chip color| duty state; body color = agent vendor                    |
+| On the floor         | In the fleet                                             |
+|----------------------|----------------------------------------------------------|
+| Quarters (a room)    | a box (isolated VM)                                      |
+| Robot                | the agent on that box                                    |
+| The six racks        | the repos — every box has all of them                    |
+| A rack lit up        | the repo the bot is working right now                    |
+| Operator room        | you — mission control                                    |
+| Triage call-panel    | `kind=triage` (bots call in; they don't walk anywhere)   |
+| Build / review anim  | `SESSION START kind=build\|review`                        |
+| Idle wander          | the gap between ticks                                     |
+| Robot topples        | a missed `tick.sh` boundary (cron silent)                |
+| Antenna / chest color| duty state; body color = agent vendor                    |
 
 ## Telemetry contract
 
