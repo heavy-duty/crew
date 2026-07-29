@@ -1481,11 +1481,20 @@ HC="$SHARED/lib/jq/head-checks.jq"
 hc() {  # hc <panel-json> <pr-array-json> -> rows
   printf '%s' "$2" | jq -r --argjson panel "$1" --arg repo "o/r" -f "$HC"
 }
-mk_prc() {  # mk_prc <rollup> [reviews] [requests] [isDraft]
-  jq -cn --argjson c "$1" --argjson lr "${2:-[]}" --argjson rr "${3:-[]}" \
-     --argjson d "${4:-false}" \
+mk_prc() {  # mk_prc <rollup> [reviewState] [isDraft]
+  jq -cn --argjson c "$1" --argjson rs "${2:-null}" --argjson d "${3:-false}" \
      '[{number:1, isDraft:$d, updatedAt:"T1", headRefOid:"abc1234",
-        statusCheckRollup:$c, latestReviews:$lr, reviewRequests:$rr}]'
+        statusCheckRollup:$c, reviewState:$rs}]'
+}
+# The review state duty-builder.sh joins onto each listing row (#147): the bare
+# GraphQL pullRequest object, in the SAME shape converged.jq and addressing.jq
+# are handed. Head-carrying, opinion-only verdicts exist nowhere else — see
+# head-round-empty-oid-still-owed below for what reading the listing costs.
+mk_rs() {  # mk_rs <head> <opinionated-nodes> [requested-logins]
+  jq -cn --arg h "$1" --argjson revs "$2" --argjson reqs "${3:-[]}" \
+     '{headRefOid:$h,
+       reviewRequests:{nodes:($reqs|map({requestedReviewer:{login:.}}))},
+       latestOpinionatedReviews:{nodes:$revs}}'
 }
 CHK_OK='[{"__typename":"CheckRun","name":"check","status":"COMPLETED","conclusion":"SUCCESS"}]'
 CHK_BAD='[{"__typename":"CheckRun","name":"release-exercise / fixture-chain","status":"COMPLETED","conclusion":"FAILURE"}]'
@@ -1533,7 +1542,7 @@ t head-neutral-is-green       green   "$(state_of "$CHK_NEUTRAL")"
 t head-skipped-is-green       green   "$(state_of "$CHK_SKIPPED")"
 # Drafts are never rows: a panel is never requested on a draft, and a draft's
 # red CI is the author's in-flight business (resume owns it).
-t head-drafts-excluded "" "$(hc '[]' "$(mk_prc "$CHK_BAD" '[]' '[]' true)")"
+t head-drafts-excluded "" "$(hc '[]' "$(mk_prc "$CHK_BAD" null true)")"
 
 # The failing check's name reaches the operator and the prompt, spaces and all
 # — which is why the row is TAB-delimited and the names are last.
@@ -1541,14 +1550,87 @@ t head-failing-names-carried "release-exercise / fixture-chain (FAILURE)" \
   "$(hc '[]' "$(mk_prc "$CHK_BAD")" | cut -f6)"
 t head-green-names-dash "-" "$(hc '[]' "$(mk_prc "$CHK_OK")" | cut -f6)"
 
-# Round-owed, and the two facts arriving on one row.
-CR_REQ='[{"state":"CHANGES_REQUESTED","author":{"login":"p1"}}]'
+# --- Round-owed: the third round predicate, and the head it ignored (#147) ---
+# `round_owed` was the only one of the three that read `latestReviews` and no
+# head at all. converged.jq and addressing.jq have scoped to headRefOid since
+# #130; this block is the bill for leaving the third copy out of that
+# reconciliation, and the cross-predicate fixture at the end of it is the guard
+# against a fourth divergence.
+HCH=abc1234                                  # the head mk_prc's row carries
+HCO=0ldbeef                                  # a head it has been pushed past
+CR_HEAD='[{"author":{"login":"p1"},"state":"CHANGES_REQUESTED","commit":{"oid":"'$HCH'"}}]'
+CR_OLD='[{"author":{"login":"p1"},"state":"CHANGES_REQUESTED","commit":{"oid":"'$HCO'"}}]'
+OK_HEAD='[{"author":{"login":"p1"},"state":"APPROVED","commit":{"oid":"'$HCH'"}}]'
+CR_REQ="$(mk_rs "$HCH" "$CR_HEAD")"          # a change request AT the head
 t head-round-owed-green owed "$(hc '["p1"]' "$(mk_prc "$CHK_OK" "$CR_REQ")" | cut -f5)"
 t head-round-owed-red-still-owed owed "$(hc '["p1"]' "$(mk_prc "$CHK_BAD" "$CR_REQ")" | cut -f5)"
 t head-round-owed-red-is-red red "$(hc '["p1"]' "$(mk_prc "$CHK_BAD" "$CR_REQ")" | cut -f4)"
-# An outstanding panel request means the round is not whole yet.
+# An outstanding panel request means the round is not whole yet — unchanged by
+# #147 except that the requests now arrive on the same object as the verdicts.
 t head-round-not-whole - \
-  "$(hc '["p1","p2"]' "$(mk_prc "$CHK_OK" "$CR_REQ" '[{"login":"p2"}]')" | cut -f5)"
+  "$(hc '["p1","p2"]' "$(mk_prc "$CHK_OK" "$(mk_rs "$HCH" "$CR_HEAD" '["p2"]')")" | cut -f5)"
+# ...and an OFF-panel request never held a round and still does not.
+t head-round-offpanel-req-owed owed \
+  "$(hc '["p1"]' "$(mk_prc "$CHK_OK" "$(mk_rs "$HCH" "$CR_HEAD" '["danmt"]')")" | cut -f5)"
+
+# AN OPINION IS OF A SPECIFIC TREE. A change request on a head the builder has
+# already pushed past has not reviewed the tree it would be woken about —
+# addressing.jq says so in a comment, and until #147 round_owed did not
+# implement it.
+t head-round-stale-cr-not-owed - \
+  "$(hc '["p1"]' "$(mk_prc "$CHK_OK" "$(mk_rs "$HCH" "$CR_OLD")")" | cut -f5)"
+# A reviewer who flips request-changes → approve AT the head is not requesting
+# changes any more. (latestOpinionatedReviews is latest-per-reviewer, so the
+# flip is the whole node: the fixture is the approval, and the assertion is
+# that nothing else in the row keeps the round alive.)
+t head-round-flip-to-approve-not-owed - \
+  "$(hc '["p1"]' "$(mk_prc "$CHK_OK" "$(mk_rs "$HCH" "$OK_HEAD")")" | cut -f5)"
+# An all-approved round at the head is not owed — it is converged.jq's business.
+t head-round-all-approved-not-owed - \
+  "$(hc '["p1","p2"]' "$(mk_prc "$CHK_OK" \
+      "$(mk_rs "$HCH" '[{"author":{"login":"p1"},"state":"APPROVED","commit":{"oid":"'$HCH'"}},{"author":{"login":"p2"},"state":"APPROVED","commit":{"oid":"'$HCH'"}}]')")" | cut -f5)"
+
+# THE MASKING DEFECT, WHICH A HEAD FILTER ALONE WOULD NOT HAVE TOUCHED. The two
+# GraphQL fields differ in exactly one thing: latestReviews is the latest review
+# of ANY state, latestOpinionatedReviews the latest APPROVED/CHANGES_REQUESTED.
+# So a reviewer who requested changes and then left a plain COMMENTED review had
+# the change request REPLACED in latestReviews — round un-owed, nobody woken, no
+# label wrong. This is #114's auto-approve-over-a-standing-blocker family on the
+# builder side. The row below carries both: the COMMENTED review in the listing
+# field, the standing change request in the opinionated one. Owed.
+CR_MASKED="$(jq -cn --argjson c "$CHK_OK" --argjson rs "$CR_REQ" --arg h "$HCH" \
+  '[{number:1, isDraft:false, updatedAt:"T1", headRefOid:$h,
+     statusCheckRollup:$c, reviewState:$rs,
+     latestReviews:[{state:"COMMENTED", author:{login:"p1"}, commit:{oid:""}}]}]')"
+t head-round-commented-does-not-mask owed "$(hc '["p1"]' "$CR_MASKED" | cut -f5)"
+
+# MUST FAIL: the trap. `gh pr list --json latestReviews` carries .commit.oid in
+# its schema and returns it EMPTY (verified on heavy-duty/ceremony#207). Adding
+# a head filter to THAT listing compares every verdict against "" , matches
+# nothing, and marks EVERY round un-owed — an occasional mask converted into a
+# total, silent stall of the whole builder fix-round path, which is strictly
+# worse than the bug. The fixture above already carries `"oid": ""` in
+# latestReviews; this asserts the predicate ignores that field entirely rather
+# than head-filtering it, whatever a later editor is tempted to do with it.
+t head-round-empty-oid-still-owed owed "$(hc '["p1"]' "$CR_MASKED" | cut -f5)"
+# Comments stripped before looking: the paragraph above EXPLAINS the trap by
+# naming the field, and a detector that trips on its own documentation is a
+# mistake this repo has now made three separate times.
+if grep -v '^[[:space:]]*#' "$HC" | grep -q 'latestReviews'; then r1=READS_IT; else r1=clean; fi
+t head-round-never-reads-latestreviews clean "$r1"
+
+# NO VERDICTS IS NOT A ROUND, AND NEITHER IS SOMEBODY ELSE'S HEAD. The listing
+# and the per-PR verdict read are two calls: a failed read leaves the join null,
+# and a push landing between them leaves verdicts scoped to a head this row does
+# not describe. Both defer — duty-builder.sh says so out loud, asserted below.
+t head-round-no-review-state-not-owed - \
+  "$(hc '["p1"]' "$(mk_prc "$CHK_OK" null)" | cut -f5)"
+t head-round-stale-injection-not-owed - \
+  "$(hc '["p1"]' "$(mk_prc "$CHK_OK" "$(mk_rs "$HCO" "$CR_OLD")")" | cut -f5)"
+# ...and a deferral must never be mistaken for a green all-clear: the CHECK half
+# of the row is unaffected by a missing verdict read.
+t head-round-no-review-state-keeps-check green \
+  "$(hc '["p1"]' "$(mk_prc "$CHK_OK" null)" | cut -f4)"
 
 # --- the ci-red ledger key: why the head is the ID, not the value (#17) -------
 # ledger_filter re-fires when the value sorts GREATER, and a SHA has no order.
@@ -1662,22 +1744,31 @@ t c163-corrective-push-wakes 1 \
 # --- wiring (#45/#17) --------------------------------------------------------
 if grep -q 'statusCheckRollup' "$BMOD"; then r1=fetched; else r1=MISSING; fi
 t ci-red-rollup-fetched fetched "$r1"
-# No new API call: the rollup rides the listing the round signal was already
-# fetching. Asserted as "requested exactly once, on a line that also carries
-# latestReviews" — a second call added for it would be a second occurrence, and
-# moving it to a listing of its own would drop latestReviews from that line.
-# Comment lines are stripped first. The block above EXPLAINS that the rollup
-# rides an existing call, so counting raw occurrences counts the explanation —
-# a detector tripping on its own documentation, which this repo has now managed
-# three separate times.
+# No new API call: the rollup rides the listing the head signal was already
+# fetching. Asserted as "requested exactly once, on the line that also carries
+# headRefOid and updatedAt" — a second call added for it would be a second
+# occurrence, and moving it to a listing of its own would drop the others from
+# that line. Comment lines are stripped first. The block above EXPLAINS that the
+# rollup rides an existing call, so counting raw occurrences counts the
+# explanation — a detector tripping on its own documentation, which this repo
+# has now managed three separate times.
 t ci-red-rollup-rides-round-listing 1 \
   "$(grep -v '^[[:space:]]*#' "$BMOD" | grep -c 'statusCheckRollup')"
-if grep -q 'latestReviews,reviewRequests,updatedAt,headRefOid,statusCheckRollup' "$BMOD"; then
+# The field list lost latestReviews and reviewRequests in #147: nothing reads
+# them any more, and leaving latestReviews fetched leaves the empty-oid trap
+# loaded for the next editor who reaches for the nearest verdict field.
+if grep -q 'number,isDraft,updatedAt,headRefOid,statusCheckRollup' "$BMOD"; then
   r1=shared
 else
   r1=SEPARATE
 fi
 t ci-red-rollup-on-the-round-call shared "$r1"
+if grep -v '^[[:space:]]*#' "$BMOD" | grep -q 'latestReviews'; then
+  r1=STILL_FETCHED
+else
+  r1=dropped
+fi
+t round-owed-listing-drops-latestreviews dropped "$r1"
 if grep -q '.seen-ci-red' "$BMOD"; then r1=ledgered; else r1=UNGUARDED; fi
 t ci-red-signal-ledgered ledgered "$r1"
 # shellcheck disable=SC2016  # the literal the module contains, not an expansion
