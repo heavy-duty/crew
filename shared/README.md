@@ -163,9 +163,9 @@ the operator if they surprise:
 
 - **The re-request auto-approve runs on every reviewer box**, not just
   kimi's where the ruling was issued. It goes through the submit gate in
-  supersede mode. `AUTO_APPROVE_REREQUEST=0` in fleet.conf disables the
-  auto-approval only — a re-request newer than my standing verdict still
-  queues a real review at an unchanged head, whatever the flag says (#151).
+  supersede mode. `AUTO_APPROVE_REREQUEST=0` in fleet.conf disables reuse of
+  a standing approval; a newer re-request over a blocking verdict still queues
+  a real re-review.
 - **Draft PRs never wake reviewers** (three boxes used to review a
   deliberately-requested draft; doctrine says drafts are panel-invisible).
 - **Ready issues with an assignee don't wake builders** (they're mid-claim

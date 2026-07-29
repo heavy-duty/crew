@@ -65,7 +65,11 @@ rereq_decision() {
   local mine_oid="$1" head="$2" mine_state="$3" mine_at="$4" req_at="$5" auto="${6:-1}"
   if [ "$mine_oid" != "$head" ]; then echo queue; return 0; fi
   if [ "$req_at" != "-" ] && [ "$mine_at" != "-" ] && [[ "$req_at" > "$mine_at" ]]; then
-    if [ "$mine_state" = "APPROVED" ] && [ "$auto" = "1" ]; then echo auto-approve; else echo queue; fi
+    if [ "$mine_state" = "APPROVED" ]; then
+      if [ "$auto" = "1" ]; then echo auto-approve; else echo skip; fi
+    else
+      echo queue
+    fi
   else
     echo skip
   fi

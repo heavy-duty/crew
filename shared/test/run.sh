@@ -1883,7 +1883,7 @@ t rereq-covered-no-request-at-all-skips  skip         "$(rereq_decision "$RR_H" 
 # review. Whether a newer re-request is consulted at all is not its business.
 t rereq-auto-off-block-queues-not-skips  queue        "$(rereq_decision "$RR_H" "$RR_H" CHANGES_REQUESTED "$RR_T1" "$RR_T2" 0)"
 t rereq-auto-off-dismissed-queues        queue        "$(rereq_decision "$RR_H" "$RR_H" DISMISSED "$RR_T1" "$RR_T2" 0)"
-t rereq-auto-off-never-approves          queue        "$(rereq_decision "$RR_H" "$RR_H" APPROVED "$RR_T1" "$RR_T2" 0)"
+t rereq-auto-off-never-approves          skip         "$(rereq_decision "$RR_H" "$RR_H" APPROVED "$RR_T1" "$RR_T2" 0)"
 # Double-submit protection is untouched at BOTH flag values (#26/#29/#39): a
 # request no newer than my verdict is the genuine mid-clear/stale-index case.
 t rereq-auto-off-no-newer-request-skips  skip         "$(rereq_decision "$RR_H" "$RR_H" CHANGES_REQUESTED "$RR_T2" "$RR_T1" 0)"
