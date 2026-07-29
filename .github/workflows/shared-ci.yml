@@ -40,14 +40,14 @@ jobs:
       - name: bash -n (syntax)
         run: |
           set -e
-          for f in install.sh dist/*.sh shared/bin/*.sh shared/lib/*.sh shared/install.sh shared/test/run.sh shared/test/install-lifecycle.sh shared/test/artifact.sh shared/test/install-drill.sh cli/crew drill/*.sh fleet-floor/build.sh fleet-floor/server/probe.sh \
+          for f in install.sh dist/*.sh shared/bin/*.sh shared/lib/*.sh shared/install.sh shared/test/run.sh shared/test/claim.test.sh shared/test/install-lifecycle.sh shared/test/artifact.sh shared/test/install-drill.sh cli/crew drill/*.sh fleet-floor/build.sh fleet-floor/server/probe.sh \
                    fleet-floor/test/run.sh fleet-floor/test/stub-box; do
             bash -n "$f"
           done
       - name: shellcheck
         run: |
           sudo apt-get install -y shellcheck >/dev/null
-          shellcheck -x install.sh dist/*.sh shared/bin/*.sh shared/lib/*.sh shared/install.sh shared/test/run.sh shared/test/install-lifecycle.sh shared/test/artifact.sh shared/test/install-drill.sh cli/crew drill/*.sh fleet-floor/server/probe.sh fleet-floor/test/*.sh fleet-floor/test/stub-box shared/conf/fleet.defaults.conf examples/fleet.conf shared/conf/agents/*.conf shared/conf/roles/*.conf
+          shellcheck -x install.sh dist/*.sh shared/bin/*.sh shared/lib/*.sh shared/install.sh shared/test/run.sh shared/test/claim.test.sh shared/test/install-lifecycle.sh shared/test/artifact.sh shared/test/install-drill.sh cli/crew drill/*.sh fleet-floor/server/probe.sh fleet-floor/test/*.sh fleet-floor/test/stub-box shared/conf/fleet.defaults.conf examples/fleet.conf shared/conf/agents/*.conf shared/conf/roles/*.conf
       - name: fixture tests
         run: shared/test/run.sh
       # The installer, driven OFFLINE against the tree under review (box's

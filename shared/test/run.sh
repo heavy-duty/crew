@@ -2537,6 +2537,9 @@ t shared-ci-still-triggers-on-push-to-main 1 "$(grep -c '^    branches: \[main\]
 t shared-ci-has-two-path-filters 2 "$(grep -c '^    paths: ' "$CI_YML")"
 t shared-ci-path-filters-agree   1 "$(grep '^    paths: ' "$CI_YML" | sort -u | wc -l | tr -d ' ')"
 
+if "$SHARED/test/claim.test.sh"; then r1=0; else r1=$?; fi
+t claim-regression-suite 0 "$r1"
+
 echo
 echo "passed $PASS, failed $FAIL"
 [ "$FAIL" -eq 0 ]
