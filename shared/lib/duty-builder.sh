@@ -361,7 +361,7 @@ _builder_repo() {
     mine_rows="$(printf '%s' "$mine_json" \
       | jq -c --argjson rs "$(printf '%s' "$rs_pairs" \
             | jq -sc 'map({key:(.number|tostring), value:.pr}) | from_entries' 2>/dev/null || echo '{}')" \
-          'map(. + {reviewState: ($rs[(.number|tostring)] // null)})' \
+          -f "$DUTY_DIR/lib/jq/join-review-state.jq" \
       | jq -r --argjson panel "$panel_json" --arg repo "$R" \
         -f "$DUTY_DIR/lib/jq/head-checks.jq" 2>/dev/null || echo err)"
   fi

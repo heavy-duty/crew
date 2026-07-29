@@ -1741,6 +1741,35 @@ t c163-second-tick-quiet 0 "$(printf '%s\n' "$C163_ITEM" | ledger_filter "$C163_
 t c163-corrective-push-wakes 1 \
   "$(printf 'o/r#163@0000001\thead\n' | ledger_filter "$C163_LG" | n)"
 
+# --- join-review-state.jq: the listing and the verdicts, joined (#147) -------
+# The listing is one call and the verdicts are one call per PR, so the join is
+# where a missing or skipped read has to become an explicit null — head-checks.jq
+# claims no round on a null, and the caller logs it.
+JJQ="$SHARED/lib/jq/join-review-state.jq"
+JOIN_IN='[{"number":1,"headRefOid":"abc1234"},{"number":2,"headRefOid":"ddd5678"}]'
+JOIN_RS="$(jq -cn --argjson rs "$(mk_rs abc1234 "$CR_HEAD")" '{"1":$rs}')"
+JOINED="$(printf '%s' "$JOIN_IN" | jq -c --argjson rs "$JOIN_RS" -f "$JJQ")"
+# The number is the key, and it is a STRING key over a numeric field: keying on
+# the number itself silently joins nothing (jq object keys are strings).
+t join-attaches-by-number abc1234 \
+  "$(printf '%s' "$JOINED" | jq -r '.[0].reviewState.headRefOid')"
+# A PR with no entry — read failed, or a draft that was never fetched — gets an
+# explicit null, present rather than absent.
+t join-missing-is-null null "$(printf '%s' "$JOINED" | jq -r '.[1].reviewState')"
+t join-missing-key-present true "$(printf '%s' "$JOINED" | jq -r '.[1] | has("reviewState")')"
+# Nothing else on the row is disturbed, and the row count is unchanged.
+t join-preserves-rows "1 2" "$(printf '%s' "$JOINED" | jq -r 'map(.number|tostring) | join(" ")')"
+t join-preserves-head ddd5678 "$(printf '%s' "$JOINED" | jq -r '.[1].headRefOid')"
+# An empty map (every read failed) joins nulls rather than erroring out.
+t join-empty-map-all-null "null null" \
+  "$(printf '%s' "$JOIN_IN" | jq -c --argjson rs '{}' -f "$JJQ" \
+     | jq -r 'map(.reviewState | tostring) | join(" ")')"
+# ...and end to end: a joined null reads as no round owed, not as a crash.
+t join-null-then-not-owed - \
+  "$(printf '%s' "$JOIN_IN" | jq -c --argjson rs '{}' -f "$JJQ" \
+     | jq -c 'map(. + {isDraft:false, updatedAt:"T1", statusCheckRollup:[]})' \
+     | jq -r --argjson panel '["p1"]' --arg repo o/r -f "$HC" | head -1 | cut -f5)"
+
 # --- the ceremony#207 regression case (#147's last acceptance criterion) -----
 # The shape the issue was found on, modelled end to end: three panelists, all
 # opinionated AT the current head, two requesting changes and one approving, no
@@ -1850,6 +1879,46 @@ else
   r1=dropped
 fi
 t round-owed-listing-drops-latestreviews dropped "$r1"
+
+# --- wiring (#147): where the verdicts are read, and why not once ------------
+# The verdicts are read through ONE helper, so the three round predicates cannot
+# drift onto three query texts the way they drifted onto three predicates.
+if grep -q '_review_state()' "$BMOD"; then r1=exists; else r1=MISSING; fi
+t review-state-helper-exists exists "$r1"
+# Two occurrences of the opinionated-verdict query in the module: the helper,
+# and the handoff loop's fuller payload (which also carries comments and
+# mergeability). A third is a third copy of the datum this issue exists about.
+t opinionated-query-copies 2 \
+  "$(grep -v '^[[:space:]]*#' "$BMOD" | grep -c 'latestOpinionatedReviews(first:50)')"
+# ...and the handoff comment reads it through the helper rather than its own
+# copy, which is what makes that count 2 and not 3.
+if grep -A3 '_handoff_comment()' "$BMOD" | grep -q '_review_state'; then r1=shared; else r1=OWN_COPY; fi
+t handoff-comment-uses-the-helper shared "$r1"
+
+# THE ANTI-HOIST GUARD. #147 recommends folding the round-owed read into the
+# handoff loop's payload; it is NOT done, and this asserts the ordering that
+# makes it wrong to do later. The verdict read must precede BUILD (the round
+# gate needs it), and the handoff payload read must FOLLOW it — because the
+# build session answers the round and pushes during the tick, and that payload
+# is what then sees the MARK_ANSWERED comment (#133's same-tick request) and
+# what _request_panel compares against the head-checks head. Hoist it and both
+# sides of that staleness comparison come from the same pre-session snapshot:
+# they agree while the session has already pushed past them, and the engine
+# requests a panel on a head whose check nobody has seen settle.
+# shellcheck disable=SC2016  # the literal call the module contains, not an expansion
+rs_at="$(grep -n '_review_state "\$R" "\$N"' "$BMOD" | head -1 | cut -d: -f1)"
+ho_at="$(grep -n 'comments(last:200)' "$BMOD" | head -1 | cut -d: -f1)"
+bd_at="$(grep -n -- '--- BUILD' "$BMOD" | head -1 | cut -d: -f1)"
+if [ -n "$rs_at" ] && [ -n "$bd_at" ] && [ "$rs_at" -lt "$bd_at" ]; then r1=before; else r1=AFTER; fi
+t verdict-read-precedes-build before "$r1"
+if [ -n "$ho_at" ] && [ -n "$bd_at" ] && [ "$ho_at" -gt "$bd_at" ]; then r1=after; else r1=HOISTED; fi
+t handoff-payload-follows-build after "$r1"
+# A failed or head-mismatched read is never silent: one warns, one logs, and
+# neither is allowed to become a quiet un-owed round.
+if grep -q 'review-state read failed' "$BMOD"; then r1=warned; else r1=SILENT; fi
+t failed-verdict-read-is-loud warned "$r1"
+if grep -q 'head moved between the listing and the verdict read' "$BMOD"; then r1=logged; else r1=SILENT; fi
+t midtick-push-defer-is-loud logged "$r1"
 if grep -q '.seen-ci-red' "$BMOD"; then r1=ledgered; else r1=UNGUARDED; fi
 t ci-red-signal-ledgered ledgered "$r1"
 # shellcheck disable=SC2016  # the literal the module contains, not an expansion
