@@ -1741,6 +1741,87 @@ t c163-second-tick-quiet 0 "$(printf '%s\n' "$C163_ITEM" | ledger_filter "$C163_
 t c163-corrective-push-wakes 1 \
   "$(printf 'o/r#163@0000001\thead\n' | ledger_filter "$C163_LG" | n)"
 
+# --- the ceremony#207 regression case (#147's last acceptance criterion) -----
+# The shape the issue was found on, modelled end to end: three panelists, all
+# opinionated AT the current head, two requesting changes and one approving, no
+# outstanding review request, check green. A round is owed, it reaches the build
+# wake, and it does so EXACTLY ONCE — the ledger is what makes the second tick
+# quiet, since head-checks.jq is stateless and would say `owed` forever.
+X207_H=98c8dc2
+X207_PANEL='["claude","kimi","grok"]'
+X207_REVS='[{"author":{"login":"claude"},"state":"CHANGES_REQUESTED","commit":{"oid":"'$X207_H'"}},
+            {"author":{"login":"kimi"},"state":"CHANGES_REQUESTED","commit":{"oid":"'$X207_H'"}},
+            {"author":{"login":"grok"},"state":"APPROVED","commit":{"oid":"'$X207_H'"}}]'
+X207="$(jq -cn --argjson c "$CHK_OK" --arg h "$X207_H" \
+  --argjson rs "$(mk_rs "$X207_H" "$X207_REVS")" \
+  '[{number:207, isDraft:false, updatedAt:"T207", headRefOid:$h,
+     statusCheckRollup:$c, reviewState:$rs}]')"
+X207_ROW="$(hc "$X207_PANEL" "$X207")"
+t x207-round-is-owed owed "$(cut -f5 <<<"$X207_ROW")"
+t x207-head-is-green green "$(cut -f4 <<<"$X207_ROW")"
+# It reaches the build wake and NOT the ci-red one: nothing failed.
+t x207-reaches-the-build-wake "o/r#207 T207" "$(awk -F'\t' "$AWK_ROUNDS" <<<"$X207_ROW")"
+t x207-does-not-wake-ci-red "" "$(awk -F'\t' "$AWK_RED" <<<"$X207_ROW")"
+# Exactly one wake. The second tick over an unchanged round is the ledger's job
+# — this is also the issue's "a round already acknowledged" fixture: nothing in
+# the payload changes when a builder acknowledges a round, so the payload cannot
+# be what stops the re-wake, and the ledger keyed on number+updatedAt is.
+X207_LG="$TMP/x207"
+X207_ITEM="$(awk -F'\t' "$AWK_ROUNDS" <<<"$X207_ROW")"
+t x207-first-tick-wakes 1 "$(printf '%s\n' "$X207_ITEM" | ledger_filter "$X207_LG" | n)"
+printf '%s\n' "$X207_ITEM" | ledger_commit "$X207_LG"
+t x207-acknowledged-round-quiet 0 "$(printf '%s\n' "$X207_ITEM" | ledger_filter "$X207_LG" | n)"
+# ...and a new verdict or a push advances updatedAt, which is exactly when the
+# round should be looked at again.
+t x207-new-activity-rewakes 1 "$(printf 'o/r#207 T208\n' | ledger_filter "$X207_LG" | n)"
+
+# --- the three round predicates, on ONE payload (#130 / #147) ----------------
+# #130 reconciled converged.jq and addressing.jq into deliberate mirrors so that
+# two hand-rolled round predicates could not disagree. round_owed was a third
+# copy and was left out of that reconciliation — this fixture is what makes a
+# fourth divergence a test failure rather than a stalled round nobody can see.
+#
+# ONE set of verdicts, three inputs derived from it: a closed round at the head
+# with one non-approval must be addressing == true, round_owed == owed, and
+# converged == false, simultaneously. Any predicate that drifts off the head or
+# off latestOpinionatedReviews breaks exactly one of the three.
+XP_GQL="$(mk_pr "$X207_H" MERGEABLE '[]' '[]' "$X207_REVS")"
+t tri-addressing-true true \
+  "$(printf '%s' "$XP_GQL" | jq -r --argjson panel "$X207_PANEL" \
+      --arg addressing state:addressing -f "$AJQ")"
+t tri-converged-false false \
+  "$(printf '%s' "$XP_GQL" | jq -r --argjson panel "$X207_PANEL" \
+      --arg needs_human state:needs-human -f "$CJQ")"
+t tri-round-owed-owed owed "$(cut -f5 <<<"$X207_ROW")"
+# The head-checks input is DERIVED from the same GraphQL payload rather than
+# hand-written beside it, so the three cannot be fed quietly different verdicts.
+XP_ROW="$(printf '%s' "$XP_GQL" \
+  | jq -c '[{number:207, isDraft:false, updatedAt:"T207",
+             headRefOid:.data.repository.pullRequest.headRefOid,
+             statusCheckRollup:[{__typename:"CheckRun",conclusion:"SUCCESS"}],
+             reviewState:.data.repository.pullRequest}]' \
+  | jq -r --argjson panel "$X207_PANEL" --arg repo "o/r" -f "$HC")"
+t tri-derived-payload-agrees owed "$(cut -f5 <<<"$XP_ROW")"
+# All approved at the head: converged fires, and the other two go quiet
+# together. The inverse direction of the same agreement.
+XP_OK="$(mk_pr "$X207_H" MERGEABLE '[]' '[]' \
+  '[{"author":{"login":"claude"},"state":"APPROVED","commit":{"oid":"'$X207_H'"}},
+    {"author":{"login":"kimi"},"state":"APPROVED","commit":{"oid":"'$X207_H'"}},
+    {"author":{"login":"grok"},"state":"APPROVED","commit":{"oid":"'$X207_H'"}}]')"
+t tri-approved-converged true \
+  "$(printf '%s' "$XP_OK" | jq -r --argjson panel "$X207_PANEL" \
+      --arg needs_human state:needs-human -f "$CJQ")"
+t tri-approved-not-addressing false \
+  "$(printf '%s' "$XP_OK" | jq -r --argjson panel "$X207_PANEL" \
+      --arg addressing state:addressing -f "$AJQ")"
+t tri-approved-not-owed - \
+  "$(printf '%s' "$XP_OK" \
+     | jq -c '[{number:207, isDraft:false, updatedAt:"T207",
+                headRefOid:.data.repository.pullRequest.headRefOid,
+                statusCheckRollup:[{__typename:"CheckRun",conclusion:"SUCCESS"}],
+                reviewState:.data.repository.pullRequest}]' \
+     | jq -r --argjson panel "$X207_PANEL" --arg repo "o/r" -f "$HC" | cut -f5)"
+
 # --- wiring (#45/#17) --------------------------------------------------------
 if grep -q 'statusCheckRollup' "$BMOD"; then r1=fetched; else r1=MISSING; fi
 t ci-red-rollup-fetched fetched "$r1"

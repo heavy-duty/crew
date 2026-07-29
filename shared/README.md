@@ -109,6 +109,7 @@ fleet's real protocol existed only inside five diverging scripts.
 | `COMMENTED` never counts as a verdict | grok/kimi | REVIEWER.md |
 | Re-request at unchanged head → auto-approve (via the gate) | kimi | ceremony#94 stale blocker, operator ruling 2026-07-23 |
 | Convergence from `latestOpinionatedReviews`, never `reviewDecision` | claude-bot | ceremony#26/#39 (a day of silence) |
+| **All three** round predicates (`converged`, `addressing`, `round_owed`) read those verdicts **at the head** | #130, then #147 | #130 reconciled two of the three; the third masked a standing blocker behind a `COMMENTED` review |
 | `state:needs-human` refire guard; UNKNOWN mergeable waits | claude-bot | handoff refires; post-merge flap |
 | Panel read from the PR repo's `labels.conf panel=`, never hardcoded | doctrine + codex's knowledge | rig#120 kimi-less panel |
 | Resume before build; the lock makes resume sound | claude-bot / codex | crash-only recovery, 10 clean resumes |
