@@ -1590,6 +1590,13 @@ t head-round-all-approved-not-owed - \
   "$(hc '["p1","p2"]' "$(mk_prc "$CHK_OK" \
       "$(mk_rs "$HCH" '[{"author":{"login":"p1"},"state":"APPROVED","commit":{"oid":"'$HCH'"}},{"author":{"login":"p2"},"state":"APPROVED","commit":{"oid":"'$HCH'"}}]')")" | cut -f5)"
 
+# An EMPTY panel never owes a round — the mirror of converged-empty-panel and
+# addressing-empty-panel. A bare panel= line (or a panel naming only the author)
+# makes every verdict off-panel, and off-panel verdicts have never woken a
+# round; this asserts the third predicate agrees rather than falling through.
+t head-round-empty-panel-not-owed - \
+  "$(hc '[]' "$(mk_prc "$CHK_OK" "$CR_REQ")" | cut -f5)"
+
 # THE MASKING DEFECT, WHICH A HEAD FILTER ALONE WOULD NOT HAVE TOUCHED. The two
 # GraphQL fields differ in exactly one thing: latestReviews is the latest review
 # of ANY state, latestOpinionatedReviews the latest APPROVED/CHANGES_REQUESTED.
