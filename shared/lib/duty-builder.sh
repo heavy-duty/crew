@@ -83,20 +83,39 @@ _mirror_rounds() {
     || warn "$repo#$num: round-log body write failed (handoff continues)"
 }
 
-# _handoff_comment REPO NUM — echo the engine-rendered handoff comment: the
-# terminal facts and nothing composed. First line is MARK_HANDOFF + the head
-# SHA so post-once.sh's exact-body dedup is stable across a retried tick.
-# Echoes empty on a fetch failure (the caller then skips only the comment).
-_handoff_comment() {
+# _review_state REPO NUM — echo the PR's review state as a bare GraphQL
+# `pullRequest` object, compact, on one line: the head, the outstanding review
+# requests, and every panelist's latest OPINIONATED verdict with the head it was
+# given at. Echoes nothing when the read fails.
+#
+# THIS IS THE ROUND PREDICATES' ONE DATUM (#147). converged.jq, addressing.jq
+# and head-checks.jq's `round_owed` all answer a question about the panel's
+# verdicts at a specific head, and all three now read this shape. The fields are
+# a subset of the handoff loop's per-PR payload below, which carries comments
+# and mergeability on top for the request signal and the merge check — one
+# query text would have to fetch a 200-comment page for a round-owed gate that
+# never looks at it, so the subset is deliberate and the shape is shared.
+_review_state() {
   local repo="$1" num="$2" owner name
   owner="${repo%%/*}"; name="${repo##*/}"
   gh api graphql -f query='query($owner:String!,$name:String!,$num:Int!){
     repository(owner:$owner,name:$name){ pullRequest(number:$num){
       headRefOid
+      reviewRequests(first:50){nodes{requestedReviewer{... on User{login}}}}
       latestOpinionatedReviews(first:50){nodes{author{login} state commit{oid}}}
     } } }' -f owner="$owner" -f name="$name" -F num="$num" 2>/dev/null \
+    | jq -c '.data.repository.pullRequest // empty' 2>/dev/null
+}
+
+# _handoff_comment REPO NUM — echo the engine-rendered handoff comment: the
+# terminal facts and nothing composed. First line is MARK_HANDOFF + the head
+# SHA so post-once.sh's exact-body dedup is stable across a retried tick.
+# Echoes empty on a fetch failure (the caller then skips only the comment).
+_handoff_comment() {
+  local repo="$1" num="$2"
+  _review_state "$repo" "$num" \
   | jq -r --arg mark "$MARK_HANDOFF" '
-      .data.repository.pullRequest as $pr
+      . as $pr
       | ( $pr.latestOpinionatedReviews.nodes
           | map(select(.state == "APPROVED" and .commit.oid == $pr.headRefOid)
                 | .author.login) | unique ) as $approvers
@@ -293,14 +312,56 @@ _builder_repo() {
   # approved, mergeable PR stranded on a transient CI failure). One datum, two
   # bugs — and the round-owed signal was already fetching this exact listing, so
   # headRefOid and statusCheckRollup ride along for no additional call.
+  #
+  # THE VERDICTS DO NOT RIDE THIS LISTING, AND CANNOT (#147). `latestReviews`
+  # was here and was the round-owed source until #147: it is the latest review
+  # of ANY state, so a plain COMMENTED review replaced a standing change
+  # request and the round went un-owed; and its `.commit.oid` comes back EMPTY,
+  # so it cannot be head-scoped either. Head-carrying, opinion-only verdicts
+  # exist in GraphQL alone, so they are read per PR just below and joined on.
   local mine_json mine_rows
   mine_json="$(gh pr list -R "$R" --state open --author "$ME" \
-    --json number,isDraft,latestReviews,reviewRequests,updatedAt,headRefOid,statusCheckRollup \
+    --json number,isDraft,updatedAt,headRefOid,statusCheckRollup \
     2>/dev/null || echo err)"
+
+  # --- The review state, per non-draft PR of mine, joined onto the listing as
+  # `.reviewState`. This is route (b) of #147 as far as it goes: one shape for
+  # all three round predicates. It is NOT the handoff loop's payload hoisted up
+  # here, and that is deliberate — see the note on the handoff fetch below.
+  #
+  # A read that fails, or that comes back describing a different head than the
+  # listing saw, leaves the join null for that PR: head-checks.jq claims no
+  # round on a PR whose verdicts it cannot scope, and both cases are said out
+  # loud here rather than turning into a quiet un-owed round. Both are
+  # transient — the next tick re-reads.
+  local rs_pairs="" rs_one rs_head mine_nums mine_head
+  if [ "$mine_json" != "err" ]; then
+    mine_nums="$(printf '%s' "$mine_json" \
+      | jq -r '.[] | select(.isDraft | not) | .number' 2>/dev/null || true)"
+    for N in $mine_nums; do
+      rs_one="$(_review_state "$R" "$N")"
+      if [ -z "$rs_one" ]; then
+        warn "$R#$N: review-state read failed — no round claimed for it this tick (#147)"
+        continue
+      fi
+      rs_head="$(printf '%s' "$rs_one" | jq -r '.headRefOid // ""' 2>/dev/null)"
+      mine_head="$(printf '%s' "$mine_json" \
+        | jq -r --argjson n "$N" '.[] | select(.number == $n) | .headRefOid' 2>/dev/null)"
+      if [ "$rs_head" != "$mine_head" ]; then
+        log "$R#$N: head moved between the listing and the verdict read — no round claimed this tick (#147)"
+        continue
+      fi
+      rs_pairs="$rs_pairs$(printf '{"number":%s,"pr":%s}' "$N" "$rs_one")"$'\n'
+    done
+  fi
+
   if [ "$mine_json" = "err" ]; then
     mine_rows=err
   else
     mine_rows="$(printf '%s' "$mine_json" \
+      | jq -c --argjson rs "$(printf '%s' "$rs_pairs" \
+            | jq -sc 'map({key:(.number|tostring), value:.pr}) | from_entries' 2>/dev/null || echo '{}')" \
+          'map(. + {reviewState: ($rs[(.number|tostring)] // null)})' \
       | jq -r --argjson panel "$panel_json" --arg repo "$R" \
         -f "$DUTY_DIR/lib/jq/head-checks.jq" 2>/dev/null || echo err)"
   fi
@@ -547,6 +608,21 @@ _builder_repo() {
       # AND the convergence check below — request-panel and converged share this
       # payload, so folding the request here costs no extra call. comments carry
       # the round-answered signal (#133); a fetch failure skips both this tick.
+      #
+      # THIS READ IS NOT THE ROUND-OWED READ, AND HOISTING IT WOULD BE A BUG
+      # (#147). The round gate needs the verdicts BEFORE the build block; this
+      # read has to happen AFTER it, because its freshness is load-bearing
+      # twice over. The build session answers the round and pushes DURING this
+      # tick, and this read is what then sees its MARK_ANSWERED comment, so the
+      # panel is requested in the same tick instead of five minutes later. And
+      # _request_panel's staleness guard compares this payload's head against
+      # the head-checks head: hoisting would make both sides of that comparison
+      # come from the same pre-session snapshot, so they would AGREE while the
+      # session had already pushed past them — the engine would request a panel
+      # on a head whose check nobody had seen. #147 recommends hoisting; it
+      # proves structurally awkward for exactly that reason, so the verdicts are
+      # read in their own pass above (its route (a)) and both reads go through
+      # one shape. The extra call is one per open authored PR per tick.
       pr_payload="$(gh api graphql -f query='query($owner:String!,$name:String!,$num:Int!){
         repository(owner:$owner,name:$name){ pullRequest(number:$num){
           headRefOid mergeable
