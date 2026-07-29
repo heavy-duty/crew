@@ -12,6 +12,18 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2016  # single-quoted GraphQL/jq programs with $vars are intended
 
+# Mutates the caller's dynamically scoped ready_count/ready_items. Withheld
+# items must disappear from both the prompt and the eventual seen-ledger.
+_gate_ready_for_open_pr() {
+  if [ "$open_pr_count" -gt 0 ] && [ "$ready_count" -gt 0 ]; then
+    log "$R: $open_pr_count open authored PR(s) occupy the build slot — not claiming a ready issue"
+    ready_count=0
+    ready_items=""
+    return 0
+  fi
+  return 1
+}
+
 # Author-side duty repos are repos.txt-scoped, like every other module
 # (danmt 2026-07-25). This previously swept the org, on the rationale that
 # cast#143's converged round sat unowed 40 minutes while every tick looked
@@ -517,10 +529,7 @@ _builder_repo() {
     # still wakes so it can be answered, but ready work never starts beside an
     # awaiting-review or draft PR. Post-merge waits have no open PR to count.
     open_pr_count="$(printf '%s' "$mine_json" | jq 'length' 2>/dev/null || echo 0)"
-    if [ "$open_pr_count" -gt 0 ] && [ "$ready_count" -gt 0 ]; then
-      log "$R: $open_pr_count open authored PR(s) occupy the build slot — not claiming a ready issue"
-      ready_count=0
-    fi
+    _gate_ready_for_open_pr || true
   fi
   if [ "$cr_count" = "err" ]; then
     warn "$R: build-duty detection failed; skipping build this tick"
