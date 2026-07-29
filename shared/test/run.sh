@@ -1919,6 +1919,20 @@ if grep -q 'review-state read failed' "$BMOD"; then r1=warned; else r1=SILENT; f
 t failed-verdict-read-is-loud warned "$r1"
 if grep -q 'head moved between the listing and the verdict read' "$BMOD"; then r1=logged; else r1=SILENT; fi
 t midtick-push-defer-is-loud logged "$r1"
+# The round rows are now built by TWO jq stages — the join, then head-checks —
+# and `|| echo err` catches a failure in either only because duty.sh runs the
+# engine under pipefail. Drop pipefail and the shell reports just the last
+# stage, which is jq reading an empty stdin: it succeeds, prints nothing, and a
+# failed join surfaces as "no rows" — an idle tick. This is the negative
+# control for that, and the assertion that the engine still sets it.
+# In a shell without pipefail — this file has it, so the control needs its own.
+if bash -c 'printf "not json" | jq -c . 2>/dev/null | jq -r . 2>/dev/null'; then r1=SILENT; else r1=caught; fi
+t pipeline-without-pipefail-hides-it SILENT "$r1"
+# ...and with it, the same pipeline is caught. The pair is the whole argument.
+if (set -o pipefail; printf 'not json' | jq -c . 2>/dev/null | jq -r . 2>/dev/null); then r1=SILENT; else r1=caught; fi
+t pipeline-with-pipefail-catches-it caught "$r1"
+if grep -q 'set -euo pipefail' "$SHARED/bin/duty.sh"; then r1=pipefail; else r1=UNSET; fi
+t engine-runs-under-pipefail pipefail "$r1"
 if grep -q '.seen-ci-red' "$BMOD"; then r1=ledgered; else r1=UNGUARDED; fi
 t ci-red-signal-ledgered ledgered "$r1"
 # shellcheck disable=SC2016  # the literal the module contains, not an expansion

@@ -355,13 +355,19 @@ _builder_repo() {
     done
   fi
 
-  if [ "$mine_json" = "err" ]; then
+  # `|| echo err` has to catch a failure in EITHER stage, and it does because
+  # duty.sh runs the engine under `set -euo pipefail`. Without pipefail the
+  # shell would report only the LAST stage — jq reading an empty stdin, which
+  # succeeds and prints nothing — and a failed join would surface as "no rows",
+  # an idle tick. A failure here must never be able to look like no duty.
+  local rs_map
+  rs_map="$(printf '%s' "$rs_pairs" \
+    | jq -sc 'map({key:(.number|tostring), value:.pr}) | from_entries' 2>/dev/null || echo err)"
+  if [ "$mine_json" = "err" ] || [ "$rs_map" = "err" ]; then
     mine_rows=err
   else
     mine_rows="$(printf '%s' "$mine_json" \
-      | jq -c --argjson rs "$(printf '%s' "$rs_pairs" \
-            | jq -sc 'map({key:(.number|tostring), value:.pr}) | from_entries' 2>/dev/null || echo '{}')" \
-          -f "$DUTY_DIR/lib/jq/join-review-state.jq" \
+      | jq -c --argjson rs "$rs_map" -f "$DUTY_DIR/lib/jq/join-review-state.jq" \
       | jq -r --argjson panel "$panel_json" --arg repo "$R" \
         -f "$DUTY_DIR/lib/jq/head-checks.jq" 2>/dev/null || echo err)"
   fi
