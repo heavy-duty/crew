@@ -1872,7 +1872,6 @@ t rereq-dismissed-queues                 queue        "$(rereq_decision "$RR_H" 
 t rereq-moved-head-queues                queue        "$(rereq_decision "$RR_OLD" "$RR_H" APPROVED "$RR_T1" "$RR_T2" 1)"
 t rereq-covered-no-newer-request-skips   skip         "$(rereq_decision "$RR_H" "$RR_H" APPROVED "$RR_T2" "$RR_T1" 1)"
 t rereq-covered-no-request-at-all-skips  skip         "$(rereq_decision "$RR_H" "$RR_H" APPROVED "$RR_T1" - 1)"
-
 # --- #151: AUTO_APPROVE_REREQUEST gates the APPROVE, never the re-request -----
 # The flag sat in front of the whole timestamp comparison, so auto=0 collapsed
 # both branches to skip: a standing block plus a newer re-request at an
