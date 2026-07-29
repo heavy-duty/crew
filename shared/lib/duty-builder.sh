@@ -412,7 +412,7 @@ _builder_repo() {
   # ONE issue listing, two derived facts. Two calls could disagree about the
   # board between them, and the assigned-count is only meaningful relative to
   # the same snapshot the pickable set came from.
-  local ready_json ready_count ready_assigned cr_count head_checks="-"
+  local ready_json ready_count ready_assigned cr_count open_pr_count head_checks="-"
   local ready_items="" cr_items=""
   ready_json="$(gh issue list -R "$R" --state open --label "$LABEL_READY" \
     --json number,assignees,updatedAt 2>/dev/null || echo err)"
@@ -512,6 +512,16 @@ _builder_repo() {
     warn "$R: ready-issue detection failed (issues disabled?); counting 0"
     ready_count=0
   fi
+  if [ "$cr_count" != "err" ]; then
+    # Any open authored PR occupies the active-build slot. A completed round
+    # still wakes so it can be answered, but ready work never starts beside an
+    # awaiting-review or draft PR. Post-merge waits have no open PR to count.
+    open_pr_count="$(printf '%s' "$mine_json" | jq 'length' 2>/dev/null || echo 0)"
+    if [ "$open_pr_count" -gt 0 ] && [ "$ready_count" -gt 0 ]; then
+      log "$R: $open_pr_count open authored PR(s) occupy the build slot — not claiming a ready issue"
+      ready_count=0
+    fi
+  fi
   if [ "$cr_count" = "err" ]; then
     warn "$R: build-duty detection failed; skipping build this tick"
   elif [ "$ready_count" -gt 0 ] || [ "$cr_count" -gt 0 ]; then
@@ -520,6 +530,7 @@ _builder_repo() {
     RUN_SESSION_RC=1
     run_session build "$R" "$dir" "$TIMEOUT_BUILD" \
       "$(render_prompt build.txt ME="$ME" REPO="$R" TRIAGE="$FLEET_TRIAGE" \
+        CLAIM="$BIN_DIR/claim-issue.sh" \
         HEAD_CHECKS="$head_checks" \
         WT_RULES="$wt_rules" ROUND_RULES="$round_rules" ONESHOT_RULES="$oneshot_rules")"
     # Record what this session SAW, at the state it saw it in — but only if the
