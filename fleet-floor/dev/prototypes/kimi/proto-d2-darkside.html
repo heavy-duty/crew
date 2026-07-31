@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DARKSIDE-II — kimi prototype D2</title>
+<style>
+  html,body{margin:0;background:#04060a;height:100%;font-family:ui-monospace,Menlo,Consolas,monospace}
+  #wrap{display:flex;flex-direction:column;align-items:center;padding:18px 0}
+  canvas{display:block;background:#000;border-radius:6px;max-width:94vw;height:auto}
+  #bar{margin-top:12px;display:flex;gap:8px}
+  #bar button{font:inherit;font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    padding:7px 14px;background:#0a0f16;border:1px solid #1c2733;border-radius:7px;color:#7d8ba0;cursor:pointer}
+  #bar button.on{color:#ff9ac8;border-color:#5c2a44;background:#1c0f18}
+  #bar.btl button.on{color:#f7bd4e;border-color:#5c4420;background:#1c160c}
+  #cap{margin-top:10px;font-size:11px;color:#55657a;letter-spacing:.06em}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cv" width="520" height="600"></canvas>
+  <div id="bar">
+    <button data-st="working">working</button>
+    <button data-st="idle">idle</button>
+    <button data-st="offline">offline</button>
+  </div>
+  <div id="bar" class="btl">
+    <button data-b="0">factory</button>
+    <button data-b="1">battle 1</button>
+    <button data-b="2">battle 2</button>
+    <button data-b="3">battle 3</button>
+  </div>
+  <div id="cap">DARKSIDE-II — nuclear-torch gunship · V-keel reactor · the one that survived three times · fleet-floor grammar</div>
+</div>
+<script>
+/* ============================================================================
+   PROTO D2 — "DARKSIDE-II"
+
+   Direction correction (operator): portrait, not quadcopter. HEAVY. It flies
+   the way a nuclear torch flies — it weighs a ton and hangs in the air
+   anyway, because the V-keel under the hull is a caged reactor driving a
+   column of fire into the deck. No propellers: props are TODAY's drones.
+
+     · HEAD: armoured sensor block, scowling brow, two OPTICS in a visor
+     · HULL: the citadel — layered chest plates, coolant radiators, side
+       sponsons (one tool-cannon pod each side), cable conduits everywhere
+     · V-KEEL: two massive armoured struts converging on the reactor bulb —
+       caged nuclear fire, heat fins, hazard chevrons, trefoil stencil
+     · FLIGHT: a torch jet from the keel. It does not hover gently; it HANGS
+     · OFFLINE: the torch dies and a ton of metal sets down on outriggers
+
+   Then three battles, cumulative (?b=1..3): each one hit it, and each one it
+   survived by becoming something heavier.
+   ========================================================================== */
+var cv=document.getElementById("cv"), S=cv.getContext("2d");
+var W=520,H=600;
+var body=document.createElement("canvas"),emis=document.createElement("canvas"),rim=document.createElement("canvas");
+[body,emis,rim].forEach(function(c){c.width=W;c.height=H;});
+var RB=body.getContext("2d"),RE=emis.getContext("2d"),RR=rim.getContext("2d");
+
+function rr(c,x,y,w,h,r){c.beginPath();if(c.roundRect)c.roundRect(x,y,w,h,r);else{c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}}
+function poly(c,pts){c.beginPath();for(var i=0;i<pts.length;i++){if(i)c.lineTo(pts[i][0],pts[i][1]);else c.moveTo(pts[i][0],pts[i][1]);}c.closePath();}
+function plate(c,pts,top,bot,ed){var y0=1e9,y1=-1e9;for(var i=0;i<pts.length;i++){if(pts[i][1]<y0)y0=pts[i][1];if(pts[i][1]>y1)y1=pts[i][1];}var gg=c.createLinearGradient(0,y0,0,y1);gg.addColorStop(0,top);gg.addColorStop(1,bot);poly(c,pts);c.fillStyle=gg;c.fill();if(ed){c.strokeStyle=ed;c.lineWidth=1.2;c.lineJoin="round";c.stroke();}}
+function pl(c,x0,y0,x1,y1,col,w){c.strokeStyle=col;c.lineWidth=w||1;c.beginPath();c.moveTo(x0,y0);c.lineTo(x1,y1);c.stroke();}
+function cavity(c,x,y,w,h,a){var gg=c.createLinearGradient(0,y,0,y+h);gg.addColorStop(0,"rgba(2,5,9,"+a+")");gg.addColorStop(1,"rgba(2,5,9,0)");c.fillStyle=gg;c.fillRect(x,y,w,h);}
+function bolt(c,x,y,r,lit){c.fillStyle="#05080e";c.beginPath();c.arc(x,y,r,0,7);c.fill();
+  var gg=c.createRadialGradient(x-r*0.3,y-r*0.4,0.4,x,y,r);gg.addColorStop(0,"rgba(200,214,238,"+(lit||0.35)+")");gg.addColorStop(1,"rgba(4,8,14,0.8)");
+  c.fillStyle=gg;c.beginPath();c.arc(x,y,r*0.66,0,7);c.fill();
+  pl(c,x-r*0.34,y,x+r*0.34,y,"rgba(3,6,11,0.85)",1);}
+function seg(c,x0,y0,x1,y1,w0,w1,top,bot,ed){var dx=x1-x0,dy=y1-y0,ln=Math.hypot(dx,dy)||1,nx=-dy/ln,ny=dx/ln;
+  plate(c,[[x0+nx*w0,y0+ny*w0],[x1+nx*w1,y1+ny*w1],[x1-nx*w1,y1-ny*w1],[x0-nx*w0,y0-ny*w0]],top,bot,ed);}
+/* a cable run: drooping curve with clamp collars at both ends */
+function cable(c,x0,y0,x1,y1,sag,w,col){
+  var mx=(x0+x1)/2,my=Math.max(y0,y1)+sag;
+  c.strokeStyle=col||"rgba(14,19,28,0.95)";c.lineWidth=w||2.4;
+  c.beginPath();c.moveTo(x0,y0);c.quadraticCurveTo(mx,my,x1,y1);c.stroke();
+  c.strokeStyle="rgba(90,102,126,0.5)";c.lineWidth=0.9;
+  c.beginPath();c.moveTo(x0,y0);c.quadraticCurveTo(mx,my,x1,y1);c.stroke();}
+function clamp(c,x,y,a){c.save();c.translate(x,y);c.rotate(a);
+  c.fillStyle="#1a212e";c.fillRect(-2.6,-3,5.2,6);c.strokeStyle="#3a445a";c.lineWidth=0.8;c.strokeRect(-2.6,-3,5.2,6);c.restore();}
+/* radiation trefoil, stencilled and weathered */
+function trefoil(c,x,y,r,a){
+  c.save();c.globalAlpha=a;c.fillStyle="rgba(220,226,236,0.9)";
+  for(var i=0;i<3;i++){var a0=-Math.PI/2+i*2*Math.PI/3;
+    c.beginPath();c.moveTo(x,y);c.arc(x,y,r,a0-0.42,a0+0.42);c.closePath();c.fill();}
+  c.beginPath();c.arc(x,y,r*0.28,0,7);c.fill();
+  c.globalCompositeOperation="destination-out";
+  c.beginPath();c.arc(x,y,r*0.55,0,7);c.lineWidth=r*0.16;c.stroke();
+  c.restore();}
+
+var qs=new URLSearchParams(location.search);
+var STATE=qs.get("state")||"working";
+var BTL=Math.max(0,Math.min(3,Number(qs.get("b")||3)));
+var reduced=qs.get("t")!==null;
+var T0=qs.get("t")===null?0:Number(qs.get("t"));
+
+document.querySelectorAll("#bar button[data-st]").forEach(function(b){
+  if(b.dataset.st===STATE)b.classList.add("on");
+  b.onclick=function(){location.search="?state="+b.dataset.st+"&b="+BTL;};
+});
+document.querySelectorAll("#bar.btl button[data-b]").forEach(function(b){
+  if(Number(b.dataset.b)===BTL)b.classList.add("on");
+  b.onclick=function(){location.search="?state="+STATE+"&b="+b.dataset.b;};
+});
+
+function drawUnit(t,st){
+  var offl=st==="offline", work=st==="working";
+  [RB,RE,RR].forEach(function(c){c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,W,H);c.globalAlpha=1;c.globalCompositeOperation="source-over";});
+  var g=RB, cx=260;
+  var sT="#323c52",sM="#1a212e",sB="#0a0e16",ed="#3a445a",eH="#4a5872",rc="#06090f";
+  if(offl){sT="#20262f";sM="#10141b";sB="#070a0f";ed="#262c37";eH="#2e3540";}
+  var PK=offl?[74,80,92]:[255,114,182], PKH=offl?[120,126,138]:[255,182,214];
+  function pk(a){return "rgba("+PK[0]+","+PK[1]+","+PK[2]+","+a+")";}
+  function pkh(a){return "rgba("+PKH[0]+","+PKH[1]+","+PKH[2]+","+a+")";}
+  var pulse=offl?0:(work?(0.6+0.28*Math.sin(t*6)):(0.36+0.16*Math.sin(t*2)));
+  var bob=offl?0:Math.sin(t*1.7)*2.4;
+  var BY=offl?288:238+bob;         // hull centre; offline the ton sits down
+  var sway=offl?0:Math.sin(t*0.9)*1.2;
+
+  /* ---- 0 · the torch jet (furthest plane) ----
+     Not a hover wash — a column of contained fire. It sputters with the
+     throttle, and where it meets the deck the deck is SCORCHED. */
+  var coreY=BY+128;
+  if(!offl){var th=work?(0.75+0.25*Math.sin(t*11)+0.08*Math.sin(t*23)):(0.42+0.1*Math.sin(t*3)+0.04*Math.sin(t*7));
+    [RB,RE].forEach(function(c,ci){c.save();c.globalCompositeOperation="lighter";
+      var jg=c.createLinearGradient(0,coreY+8,0,466);
+      jg.addColorStop(0,pkh((ci?0.28:0.4)*th));jg.addColorStop(0.4,pk((ci?0.14:0.2)*th));jg.addColorStop(1,pk(0));
+      var wb=Math.sin(t*7)*4;
+      c.fillStyle=jg;c.beginPath();
+      c.moveTo(cx-10,coreY+8);c.lineTo(cx+10,coreY+8);
+      c.lineTo(cx+24+wb,466);c.lineTo(cx-24-wb,466);c.closePath();c.fill();
+      if(!ci){c.fillStyle="rgba(255,240,248,"+(0.38*th)+")";
+        c.beginPath();c.moveTo(cx-6,coreY+8);c.lineTo(cx+6,coreY+8);c.lineTo(cx+10+wb*0.5,466);c.lineTo(cx-10-wb*0.5,466);c.closePath();c.fill();
+        // side licks — the flame is not a tidy cone
+        [-1,1].forEach(function(sg9){var la=0.07+0.05*Math.sin(t*13+sg9*2);
+          c.fillStyle="rgba(255,150,200,"+(la*th)+")";
+          c.beginPath();c.moveTo(cx+sg9*6,coreY+10);c.lineTo(cx+sg9*11,coreY+10);
+          c.lineTo(cx+sg9*(19+Math.sin(t*9+sg9)*4),466);c.lineTo(cx+sg9*13,466);c.closePath();c.fill();});}
+      c.restore();});
+    // the nozzle: the jet visibly ISSUES from the bulb
+    [RB,RE].forEach(function(c){c.save();c.globalCompositeOperation="lighter";
+      var nz=c.createRadialGradient(cx,coreY+24,1,cx,coreY+24,18);
+      nz.addColorStop(0,"rgba(255,240,248,"+(0.5*th)+")");nz.addColorStop(0.5,pk(0.3*th));nz.addColorStop(1,pk(0));
+      c.fillStyle=nz;c.beginPath();c.arc(cx,coreY+24,18,0,7);c.fill();c.restore();});
+  }
+
+  /* ---- 1 · outrigger landing legs (deployed only when dead) ---- */
+  if(offl){[-1,1].forEach(function(sg){
+    seg(g,cx+sg*44,BY+2,cx+sg*86,BY+158,7,5,sM,sB,ed);
+    bolt(g,cx+sg*45,BY+4,2.6,0.1);
+    plate(g,[[cx+sg*100,BY+156],[cx+sg*72,BY+156],[cx+sg*74,BY+164],[cx+sg*98,BY+164]],sM,sB,ed);
+  });}
+
+  /* ---- 2 · V-KEEL: two massive struts + the reactor bulb ----
+     The V is the silhouette. Struts are armour beams with a hydraulic
+     alongside, brackets at both ends, hazard chevrons stencilled on. */
+  [-1,1].forEach(function(sg){
+    var hx=cx+sg*54,hy=BY+2, kx=cx+sg*13,ky=BY+118;
+    // bracket at the hull
+    plate(g,[[hx-8,hy-6],[hx+8,hy-6],[hx+7,hy+10],[hx-7,hy+10]],sM,sB,ed);
+    bolt(g,hx-4,hy+2,2,offl?0.06:0.22);bolt(g,hx+4,hy+2,2,offl?0.06:0.22);
+    // the beam — and an armour SHOE over its upper half, so it is layered,
+    // not extruded
+    seg(g,hx,hy+8,kx,ky,17,12,sT,sB,ed);
+    var shx=hx+(kx-hx)*0.42,shy=hy+8+(ky-hy)*0.42;
+    seg(g,hx,hy+8,shx,shy,18.5,15,sM,sB,ed);
+    bolt(g,hx-3,hy+14,2.2,offl?0.06:0.2);bolt(g,hx+3,hy+14,2.2,offl?0.06:0.2);
+    // yoke clamp where the beam takes the bulb
+    plate(g,[[kx-10*sg-6,ky-8],[kx-10*sg+8,ky-8],[kx-10*sg+6,ky+4],[kx-10*sg-8,ky+4]],sM,sB,ed);
+    // hydraulic ram alongside (shin-hydraulics idiom)
+    var dx2=kx-hx,dy2=ky-hy,ln=Math.hypot(dx2,dy2),nx=-dy2/ln*sg,ny=dx2/ln*sg;
+    pl(g,hx+nx*7,hy+14+ny*7,kx+nx*7,ky-8+ny*7,"rgba(6,9,15,0.9)",3.4);
+    pl(g,hx+nx*7,hy+14+ny*7,kx+nx*7,ky-8+ny*7,"rgba(150,164,190,"+(offl?0.10:0.3)+")",1.2);
+    // hazard chevrons, weathered
+    g.save();g.globalAlpha=offl?0.14:0.34;
+    for(var hz=0;hz<3;hz++){var f=0.28+hz*0.2;
+      var px2=hx+dx2*f,py2=hy+8+dy2*f;
+      g.fillStyle=hz%2?"rgba(247,189,78,0.85)":"rgba(10,12,18,0.9)";
+      g.save();g.translate(px2,py2);g.rotate(Math.atan2(dy2,dx2)+Math.PI/2);
+      g.fillRect(-5,-3.4,10,3.4);g.restore();}
+    g.restore();
+  });
+  /* the reactor bulb: a caged nuclear fire. Octagonal armoured shell, heat
+     fins, a furnace window behind TWO heavy bars — bloom leaks around the
+     cage, never through it (claude loop-4 doctrine). */
+  var core={x:cx,y:coreY};
+  var fins=8;
+  for(var fi=0;fi<fins;fi++){var fa2=fi*Math.PI/4+Math.PI/8;
+    if(Math.sin(fa2)>0.2&&!offl){ // bottom fins glow with the torch
+      RE.strokeStyle=pk(0.3+0.2*pulse);RE.lineWidth=2.4;
+      RE.beginPath();RE.moveTo(core.x+Math.cos(fa2)*26,core.y+Math.sin(fa2)*26);
+      RE.lineTo(core.x+Math.cos(fa2)*34,core.y+Math.sin(fa2)*34);RE.stroke();}
+    pl(g,core.x+Math.cos(fa2)*26,core.y+Math.sin(fa2)*26,core.x+Math.cos(fa2)*34,core.y+Math.sin(fa2)*34,"rgba(10,14,22,0.95)",4);}
+  var cpts=[];for(var ci2=0;ci2<8;ci2++){var ca=Math.PI/8+ci2*Math.PI/4;cpts.push([core.x+Math.cos(ca)*28,core.y+Math.sin(ca)*28]);}
+  plate(g,cpts,sT,sB,ed);
+  // furnace window
+  var fw2={x:core.x-15,y:core.y-12,w:30,h:24};
+  rr(g,fw2.x,fw2.y,fw2.w,fw2.h,4);g.fillStyle="#04070c";g.fill();g.strokeStyle=rc;g.lineWidth=1;g.stroke();
+  if(!offl){
+    var fire=g.createRadialGradient(core.x,core.y+2,1,core.x,core.y+2,13);
+    fire.addColorStop(0,"rgba(255,240,250,"+(0.85*pulse+0.15)+")");
+    fire.addColorStop(0.4,pkh(0.6*pulse+0.15));fire.addColorStop(1,pk(0.12));
+    g.fillStyle=fire;g.fillRect(fw2.x+1,fw2.y+1,fw2.w-2,fw2.h-2);
+    RE.save();RE.beginPath();rr(RE,fw2.x,fw2.y,fw2.w,fw2.h,4);RE.clip();
+    var fire2=RE.createRadialGradient(core.x,core.y+2,1,core.x,core.y+2,15);
+    fire2.addColorStop(0,"rgba(255,240,250,0.8)");fire2.addColorStop(0.5,pk(0.5));fire2.addColorStop(1,pk(0));
+    RE.fillStyle=fire2;RE.fillRect(fw2.x,fw2.y,fw2.w,fw2.h);RE.restore();
+  }else{
+    RB.fillStyle="rgba(150,168,190,0.3)";RB.fillRect(fw2.x+3,core.y,fw2.w-6,1.4); // the collapse line
+  }
+  // cage bars — cut out of the emissive too
+  [RB,RE].forEach(function(c,ci3){if(ci3===1&&offl)return;
+    c.fillStyle=ci3?"rgba(6,9,15,0.92)":"#10141d";
+    c.fillRect(core.x-2.4,fw2.y-1,4.8,fw2.h+2);
+    c.fillRect(fw2.x-1,core.y-1.8,fw2.w+2,3.6);});
+  bolt(g,core.x,fw2.y-4,2,offl?0.06:0.22);bolt(g,core.x,fw2.y+fw2.h+4,2,offl?0.06:0.22);
+  // trefoil stencil on the shell, weathered
+  trefoil(g,core.x-17,core.y+15,5,offl?0.18:0.42);
+
+  /* ---- 3 · HULL: the citadel ---- */
+  // belly plate (deepest, shades everything under it)
+  plate(g,[[cx-64,BY-24],[cx+64,BY-24],[cx+52,BY+10],[cx-52,BY+10]],sM,"#05080d",ed);
+  cavity(g,cx-52,BY+4,104,7,0.5);
+  // main chest — two overlapping plates with a real gap
+  plate(g,[[cx-72,BY-72],[cx+72,BY-72],[cx+62,BY-26],[cx-62,BY-26]],sT,sB,ed);
+  [-24,24].forEach(function(fx){pl(g,cx+fx,BY-70,cx+fx*0.9,BY-28,"rgba(4,8,14,0.45)",1.3);});  // facet arrises
+  [-1,1].forEach(function(fsg){ // flank overlap plates — the chest is layered
+    plate(g,[[cx+fsg*72,BY-66],[cx+fsg*84,BY-56],[cx+fsg*78,BY-34],[cx+fsg*66,BY-38]],sM,sB,ed);
+    bolt(g,cx+fsg*75,BY-52,2,offl?0.06:0.2);});
+  pl(g,cx-62,BY-26,cx+62,BY-26,"rgba(3,6,11,0.6)",2);                 // the gap
+  pl(g,cx-61,BY-27.6,cx+61,BY-27.6,"rgba(186,208,242,"+(offl?0.05:0.14)+")",1);
+  // coolant radiator block, centre chest — vertical slats in a frame
+  plate(g,[[cx-22,BY-64],[cx+22,BY-64],[cx+18,BY-34],[cx-18,BY-34]],sM,sB,ed);
+  for(var rs=0;rs<6;rs++){pl(g,cx-14+rs*5.6,BY-61,cx-14+rs*5.6,BY-37,"rgba(4,7,12,0.9)",2.6);}
+  if(!offl){RE.fillStyle=pk(0.25+0.15*pulse);RE.fillRect(cx-14,BY-37,28,2);}
+  // plastron: one more bolted plate over the belly, designation stencilled
+  plate(g,[[cx-28,BY-18],[cx+28,BY-18],[cx+23,BY+6],[cx-23,BY+6]],sT,sB,ed);
+  bolt(g,cx-22,BY-13,2,offl?0.06:0.22);bolt(g,cx+22,BY-13,2,offl?0.06:0.22);
+  g.fillStyle="rgba(198,208,224,"+(offl?0.12:0.3)+")";
+  g.font="700 9px ui-monospace,monospace";g.textAlign="center";
+  g.fillText("KM-09",cx,BY-2);
+  // chest bolts + weeping grime (albedo)
+  [[cx-58,BY-64],[cx+58,BY-64],[cx-56,BY-32],[cx+56,BY-32]].forEach(function(p2,i2){
+    bolt(g,p2[0],p2[1],2.4,offl?0.06:0.24);
+    if(i2>1){g.fillStyle="rgba(70,50,30,0.28)";poly(g,[[p2[0]-1.2,p2[1]+2],[p2[0]+1.2,p2[1]+2],[p2[0]+0.5,p2[1]+8],[p2[0]-0.5,p2[1]+8]]);g.fill();}});
+  // chipped edges — albedo nicks
+  g.fillStyle="rgba(206,220,242,"+(offl?0.09:0.24)+")";
+  [[cx-71,BY-71],[cx+70,BY-71],[cx-63,BY-27],[cx+51,BY+8]].forEach(function(nk,i3){g.fillRect(nk[0],nk[1],3+(i3%2),1.6);});
+
+  /* ---- 4 · sponsons: the pods at the hull's shoulders ----
+     RIGHT: the factory tool-cannon. LEFT after battle 1: a salvaged,
+     heavier replacement — different metal, weld seams, stencilled. */
+  [-1,1].forEach(function(sg){
+    var salvaged=(sg<0&&BTL>=1);
+    var sx=cx+sg*84, sy=BY-48;
+    plate(g,[[cx+sg*62,BY-58],[cx+sg*62,BY-30],[sx-sg*6,sy-8],[sx-sg*6,sy+6]],sM,sB,ed);   // arm
+    bolt(g,cx+sg*64,BY-44,2.6,offl?0.06:0.22);
+    if(!salvaged){
+      plate(g,[[sx-13,sy-14],[sx+13,sy-14],[sx+15,sy+12],[sx-15,sy+12]],sT,sB,ed);
+      bolt(g,sx-8,sy-8,2,offl?0.06:0.2);bolt(g,sx+8,sy-8,2,offl?0.06:0.2);
+      seg(g,sx,sy+10,sx,sy+26,6,4.4,sM,sB,ed);                                            // barrel/tool
+      plate(g,[[sx-5,sy+20],[sx+5,sy+20],[sx+5,sy+25],[sx-5,sy+25]],sT,sB,ed);   // muzzle brake
+      g.fillStyle="#05080e";g.beginPath();g.arc(sx,sy+28,3.6,0,7);g.fill();
+      if(!offl){RE.fillStyle=pk(0.55);RE.beginPath();RE.arc(sx,sy+28,1.8,0,7);RE.fill();}
+    }else{
+      /* BATTLE 1 wound+upgrade: the pod was blown off. What came back is
+         bigger, bluer, and not from this factory — weld beads all round,
+         a serial stencil, and the scorch of the old hit still on the arm. */
+      var sc4=g.createRadialGradient(cx+sg*66,BY-44,4,cx+sg*66,BY-44,26);
+      sc4.addColorStop(0,"rgba(8,5,3,0.5)");sc4.addColorStop(1,"rgba(8,5,3,0)");
+      g.fillStyle=sc4;g.beginPath();g.arc(cx+sg*66,BY-44,26,0,7);g.fill();
+      var sg2=g.createLinearGradient(0,sy-18,0,sy+16);
+      sg2.addColorStop(0,offl?"#262d36":"#3a4660");sg2.addColorStop(1,offl?"#141922":"#1e2838");
+      plate(g,[[sx-16,sy-18],[sx+16,sy-18],[sx+18,sy+16],[sx-18,sy+16]],offl?"#262d36":"#3a4660",offl?"#141922":"#1e2838",offl?"#2c333d":"#4a5a80");
+      for(var wb=0;wb<5;wb++){pl(g,sx-14+wb*7,sy-19,sx-13+wb*7,sy-15.6,"rgba(150,160,180,0.55)",1.4);}
+      seg(g,sx,sy+14,sx-sg*4,sy+34,7.4,5.4,sM,sB,ed);                                      // heavier barrel
+      plate(g,[[sx-sg*4-6,sy+27],[sx-sg*4+6,sy+27],[sx-sg*4+6,sy+33],[sx-sg*4-6,sy+33]],sT,sB,ed); // muzzle brake
+      g.fillStyle="#05080e";g.beginPath();g.arc(sx-sg*4,sy+36,4.4,0,7);g.fill();
+      if(!offl){RE.fillStyle=pk(0.6);RE.beginPath();RE.arc(sx-sg*4,sy+36,2.2,0,7);RE.fill();}
+      g.fillStyle="rgba(198,208,224,"+(offl?0.14:0.34)+")";
+      g.fillRect(sx-9,sy-12,18,2);g.fillRect(sx-9,sy-8,12,1.6);                            // SALVAGE stencil
+    }
+  });
+
+  // attitude jets on the flanks — it STEERS with fire, not props
+  [-1,1].forEach(function(sg){var vx=cx+sg*80,vy=BY-24;
+    plate(g,[[vx-6,vy-4],[vx+6,vy-4],[vx+5,vy+6],[vx-5,vy+6]],sM,sB,ed);
+    g.fillStyle="#05080e";g.beginPath();g.ellipse(vx,vy+7,3.4,2,0,0,7);g.fill();
+    if(!offl){var puff=Math.max(0,Math.sin(t*0.7+sg*1.9+ (work?2:0)))*(work?0.5:0.8);
+      if(puff>0.55){[RB,RE].forEach(function(c){c.save();c.globalCompositeOperation="lighter";
+        var pg2=c.createRadialGradient(vx,vy+9,0.5,vx,vy+9,10);
+        pg2.addColorStop(0,pkh(0.4*(puff-0.55)));pg2.addColorStop(1,pk(0));
+        c.fillStyle=pg2;c.beginPath();c.ellipse(vx,vy+11,4,9,0,0,7);c.fill();c.restore();});}}});
+
+  /* ---- 5 · HEAD: armoured sensor block ---- */
+  var hy=BY-72;
+  // collar + neck cables
+  plate(g,[[cx-16,hy-2],[cx+16,hy-2],[cx+13,hy+8],[cx-13,hy+8]],sM,sB,ed);
+  cable(g,cx-14,hy+2,cx-20,hy-16,4,2.2);cable(g,cx+14,hy+2,cx+20,hy-16,4,2.2);
+  // head block
+  plate(g,[[cx-42,hy-4],[cx-46,hy-38],[cx-30,hy-52],[cx+30,hy-52],[cx+46,hy-38],[cx+42,hy-4]],sT,sB,ed);
+  pl(g,cx,hy-52,cx,hy-22,"rgba(4,8,14,0.55)",1.4);                    // crown ridge
+  // brow — the scowl
+  plate(g,[[cx-40,hy-48],[cx+40,hy-48],[cx+33,hy-28],[cx-33,hy-28]],sM,sB,ed);
+  cavity(g,cx-33,hy-30,66,6,0.55);
+  // visor + optics
+  var vs={x:cx-32,y:hy-28,w:64,h:12};
+  rr(g,vs.x,vs.y,vs.w,vs.h,3);g.fillStyle="#04070c";g.fill();g.strokeStyle=rc;g.lineWidth=1;g.stroke();
+  if(offl){
+    RB.fillStyle="rgba(150,168,190,0.5)";RB.fillRect(vs.x+4,vs.y+5,vs.w-8,1.4);
+    RE.fillStyle="rgba(150,168,190,0.2)";RE.fillRect(vs.x+4,vs.y+5,vs.w-8,1.4);}
+  else{
+    var gaze=work?0:Math.round(Math.sin(t*0.55)*5);
+    var oL={x:cx-15+gaze,y:vs.y+6}, oR={x:cx+15+gaze,y:vs.y+6};
+    var optics=[{o:oL,col:BTL>=3?[255,176,84]:PK, colH:BTL>=3?[255,214,150]:PKH},   // battle 3: left optic is a REPLACEMENT, amber
+                {o:oR,col:PK,colH:PKH}];
+    optics.forEach(function(op){
+      var cc=offl?[74,80,92]:op.col, ch=offl?[120,126,138]:op.colH;
+      [RB,RE].forEach(function(c){var eg=c.createRadialGradient(op.o.x,op.o.y,0.4,op.o.x,op.o.y,7);
+        eg.addColorStop(0,"rgba("+ch[0]+","+ch[1]+","+ch[2]+","+(0.85+0.15*pulse)+")");
+        eg.addColorStop(0.5,"rgba("+cc[0]+","+cc[1]+","+cc[2]+","+(0.5*pulse)+")");
+        eg.addColorStop(1,"rgba("+cc[0]+","+cc[1]+","+cc[2]+",0)");
+        c.fillStyle=eg;c.beginPath();c.arc(op.o.x,op.o.y,7,0,7);c.fill();});
+      [RB,RE].forEach(function(c){c.fillStyle="rgba("+ch[0]+","+ch[1]+","+ch[2]+",0.95)";rr(c,op.o.x-2.5,op.o.y-2.5,5,5,1.5);c.fill();});});
+  }
+  if(BTL>=3){ // the crack that took the eye — still in the glass
+    g.strokeStyle="rgba(190,205,228,"+(offl?0.10:0.3)+")";g.lineWidth=0.9;
+    g.beginPath();g.moveTo(vs.x+8,vs.y+1);g.lineTo(vs.x+15,vs.y+6);g.lineTo(vs.x+12,vs.y+10);g.stroke();
+    // and the brow plate welded over the wound
+    plate(g,[[cx-32,hy-46],[cx-10,hy-46],[cx-12,hy-32],[cx-30,hy-32]],offl?"#262d36":"#3a4660",offl?"#141922":"#1e2838",offl?"#2c333d":"#4a5a80");
+    pl(g,cx-30,hy-47,cx-12,hy-47,"rgba(150,160,180,0.5)",1.4);}
+  // antennae: armoured blade right, whip left (battle 3: whip is a snapped stub)
+  plate(g,[[cx+24,hy-48],[cx+32,hy-48],[cx+34,hy-72],[cx+27,hy-72]],sM,sB,ed);
+  bolt(g,cx+28,hy-50,1.8,offl?0.05:0.18);
+  if(BTL>=3){plate(g,[[cx-28,hy-48],[cx-22,hy-48],[cx-24,hy-58],[cx-27,hy-57]],sM,sB,ed);
+    g.fillStyle="rgba(206,220,242,"+(offl?0.1:0.3)+")";g.fillRect(cx-27,hy-58,3,1.6);}      // bright break
+  else{seg(g,cx-26,hy-48,cx-30-sway*2,hy-78,2.6,1.4,sT,sB,ed);
+    g.fillStyle=sM;g.beginPath();g.arc(cx-30-sway*2,hy-79,2.6,0,7);g.fill();
+    if(!offl){RE.fillStyle=pk(0.5);RE.beginPath();RE.arc(cx-30-sway*2,hy-79,1.4,0,7);RE.fill();}}
+
+  /* ---- 6 · cables: the machine's veins ----
+     Conduit runs from the sponsons into the keel brackets, one slack loop
+     across the belly, and after battle 2 the coolant line that was INSIDE
+     the right strut now runs outside it, clamped every hand's width. */
+  cable(g,cx-76,BY-36,cx-56,BY-2,10,2.6);clamp(g,cx-76,BY-36,0.4);clamp(g,cx-56,BY-2,-0.4);
+  cable(g,cx+76,BY-36,cx+56,BY-2,10,2.6);clamp(g,cx+76,BY-36,-0.4);clamp(g,cx+56,BY-2,0.4);
+  cable(g,cx-30,BY+6,cx+30,BY+6,12+(offl?6:Math.sin(t*1.7+1)*2),2.2,"rgba(20,27,38,0.95)");
+  if(BTL>=2){
+    /* BATTLE 2 wound: the keel took a breach. The strut wears a bolted
+       SPLINT, one fin is bent, and the coolant line is rerouted OUTSIDE —
+       a bare hose with clamp collars, weeping at one joint. */
+    var hx2=cx+54,hy2=BY+2,kx2=cx+13,ky2=BY+118;
+    var f1=0.42,f2=0.62;
+    var p1={x:hx2+(kx2-hx2)*f1,y:hy2+8+(ky2-hy2)*f1}, p2={x:hx2+(kx2-hx2)*f2,y:hy2+8+(ky2-hy2)*f2};
+    var ang=Math.atan2(ky2-hy2,kx2-hx2);
+    [p1,p2].forEach(function(pp2){g.save();g.translate(pp2.x,pp2.y);g.rotate(ang+Math.PI/2);
+      plate(g,[[-11,-4],[11,-4],[10,4],[-10,4]],"#3a4660","#1e2838","#4a5a80");
+      bolt(g,-6,0,1.8,offl?0.06:0.2);bolt(g,6,0,1.8,offl?0.06:0.2);g.restore();});
+    // bent fin
+    pl(g,core.x-21,core.y+10,core.x-30,core.y+18,"rgba(10,14,22,0.95)",4);
+    // the rerouted hose
+    g.strokeStyle="rgba(26,34,46,0.98)";g.lineWidth=3.6;
+    g.beginPath();g.moveTo(cx+58,BY-4);
+    g.quadraticCurveTo(cx+78,BY+40,cx+40,BY+96);
+    g.quadraticCurveTo(cx+26,BY+116,core.x+16,core.y-6);g.stroke();
+    g.strokeStyle="rgba(100,112,136,0.4)";g.lineWidth=1.1;
+    g.beginPath();g.moveTo(cx+58,BY-4);
+    g.quadraticCurveTo(cx+78,BY+40,cx+40,BY+96);
+    g.quadraticCurveTo(cx+26,BY+116,core.x+16,core.y-6);g.stroke();
+    clamp(g,cx+58,BY-4,0.9);clamp(g,cx+63,BY+34,0.35);clamp(g,cx+44,BY+88,0.9);clamp(g,core.x+16,core.y-6,0.5);
+    // the weep at the second clamp — coolant, faintly lit when the reactor is
+    g.fillStyle=offl?"rgba(70,80,96,0.4)":pk(0.35);
+    poly(g,[[cx+62,BY+38],[cx+65,BY+38],[cx+64,BY+47],[cx+63,BY+47]]);g.fill();
+    if(!offl){RE.fillStyle=pk(0.25);RE.fillRect(cx+63,BY+40,2,5);}
+  }
+  if(BTL>=1){ // battle 1 chest gouge — the hit that took the pod kept going
+    poly(g,[[cx-64,BY-58],[cx-40,BY-48],[cx-44,BY-40],[cx-68,BY-50]]);g.fillStyle="rgba(2,4,8,1)";g.fill();
+    pl(g,cx-64,BY-58,cx-40,BY-48,"rgba(198,216,246,"+(offl?0.10:0.34)+")",1.4);
+  }
+  if(BTL>=3){ // kill tallies + the crudely re-painted crescent
+    g.fillStyle="rgba(198,208,224,"+(offl?0.16:0.42)+")";
+    for(var kt=0;kt<7;kt++)g.fillRect(cx+36+(kt%4)*5,BY-64+Math.floor(kt/4)*10,2.2,7);
+    g.save();g.globalAlpha=offl?0.2:0.5;g.strokeStyle=pk(0.9);g.lineWidth=2.2;
+    g.beginPath();g.arc(cx+48,BY-40,5.4,-0.7,Math.PI+0.7);g.stroke();
+    g.globalAlpha=1;g.fillStyle="rgba(10,14,20,0.9)";g.fillRect(cx+45,BY-44,2.6,2);g.restore();
+  }
+
+  /* ---- 7 · offline: beacon catch on the left arris ---- */
+  if(offl){var bp=0.55;
+    pl(g,cx-72,BY-72,cx-62,BY-26,"rgba(255,64,52,"+(0.24*bp)+")",1.8);
+    pl(g,cx-40,hy-36,cx-36,hy-4,"rgba(255,64,52,"+(0.2*bp)+")",1.6);
+    RE.strokeStyle="rgba(255,64,52,"+(0.12*bp)+")";RE.lineWidth=2.2;
+    RE.beginPath();RE.moveTo(cx-72,BY-72);RE.lineTo(cx-62,BY-26);RE.stroke();}
+
+  /* ---- room light lands on the unit ---- */
+  RB.save();RB.globalCompositeOperation="source-atop";
+  var ktl=offl?"rgba(96,110,136,0.13)":"rgba(255,214,160,0.07)";
+  var ktg=RB.createLinearGradient(0,BY-130,0,BY+150);
+  ktg.addColorStop(0,ktl);ktg.addColorStop(1,"rgba(0,0,0,0.06)");
+  RB.fillStyle=ktg;RB.fillRect(0,0,W,H);RB.restore();
+
+  /* ---- rim light: pink key, cyan fill ---- */
+  RR.globalCompositeOperation="source-over";RR.drawImage(body,0,0);
+  RR.globalCompositeOperation="destination-out";RR.drawImage(body,-2.2,1.7);RR.drawImage(body,-1.5,-2.4);
+  RR.globalCompositeOperation="source-in";
+  var rl=RR.createLinearGradient(60,0,460,0);
+  rl.addColorStop(0,"rgba(255,114,182,0.95)");rl.addColorStop(0.42,"rgba(200,145,195,0.45)");rl.addColorStop(1,"rgba(95,214,255,1)");
+  RR.fillStyle=rl;RR.fillRect(0,0,W,H);RR.globalCompositeOperation="source-over";
+}
+
+/* ---- scene ---- */
+function drawScene(t,st){
+  var offl=st==="offline";
+  var wall=S.createLinearGradient(0,0,0,H);
+  wall.addColorStop(0,offl?"#07090d":"#0b0e14");wall.addColorStop(0.75,offl?"#05070a":"#090c12");wall.addColorStop(1,"#05070b");
+  S.fillStyle=wall;S.fillRect(0,0,W,H);
+  if(!offl){var cone=S.createLinearGradient(0,40,0,470);
+    cone.addColorStop(0,"rgba(255,214,150,0.10)");cone.addColorStop(1,"rgba(255,214,150,0)");
+    S.fillStyle=cone;S.beginPath();S.moveTo(235,40);S.lineTo(285,40);S.lineTo(400,470);S.lineTo(120,470);S.closePath();S.fill();}
+  else{var bc=S.createRadialGradient(90,120,4,90,120,150);
+    bc.addColorStop(0,"rgba(255,60,50,0.12)");bc.addColorStop(1,"rgba(255,60,50,0)");
+    S.fillStyle=bc;S.fillRect(0,0,W,H);}
+  S.fillStyle=offl?"#07090c":"#0d1118";S.fillRect(0,470,W,H-470);
+  pl(S,0,470,W,470,"rgba(120,140,170,0.14)",1);
+  if(offl){
+    [-86,86].forEach(function(dx){var sh=S.createRadialGradient(260+dx,474,1,260+dx,474,26);
+      sh.addColorStop(0,"rgba(0,0,0,0.6)");sh.addColorStop(0.6,"rgba(0,0,0,0.28)");sh.addColorStop(1,"rgba(0,0,0,0)");
+      S.fillStyle=sh;S.beginPath();S.ellipse(260+dx,474,26,8,0,0,7);S.fill();});
+  }else{
+    // the torch's scorch ring on the deck — permanent, and alive when lit
+    var sc2=S.createRadialGradient(260,470,4,260,470,60);
+    sc2.addColorStop(0,"rgba(6,4,3,0.85)");sc2.addColorStop(0.6,"rgba(8,5,4,0.4)");sc2.addColorStop(1,"rgba(8,5,4,0)");
+    S.fillStyle=sc2;S.beginPath();S.ellipse(260,470,60,14,0,0,7);S.fill();
+    S.save();S.globalCompositeOperation="lighter";
+    var th=0.75+0.25*Math.sin(t*11);
+    var tg=S.createRadialGradient(260,470,2,260,470,44);
+    tg.addColorStop(0,"rgba(255,182,214,"+(0.35*th)+")");tg.addColorStop(0.5,"rgba(255,114,182,"+(0.16*th)+")");tg.addColorStop(1,"rgba(255,114,182,0)");
+    S.fillStyle=tg;S.beginPath();S.ellipse(260,470,44,11,0,0,7);S.fill();S.restore();
+    // soft hover shadow beyond the scorch
+    var sh=S.createRadialGradient(260,474,10,260,474,110);
+    sh.addColorStop(0,"rgba(0,0,0,0)");sh.addColorStop(0.75,"rgba(0,0,0,0.14)");sh.addColorStop(1,"rgba(0,0,0,0)");
+    S.fillStyle=sh;S.beginPath();S.ellipse(260,474,110,16,0,0,7);S.fill();
+  }
+  S.drawImage(body,0,0);
+  S.drawImage(rim,0,0);
+  S.save();S.globalCompositeOperation="lighter";S.drawImage(emis,0,0);S.restore();
+}
+
+function frame(){
+  var t=reduced?T0:(performance.now()/1000);
+  drawUnit(t,STATE);drawScene(t,STATE);
+  if(!reduced)requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>
