@@ -2723,6 +2723,24 @@ function buildGrok(t,st){
   g.fillStyle="rgba(0,0,0,0.28)";
   g.fillRect(cx-48,BY-10,18,8);g.fillRect(cx+30,BY-10,18,8);
 
+  /* LOOP 4 — a service history. Factory-clean armour is untested armour.
+     Left pauldron gouge (dark trench, bright torn lip); right pec field
+     patch of bluer steel over a scorch with weld stitches; three tally
+     strokes in worn gold beside a GX unit mark. */
+  // gouge across left pauldron
+  pl(g,cx-50,BY-24,cx-28,BY-14,"rgba(4,8,14,0.65)",2.4);
+  pl(g,cx-49.5,BY-25,cx-27.5,BY-15,"rgba(170,192,222,"+(offl?0.12:0.34)+")",1);
+  // scorch + field patch on right chest
+  g.fillStyle="rgba(20,12,8,0.45)";g.beginPath();g.ellipse(cx+18,BY+4,10,7,0.2,0,7);g.fill();
+  plate(g,[[cx+10,BY-2],[cx+26,BY-4],[cx+28,BY+10],[cx+12,BY+12]],"#3a4a62","#1e2a3c",ed);
+  rivet(g,cx+13,BY,eH);rivet(g,cx+24,BY-1,eH);rivet(g,cx+14,BY+8,eH);rivet(g,cx+25,BY+7,eH);
+  // weld stitches along top of patch
+  for(var ws=0;ws<5;ws++){var wx=cx+12+ws*3.2;pl(g,wx,BY-3,wx+1.5,BY-1,"rgba(150,170,200,"+(offl?0.1:0.28)+")",0.9);}
+  // unit mark + tallies (worn gold)
+  g.fillStyle="rgba(196,168,84,"+(offl?0.2:0.55)+")";
+  g.font="bold 7px monospace";g.fillText("GX",cx-26,BY+14);
+  for(var tk=0;tk<3;tk++){g.fillRect(cx-14+tk*4,BY+10,1.4,6);}
+
   // ---- arms ----
   var handR;
   // left arm — always free hand / ready
@@ -2740,16 +2758,16 @@ function buildGrok(t,st){
       rivet(g,gx2,gy+1,eH);
     }else if(work){
       var ex=cx-42,ey=BY+4,gx2=cx-34,gy=BY+28;
-      limbSeg(g,sx,sy,ex,ey,7,6,sM,sB);
-      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,5,0,7);g.fill();
-      limbSeg(g,ex,ey,gx2,gy,6,5,sT,sB);
-      plate(g,[[gx2-7,gy-4],[gx2+7,gy-4],[gx2+8,gy+8],[gx2-8,gy+8]],sT,sB,ed);
+      limbSeg(g,sx,sy,ex,ey,9,7.5,sM,sB);
+      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,6,0,7);g.fill();
+      limbSeg(g,ex,ey,gx2,gy,7.5,6.5,sT,sB);
+      plate(g,[[gx2-9,gy-5],[gx2+9,gy-5],[gx2+10,gy+10],[gx2-10,gy+10]],sT,sB,ed);
     }else{ // offline hang
       var ex=cx-44,ey=BY+10,gx2=cx-38,gy=BY+34;
-      limbSeg(g,sx,sy,ex,ey,7,6,sM,sB);
-      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,5,0,7);g.fill();
-      limbSeg(g,ex,ey,gx2,gy,6,5,sT,sB);
-      plate(g,[[gx2-7,gy-3],[gx2+7,gy-3],[gx2+8,gy+8],[gx2-8,gy+8]],sT,sB,ed);
+      limbSeg(g,sx,sy,ex,ey,9,7.5,sM,sB);
+      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,6,0,7);g.fill();
+      limbSeg(g,ex,ey,gx2,gy,7.5,6.5,sT,sB);
+      plate(g,[[gx2-9,gy-4],[gx2+9,gy-4],[gx2+10,gy+10],[gx2-10,gy+10]],sT,sB,ed);
     }
   })();
   // right arm — RAY GUN
@@ -2758,12 +2776,12 @@ function buildGrok(t,st){
     if(work){
       // raised, aiming
       var ex=cx+48,ey=BY-18,gx2=cx+42,gy=BY-44;
-      limbSeg(g,sx,sy,ex,ey,7,6,sM,sB);
-      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,5,0,7);g.fill();
-      if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.55);c.fillRect(ex-2,ey-2,4,2);});}
-      limbSeg(g,ex,ey,gx2,gy,6,5,sT,sB);
+      limbSeg(g,sx,sy,ex,ey,9,7.5,sM,sB);
+      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,6,0,7);g.fill();
+      if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.55);c.fillRect(ex-2.5,ey-2,5,2.5);});}
+      limbSeg(g,ex,ey,gx2,gy,7.5,6.5,sT,sB);
       // wrist clamp
-      plate(g,[[gx2-6,gy-2],[gx2+6,gy-2],[gx2+6,gy+6],[gx2-6,gy+6]],sM,sB,ed);
+      plate(g,[[gx2-8,gy-3],[gx2+8,gy-3],[gx2+8,gy+7],[gx2-8,gy+7]],sM,sB,ed);
       handR={x:gx2+2,y:gy-2};
       // RAY GUN body — heavy plasma pistol
       var hx=gx2+2,hy=gy-2;
@@ -2785,10 +2803,10 @@ function buildGrok(t,st){
     }else if(idle){
       // gun held low at hip, ready
       var ex=cx+44,ey=BY+8,gx2=cx+36,gy=BY+22;
-      limbSeg(g,sx,sy,ex,ey,7,6,sM,sB);
-      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,5,0,7);g.fill();
-      limbSeg(g,ex,ey,gx2,gy,6,5,sT,sB);
-      plate(g,[[gx2-6,gy-2],[gx2+6,gy-2],[gx2+6,gy+6],[gx2-6,gy+6]],sM,sB,ed);
+      limbSeg(g,sx,sy,ex,ey,9,7.5,sM,sB);
+      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,6,0,7);g.fill();
+      limbSeg(g,ex,ey,gx2,gy,7.5,6.5,sT,sB);
+      plate(g,[[gx2-8,gy-3],[gx2+8,gy-3],[gx2+8,gy+7],[gx2-8,gy+7]],sM,sB,ed);
       handR={x:gx2+4,y:gy};
       var hx=gx2+4,hy=gy;
       plate(g,[[hx-2,hy-8],[hx+18,hy-6],[hx+18,hy+6],[hx-2,hy+4]],"#2a2038","#120e1c","#4a3a5e");
@@ -2798,9 +2816,9 @@ function buildGrok(t,st){
     }else{
       // offline: gun hangs slack
       var ex=cx+44,ey=BY+12,gx2=cx+38,gy=BY+36;
-      limbSeg(g,sx,sy,ex,ey,7,6,sM,sB);
-      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,5,0,7);g.fill();
-      limbSeg(g,ex,ey,gx2,gy,6,5,sT,sB);
+      limbSeg(g,sx,sy,ex,ey,9,7.5,sM,sB);
+      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,6,0,7);g.fill();
+      limbSeg(g,ex,ey,gx2,gy,7.5,6.5,sT,sB);
       handR={x:gx2,y:gy};
       var hx=gx2,hy=gy;
       plate(g,[[hx-3,hy-4],[hx+14,hy-2],[hx+14,hy+8],[hx-3,hy+6]],"#221a30","#100c18","#3a2a48");
