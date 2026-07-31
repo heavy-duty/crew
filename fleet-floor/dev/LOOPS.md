@@ -1974,3 +1974,62 @@ ten-lens battery reads as a cold glow cluster at cell size — more sentinel
 there, not less.
 
 ![codex structure progression, round 7](shots/codex-structure/progression-7.webp)
+
+---
+
+## Grok structure — fifteen loops (war-suit rebuild)
+
+Follow-up to the claude (#195) and codex (#199) structure series, same brief
+applied to **grok's unit only**, all in `buildGrok`. The starting point was a
+soft EVA pressure suit — quilted fabric, gold dome, starfield visor, folded
+arms — which read kid-friendly next to the fleet's veterans. Fifteen passes
+turned it into a thruster-borne shock trooper: hard plate, ray gun, battle
+scars, cold twin optics. Small body, big threat. No other unit, room, or
+shared helper is touched.
+
+### Round 1 — the war-suit foundation (loops 1–5)
+
+1. **Hard plate, caged reactor, ray gun.** Fabric quilting deleted. Faceted
+   chest, combat pauldrons, armoured thruster pods, chevron-brow helmet with a
+   firing-slit visor, plasma ray gun (raised working / ready idle / slack
+   offline). Reactor caged — bloom around the bars, never through.
+2. **The face is a weapon mount.** Deeper chevron brow, zygomatic wedges,
+   squared jaw, twin cold optics in the slit. Expression machinery deleted.
+3. **Chad pass.** Broad mismatched pauldrons (forged left, field-replacement
+   right), trapezius collar, forged limb mass on thighs/shins/boots/gauntlets.
+4. **Service history.** Pauldron gouge, field patch over scorch with weld
+   stitches, worn-gold `GX` mark and three tallies. All arm poses put on mass.
+5. **The ray gun earns its name.** Heat-sink fins, muzzle brake, charge coil,
+   underbarrel rail, forward beam stab when working.
+
+![grok structure progression](shots/grok-structure/progression.webp)
+
+### Round 2 — veteran detail (loops 6–10)
+
+6. **Trailing cables.** Power looms loop pack→collar; doom units trail cables,
+   not luggage.
+7. **Fat ribbed neck tubes** under tension; bow out offline.
+8. **Battle two:** left shoulder blast answered with a crude over-plate.
+9. **Battle three:** three claw rakes on the right thigh; paint nicks on knees.
+10. **Light and wear:** thruster soot, helmet/chest leading-edge nicks.
+
+### Round 3 — menace + cohesion (loops 11–15)
+
+11. **Silhouette bite** on the right pauldron edge (cut to transparency).
+12. **Combat-ready idle:** gun held mid-body, barrel out — armed, not cute.
+13. **Bare actuator rods** socket→elbow on every arm pose.
+14. **Strapped crack** on the left pec — reweld + bolted strap of newer steel.
+15. **Stud knuckles, hip holster, offline head-sag.** Even the empty hand is a
+    weapon; dead, the head hangs in its mount.
+
+![grok states](shots/grok-structure/states.webp)
+
+### The whole arc
+
+One frame per documented loop, soft EVA → war veteran:
+
+![evolution](shots/grok-structure/evolution.gif)
+
+Hover identity preserved (thrusters, dangling feet, soft airborne shadows).
+Purple vendor colour and rim preserved. `buildGrok` return contract
+(hand / feet / coreY / hy) unchanged.
