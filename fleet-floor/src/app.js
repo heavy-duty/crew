@@ -2592,218 +2592,266 @@ function buildCodex(t,st){
   return {hand:handR||{x:cx+18,y:BY+42},coreY:coreY,hy:hy2-10,offl:offl,work:work,feet:CFEET};
 }
 
-/* ===================== GROK — floating astronaut w/ jetpack (purple) ===================== */
+/* ===================== GROK — thruster-borne shock trooper (purple) =====================
+   Compact war veteran: hard plate, ray gun, dual thrusters. Small body, big threat.
+   Survived every fight by packing heat the big units don't need. */
 function buildGrok(t,st){
   var offl=st==="offline", work=st==="working";
   var GX=[RB,RE,RR];for(var q=0;q<3;q++){var c0=GX[q];c0.setTransform(1,0,0,1,0,0);c0.clearRect(0,0,RW,RH);c0.globalAlpha=1;c0.globalCompositeOperation="source-over";c0.filter="none";}
   var cx=260, g=RB;
-  var F=1.8, OY=-368, TA=260-260*F;                        // ~1.27x larger + floats a touch higher
+  var F=1.8, OY=-368, TA=260-260*F;
   RB.setTransform(F,0,0,F,TA,OY);RE.setTransform(F,0,0,F,TA,OY);
   function TX(x){return F*x+TA;} function TY(y){return F*y+OY;}
-  var sT="#2a3040",sM="#171c27",sB="#0a0d15",ed="#323a4c",eH="#48566e",rc="#06090f";
-  if(offl){sT="#1b1f27";sM="#0f131a";sB="#070a0f";ed="#242a33";eH="#2e3540";}
+  var sT="#2a3344",sM="#151c28",sB="#080c14",ed="#343e52",eH="#4a5a74",rc="#04070c";
+  if(offl){sT="#1a1f28";sM="#0e131a";sB="#06090e";ed="#252c38";eH="#2e3644";}
   var PUR=offl?[74,80,92]:[176,124,255], PURH=offl?[120,126,138]:[220,198,255];
   function pu(a){return "rgba("+PUR[0]+","+PUR[1]+","+PUR[2]+","+a+")";}
   function puh(a){return "rgba("+PURH[0]+","+PURH[1]+","+PURH[2]+","+a+")";}
-  var pulse=offl?0:(work?(0.6+0.28*Math.sin(t*6)):(0.34+0.16*Math.sin(t*2)));
-  var thr=offl?0:(work?1:0.7)*(0.82+0.18*Math.sin(t*22));
-  var bob=(offl||reduced)?0:Math.round(Math.sin(t*1.8)*3);
-  var BY=offl?392:364+bob;
   function limbSeg(c,x0,y0,x1,y1,w0,w1,top,bot){var dx=x1-x0,dy=y1-y0,ln=Math.hypot(dx,dy)||1,nx=-dy/ln,ny=dx/ln;plate(c,[[x0+nx*w0,y0+ny*w0],[x1+nx*w1,y1+ny*w1],[x1-nx*w1,y1-ny*w1],[x0-nx*w0,y0-ny*w0]],top,bot,ed);}
+  function weep(x,y,len){g.fillStyle="rgba(70,44,24,0.30)";poly(g,[[x-1.2,y+2],[x+1.2,y+2],[x+0.6,y+len],[x-0.6,y+len]]);g.fill();}
+  var pulse=offl?0:(work?(0.6+0.28*Math.sin(t*6)):(0.34+0.16*Math.sin(t*2)));
+  var thr=offl?0:(work?1:0.72)*(0.82+0.18*Math.sin(t*22));
+  var bob=(offl||reduced)?0:Math.round(Math.sin(t*1.8)*3);
+  var BY=offl?396:364+bob;
+  var idle=!work&&!offl;
 
   // ---- thruster exhaust plumes (behind, downward) ----
-  if(!offl){[-1,1].forEach(function(sg){var nx2=cx+sg*24, ny=BY+32;
-    [RB,RE].forEach(function(c){c.save();c.globalCompositeOperation="lighter";var bx=nx2+sg*8,by2=ny+92;var pl2=c.createLinearGradient(nx2,ny,bx,by2);pl2.addColorStop(0,puh(0.72*thr));pl2.addColorStop(0.3,pu(0.42*thr));pl2.addColorStop(1,pu(0));c.fillStyle=pl2;c.beginPath();c.moveTo(nx2-5,ny);c.lineTo(nx2+5,ny);c.lineTo(bx+9,by2);c.lineTo(bx-9,by2);c.closePath();c.fill();c.fillStyle="rgba(255,255,255,"+(0.6*thr)+")";c.fillRect(nx2-2,ny-2,4,12);c.restore();});});}
+  if(!offl){[-1,1].forEach(function(sg){var nx2=cx+sg*26, ny=BY+36;
+    [RB,RE].forEach(function(c){c.save();c.globalCompositeOperation="lighter";
+      var bx=nx2+sg*10,by2=ny+96;var pl2=c.createLinearGradient(nx2,ny,bx,by2);
+      pl2.addColorStop(0,puh(0.78*thr));pl2.addColorStop(0.28,pu(0.48*thr));pl2.addColorStop(1,pu(0));
+      c.fillStyle=pl2;c.beginPath();c.moveTo(nx2-6,ny);c.lineTo(nx2+6,ny);c.lineTo(bx+11,by2);c.lineTo(bx-11,by2);c.closePath();c.fill();
+      c.fillStyle="rgba(255,255,255,"+(0.55*thr)+")";c.fillRect(nx2-2,ny-2,4,14);c.restore();});});}
 
-  // ---- backpack + side thruster pods + nozzles ----
-  plate(g,[[cx-20,BY-30],[cx+20,BY-30],[cx+18,BY+26],[cx-18,BY+26]],sM,sB,ed);
+  // ---- backpack plate + armored thruster pods (military hardware) ----
+  plate(g,[[cx-22,BY-28],[cx+22,BY-28],[cx+20,BY+30],[cx-20,BY+30]],sM,sB,ed);
+  // heat-sink fins on pack
+  for(var fi=0;fi<4;fi++){var fy=BY-18+fi*10;pl(g,cx-18,fy,cx+18,fy,rc,1);}
   [-1,1].forEach(function(sg){
-    plate(g,[[cx+sg*18,BY-10],[cx+sg*30,BY-8],[cx+sg*30,BY+20],[cx+sg*18,BY+18]],sM,sB,ed);           // pod
-    plate(g,[[cx+sg*24-5,BY+18],[cx+sg*24+5,BY+18],[cx+sg*24+4,BY+32],[cx+sg*24-4,BY+32]],sT,sB,ed);   // nozzle
-    if(!offl){RB.fillStyle=pu(0.6*thr);RB.fillRect(cx+sg*24-3,BY+29,6,3);RE.fillStyle=pu(0.6*thr);RE.fillRect(cx+sg*24-3,BY+29,6,3);}
+    // pod body — chamfered, bolted
+    plate(g,[[cx+sg*18,BY-6],[cx+sg*36,BY-4],[cx+sg*36,BY+24],[cx+sg*18,BY+22]],sT,sB,ed);
+    plate(g,[[cx+sg*20,BY-2],[cx+sg*34,BY],[cx+sg*34,BY+8],[cx+sg*20,BY+6]],"#323c50","#1a2230",null);
+    rivet(g,cx+sg*22,BY+2,eH);rivet(g,cx+sg*30,BY+3,eH);
+    // nozzle — canted, hollow mouth with ember
+    var nx=cx+sg*27, ny0=BY+22;
+    plate(g,[[nx-7,ny0],[nx+7,ny0],[nx+6,ny0+16],[nx-6,ny0+16]],sT,sB,ed);
+    g.fillStyle=rc;g.fillRect(nx-4,ny0+12,8,5);
+    if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.7*thr);c.fillRect(nx-3,ny0+13,6,3);
+      c.fillStyle=puh(0.5*thr);c.fillRect(nx-1.5,ny0+11,3,2);});}
+    // clamp band
+    g.strokeStyle=eH;g.lineWidth=1.4;g.beginPath();g.moveTo(nx-7,ny0+6);g.lineTo(nx+7,ny0+6);g.stroke();
   });
 
-  // ---- legs (dangling; droop more when offline) ----
-  function leg(sgn){var hxp=cx+sgn*12,hy0=BY+26,kx=hxp+sgn*(offl?4:10),ky=hy0+(offl?50:40),fx=hxp+sgn*2,fy=ky+(offl?40:38);
-    limbSeg(g,hxp,hy0,kx,ky,7,6,sM,sB);limbSeg(g,kx,ky,fx,fy,6,5,sT,sB);
-    plate(g,[[fx-6,fy-2],[fx+6,fy-2],[fx+9,fy+8],[fx-7,fy+8]],sM,sB,ed);}
+  // ---- legs (armored assemblies; dangle more offline) ----
+  function leg(sgn){
+    var hxp=cx+sgn*14,hy0=BY+28;
+    var kx=hxp+sgn*(offl?5:12),ky=hy0+(offl?48:38);
+    var fx=hxp+sgn*3,fy=ky+(offl?42:40);
+    // thigh plate
+    limbSeg(g,hxp,hy0,kx,ky,9,7.5,sM,sB);
+    // knee cap
+    plate(g,[[kx-8,ky-6],[kx+8,ky-6],[kx+7,ky+8],[kx-7,ky+8]],sT,sM,ed);
+    rivet(g,kx,ky+1,eH);
+    if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.55+0.2*pulse);c.fillRect(kx-3,ky-2,6,2.5);});}
+    // shin + hydraulic
+    limbSeg(g,kx,ky,fx,fy,7,6,sT,sB);
+    pl(g,kx+sgn*6,ky+4,fx+sgn*5,fy-6,"#0a0f18",3.5);
+    pl(g,kx+sgn*6,ky+4,fx+sgn*5,fy-6,offl?"#333c48":"#7e94b2",1.1);
+    // boot
+    plate(g,[[fx-9,fy-3],[fx+9,fy-3],[fx+12,fy+10],[fx-10,fy+10]],sM,sB,ed);
+    plate(g,[[fx-10,fy+7],[fx+12,fy+7],[fx+12,fy+10],[fx-10,fy+10]],"#0a0e16","#03050a",null);
+    rivet(g,fx-4,fy+2,eH);rivet(g,fx+5,fy+2,eH);
+  }
   leg(-1);leg(1);
 
-  // ---- torso (spacesuit) ----
-  plate(g,[[cx-24,BY-30],[cx+24,BY-30],[cx+27,BY+26],[cx-27,BY+26]],sT,sM,ed);
-  plate(g,[[cx-24,BY-30],[cx+24,BY-30],[cx+22,BY-20],[cx-22,BY-20]],"#333b4d","#202735",null);
-  pl(g,cx,BY-18,cx,BY+22,rc,1);
-  RB.fillStyle="#05080e";RB.fillRect(cx-10,BY-6,20,16);
-  [RB,RE].forEach(function(c){if(!offl){c.fillStyle=pu(0.55+0.3*pulse);c.fillRect(cx-8,BY-4,16,12);c.fillStyle=puh(pulse);c.fillRect(cx-6,BY-2,5,3);c.fillStyle=puh(0.7*pulse);c.fillRect(cx+1,BY+3,4,2);}else{c.fillStyle="#1a2028";c.fillRect(cx-8,BY-4,16,12);}});
-  /* The chest readout lights the suit around it. Grok's one bright panel sat
-     on a torso that never acknowledged it — and with the arms now folded
-     directly in front of it when idle, they are exactly the surface it should
-     be falling on. */
+  // ---- pelvis / girdle ----
+  plate(g,[[cx-30,BY+18],[cx+30,BY+18],[cx+28,BY+36],[cx-28,BY+36]],sT,sB,ed);
+  plate(g,[[cx-12,BY+20],[cx+12,BY+20],[cx+10,BY+32],[cx-10,BY+32]],sM,sB,ed);
+  rivet(g,cx-8,BY+26,eH);rivet(g,cx+8,BY+26,eH);
+  g.fillStyle="#03060c";g.fillRect(cx-3,BY+22,6,12);
+  [RB,RE].forEach(function(c){if(!offl){c.fillStyle=pu(0.7+0.2*pulse);c.fillRect(cx-2,BY+23,4,10);}});
+
+  // ---- torso: hard plate armour, not fabric ----
+  // main chest shell — faceted V
+  plate(g,[[cx-32,BY+20],[cx-38,BY-8],[cx-28,BY-32],[cx+28,BY-32],[cx+38,BY-8],[cx+32,BY+20]],sT,sM,ed);
+  // upper bevel plane
+  plate(g,[[cx-30,BY-6],[cx-24,BY-28],[cx+24,BY-28],[cx+30,BY-6],[cx+24,BY+2],[cx-24,BY+2]],"#323c50","#1a2434",null);
+  // sternum split
+  pl(g,cx,BY-24,cx,BY+16,rc,1.2);
+  pl(g,cx-26,BY-10,cx+26,BY-10,rc,1);
+  // caged reactor (not a porthole)
+  var rx0=cx-12,ry0=BY-4,rw=24,rh=18;
+  g.fillStyle="#03060c";rr(g,rx0-2,ry0-2,rw+4,rh+4,2);g.fill();
+  // octagonal recess shadow
+  g.fillStyle="rgba(0,0,0,0.55)";g.fillRect(rx0,ry0,rw,3);
+  [RB,RE].forEach(function(c){
+    if(offl){c.fillStyle="#1a2028";c.fillRect(rx0+2,ry0+2,rw-4,rh-4);return;}
+    c.fillStyle=pu(0.55+0.3*pulse);c.fillRect(rx0+2,ry0+2,rw-4,rh-4);
+    c.fillStyle=puh(pulse);c.fillRect(rx0+4,ry0+4,6,4);
+    c.fillStyle=puh(0.7*pulse);c.fillRect(rx0+12,ry0+9,5,3);
+  });
+  // cage bars — punched out of emissive too
+  g.fillStyle=sT;g.fillRect(rx0+7,ry0,2.4,rh);g.fillRect(rx0+14.5,ry0,2.4,rh);
+  RE.globalCompositeOperation="destination-out";
+  RE.fillStyle="#000";RE.fillRect(rx0+7,ry0,2.4,rh);RE.fillRect(rx0+14.5,ry0,2.4,rh);
+  RE.globalCompositeOperation="source-over";
+  rivet(g,rx0-1,ry0-1,eH);rivet(g,rx0+rw+1,ry0-1,eH);rivet(g,rx0-1,ry0+rh+1,eH);rivet(g,rx0+rw+1,ry0+rh+1,eH);
+  // reactor spill on surrounding plate
   if(!offl){RB.save();RB.globalCompositeOperation="lighter";
-    var pb=RB.createRadialGradient(cx,BY+2,3,cx,BY+2,64);
-    pb.addColorStop(0,pu(0.26*(0.6+0.4*pulse)));pb.addColorStop(0.5,pu(0.09));pb.addColorStop(1,pu(0));
-    RB.fillStyle=pb;RB.beginPath();RB.arc(cx,BY+2,64,0,7);RB.fill();RB.restore();}
-  plate(g,[[cx-34,BY-28],[cx-18,BY-30],[cx-16,BY-14],[cx-32,BY-12]],sT,sB,ed);
-  plate(g,[[cx+18,BY-30],[cx+34,BY-28],[cx+32,BY-12],[cx+16,BY-14]],sT,sB,ed);
-  /* Life-support hose (pod → chest). Under power it is pressurised and holds a
-     tight arc; with the thrusters dead it goes slack and hangs. A limp hose is
-     the clearest "this suit is not running" tell grok has, and it costs one
-     control point. */
-  var hoseCx=offl?cx-40:cx-27, hoseCy=offl?BY+30:BY-4;
-  g.strokeStyle="#0d1219";g.lineWidth=4;g.beginPath();g.moveTo(cx-24,BY+12);g.quadraticCurveTo(hoseCx,hoseCy,cx-11,BY-3);g.stroke();
-  g.strokeStyle="rgba(84,96,116,0.5)";g.lineWidth=1;g.beginPath();g.moveTo(cx-24,BY+12);g.quadraticCurveTo(hoseCx,hoseCy,cx-11,BY-3);g.stroke();
-  g.strokeStyle=rc;g.lineWidth=1;g.beginPath();g.moveTo(cx-22,BY+2);g.lineTo(cx+22,BY+2);g.moveTo(cx-20,BY+14);g.lineTo(cx+20,BY+14);g.stroke();
-  /* A pressure suit is fabric, not plate — it should be the one soft-looking
-     unit in the fleet, and it was rendering with the same hard bevels as the
-     mech. Quilted seams give the torso cloth's structure, and the shoulder
-     patch is grok's marking: a mission crew wears one, and it is the only
-     round shape on a body otherwise made of boxes. */
-  g.strokeStyle="rgba(84,96,116,0.28)";g.lineWidth=0.8;
-  for(var qs=-2;qs<=2;qs++){g.beginPath();g.moveTo(cx+qs*10,BY-14);g.lineTo(cx+qs*10,BY+22);g.stroke();}
-  for(var qh=-1;qh<=2;qh++){g.beginPath();g.moveTo(cx-22,BY-8+qh*10);g.lineTo(cx+22,BY-8+qh*10);g.stroke();}
-  /* Hard waist bearing and a tool harness.
-     Grok already had a neck ring — the hard component a soft suit needs so the
-     helmet can turn against pressure — and then the torso ran uninterrupted
-     from collar to legs, which is the one thing a real suit cannot do. The
-     lower body has to rotate against the upper, and that join is always a
-     machined ring. It also splits the flattest surface on the unit into two
-     halves the modelling light can treat differently, and gives the dangling
-     legs a visible point of attachment instead of emerging from cloth. */
-  var wy2=BY+22;
-  plate(g,[[cx-29,wy2],[cx+29,wy2],[cx+27,wy2+11],[cx-27,wy2+11]],"#39435a","#1d2433",eH);
-  g.fillStyle="rgba(196,214,244,"+(offl?0.10:0.26)+")";g.fillRect(cx-29,wy2,58,1.6);
-  g.fillStyle="rgba(3,6,12,0.5)";g.fillRect(cx-27,wy2+9.5,54,2);
-  for(var lg2=-2;lg2<=2;lg2++)rivet(g,cx+lg2*12,wy2+5.5,eH);
-  // harness webbing over the ring, with one clipped-on pouch riding the hip
-  g.strokeStyle="rgba(60,70,90,0.75)";g.lineWidth=3.4;
-  g.beginPath();g.moveTo(cx-27,wy2-3);g.lineTo(cx+27,wy2-1);g.stroke();
-  plate(g,[[cx+18,wy2-2],[cx+31,wy2-1],[cx+30,wy2+14],[cx+17,wy2+13]],sM,sB,ed);
-  var pxq=cx-26,pyq=BY-21;
-  g.fillStyle="#1d2536";g.beginPath();g.arc(pxq,pyq,7,0,7);g.fill();
-  g.strokeStyle=puh(offl?0.16:0.5);g.lineWidth=1.2;g.beginPath();g.arc(pxq,pyq,7,0,7);g.stroke();
-  g.fillStyle=pu(offl?0.2:0.6);g.beginPath();g.moveTo(pxq,pyq-4);g.lineTo(pxq+4,pyq+3);g.lineTo(pxq-4,pyq+3);g.closePath();g.fill();
+    var pb=RB.createRadialGradient(cx,BY+4,2,cx,BY+4,52);
+    pb.addColorStop(0,pu(0.22*(0.6+0.4*pulse)));pb.addColorStop(0.55,pu(0.07));pb.addColorStop(1,pu(0));
+    RB.fillStyle=pb;RB.beginPath();RB.arc(cx,BY+4,52,0,7);RB.fill();RB.restore();}
+
+  // ---- combat pauldrons (asymmetric veteran) ----
+  // left: forged original, ridged, outer spike
+  plate(g,[[cx-48,BY-30],[cx-22,BY-34],[cx-18,BY-12],[cx-44,BY-8]],sT,sB,ed);
+  plate(g,[[cx-50,BY-26],[cx-42,BY-28],[cx-40,BY-14],[cx-48,BY-12]],sM,sB,ed); // spike
+  rivet(g,cx-30,BY-26,eH);rivet(g,cx-38,BY-18,eH);
+  // right: field replacement — squarer, three fat bolts
+  plate(g,[[cx+22,BY-34],[cx+48,BY-30],[cx+44,BY-8],[cx+18,BY-12]],"#2e384c","#141c28",ed);
+  rivet(g,cx+28,BY-28,eH);rivet(g,cx+36,BY-24,eH);rivet(g,cx+32,BY-16,eH);
+  weep(cx+28,BY-26,8);weep(cx+36,BY-22,7);
 
   // ---- arms ----
   var handR;
-  /* Idle folds its arms. Hanging arms are what a suit does when it is
-     unconscious, which is offline's job, and grok was using the same pose for
-     both — so idle and offline differed only by how bright the chest readout
-     was. Folded across the chest is unmistakably "awake and waiting". */
-  var fold=(!work&&!offl);
-  (function(){var sx=cx-30,sy=BY-16;
-    if(fold){var ex=cx-32,ey=BY+2,gx2=cx+8,gy=BY+8;limbSeg(g,sx,sy,ex,ey,6,5,sM,sB);limbSeg(g,ex,ey,gx2,gy,5,4.5,sT,sB);g.fillStyle="#cfd6e2";g.beginPath();g.arc(gx2,gy,4,0,7);g.fill();}
-    else{var ex=cx-34,ey=BY+6,gx2=cx-30,gy=BY+26;limbSeg(g,sx,sy,ex,ey,6,5,sM,sB);limbSeg(g,ex,ey,gx2,gy,5,4,sT,sB);g.fillStyle="#cfd6e2";g.beginPath();g.arc(gx2,gy+2,4,0,7);g.fill();}})();
-  (function(){var sx=cx+30,sy=BY-16;
-    if(work){var ex=cx+38,ey=BY-14,gx2=cx+30,gy=BY-40;limbSeg(g,sx,sy,ex,ey,6,5,sM,sB);limbSeg(g,ex,ey,gx2,gy,5,4,sT,sB);g.fillStyle="#cfd6e2";g.beginPath();g.arc(gx2,gy,4,0,7);g.fill();handR={x:gx2+2,y:gy};}
-    else if(fold){var ex=cx+32,ey=BY+10,gx2=cx-8,gy=BY+2;limbSeg(g,sx,sy,ex,ey,6,5,sM,sB);limbSeg(g,ex,ey,gx2,gy,5,4.5,sT,sB);g.fillStyle="#cfd6e2";g.beginPath();g.arc(gx2,gy,4,0,7);g.fill();handR={x:gx2,y:gy};}
-    else{var ex=cx+34,ey=BY+6,gx2=cx+30,gy=BY+26;limbSeg(g,sx,sy,ex,ey,6,5,sM,sB);limbSeg(g,ex,ey,gx2,gy,5,4,sT,sB);g.fillStyle="#cfd6e2";g.beginPath();g.arc(gx2,gy+2,4,0,7);g.fill();handR={x:gx2,y:gy};}
+  // left arm — always free hand / ready
+  (function(){
+    var sx=cx-40,sy=BY-16;
+    if(idle){ // gun at hip, left hand near chest
+      var ex=cx-36,ey=BY+6,gx2=cx-22,gy=BY+18;
+      limbSeg(g,sx,sy,ex,ey,7,6,sM,sB);
+      // elbow joint
+      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,5,0,7);g.fill();g.strokeStyle=ed;g.lineWidth=1;g.beginPath();g.arc(ex,ey,5,0,7);g.stroke();
+      if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.5);c.fillRect(ex-2,ey-2,4,2);});}
+      limbSeg(g,ex,ey,gx2,gy,6,5,sT,sB);
+      // gauntlet
+      plate(g,[[gx2-7,gy-4],[gx2+7,gy-4],[gx2+8,gy+8],[gx2-8,gy+8]],sT,sB,ed);
+      rivet(g,gx2,gy+1,eH);
+    }else if(work){
+      var ex=cx-42,ey=BY+4,gx2=cx-34,gy=BY+28;
+      limbSeg(g,sx,sy,ex,ey,7,6,sM,sB);
+      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,5,0,7);g.fill();
+      limbSeg(g,ex,ey,gx2,gy,6,5,sT,sB);
+      plate(g,[[gx2-7,gy-4],[gx2+7,gy-4],[gx2+8,gy+8],[gx2-8,gy+8]],sT,sB,ed);
+    }else{ // offline hang
+      var ex=cx-44,ey=BY+10,gx2=cx-38,gy=BY+34;
+      limbSeg(g,sx,sy,ex,ey,7,6,sM,sB);
+      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,5,0,7);g.fill();
+      limbSeg(g,ex,ey,gx2,gy,6,5,sT,sB);
+      plate(g,[[gx2-7,gy-3],[gx2+7,gy-3],[gx2+8,gy+8],[gx2-8,gy+8]],sT,sB,ed);
+    }
   })();
-  if(work&&handR){var h=handR;
-    if(ROOM==="builder"){plate(g,[[h.x-2,h.y+2],[h.x+10,h.y-3],[h.x+14,h.y+2],[h.x+2,h.y+9]],"#2a3444","#12181f","#3d4c63");}
-    else if(ROOM==="reviewer"){plate(g,[[h.x-3,h.y-9],[h.x+15,h.y-11],[h.x+15,h.y+2],[h.x-3,h.y+4]],"#1a2836","#0c1620","#3a5570");if(!offl){RB.fillStyle="rgba(130,205,255,0.75)";RB.fillRect(h.x+1,h.y-7,10,7);RE.fillStyle="rgba(130,205,255,0.7)";RE.fillRect(h.x+1,h.y-7,10,7);}}
-    else{plate(g,[[h.x-2,h.y-11],[h.x+9,h.y-13],[h.x+12,h.y+4],[h.x+1,h.y+6]],"#241a30","#140e1c","#4a3a5e");if(!offl){RB.fillStyle="rgba(201,139,255,0.75)";RB.fillRect(h.x+2,h.y-9,4,5);RE.fillStyle="rgba(201,139,255,0.7)";RE.fillRect(h.x+2,h.y-9,4,5);}}
-  }
+  // right arm — RAY GUN
+  (function(){
+    var sx=cx+40,sy=BY-16;
+    if(work){
+      // raised, aiming
+      var ex=cx+48,ey=BY-18,gx2=cx+42,gy=BY-44;
+      limbSeg(g,sx,sy,ex,ey,7,6,sM,sB);
+      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,5,0,7);g.fill();
+      if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.55);c.fillRect(ex-2,ey-2,4,2);});}
+      limbSeg(g,ex,ey,gx2,gy,6,5,sT,sB);
+      // wrist clamp
+      plate(g,[[gx2-6,gy-2],[gx2+6,gy-2],[gx2+6,gy+6],[gx2-6,gy+6]],sM,sB,ed);
+      handR={x:gx2+2,y:gy-2};
+      // RAY GUN body — heavy plasma pistol
+      var hx=gx2+2,hy=gy-2;
+      plate(g,[[hx-4,hy-6],[hx+22,hy-10],[hx+24,hy+4],[hx-2,hy+8]],"#2a2038","#120e1c","#4a3a5e");
+      // barrel
+      plate(g,[[hx+20,hy-8],[hx+34,hy-9],[hx+34,hy+1],[hx+20,hy+2]],"#1a1428","#0a0812","#3a2a50");
+      // muzzle glow
+      if(!offl){[RB,RE].forEach(function(c){
+        c.fillStyle=puh(0.85);c.fillRect(hx+32,hy-6,4,5);
+        c.save();c.globalCompositeOperation="lighter";
+        var mg=c.createRadialGradient(hx+36,hy-3,1,hx+36,hy-3,16);
+        mg.addColorStop(0,puh(0.7));mg.addColorStop(0.5,pu(0.35));mg.addColorStop(1,pu(0));
+        c.fillStyle=mg;c.beginPath();c.arc(hx+36,hy-3,16,0,7);c.fill();c.restore();
+      });}
+      // charge coil
+      g.strokeStyle=pu(offl?0.15:0.55);g.lineWidth=1.5;
+      g.beginPath();g.arc(hx+10,hy-2,5,0,7);g.stroke();
+      rivet(g,hx+4,hy,eH);rivet(g,hx+16,hy-4,eH);
+    }else if(idle){
+      // gun held low at hip, ready
+      var ex=cx+44,ey=BY+8,gx2=cx+36,gy=BY+22;
+      limbSeg(g,sx,sy,ex,ey,7,6,sM,sB);
+      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,5,0,7);g.fill();
+      limbSeg(g,ex,ey,gx2,gy,6,5,sT,sB);
+      plate(g,[[gx2-6,gy-2],[gx2+6,gy-2],[gx2+6,gy+6],[gx2-6,gy+6]],sM,sB,ed);
+      handR={x:gx2+4,y:gy};
+      var hx=gx2+4,hy=gy;
+      plate(g,[[hx-2,hy-8],[hx+18,hy-6],[hx+18,hy+6],[hx-2,hy+4]],"#2a2038","#120e1c","#4a3a5e");
+      plate(g,[[hx+16,hy-5],[hx+28,hy-4],[hx+28,hy+3],[hx+16,hy+2]],"#1a1428","#0a0812","#3a2a50");
+      if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.5);c.fillRect(hx+26,hy-3,3,4);});}
+      g.strokeStyle=pu(0.4);g.lineWidth=1.2;g.beginPath();g.arc(hx+8,hy,4,0,7);g.stroke();
+    }else{
+      // offline: gun hangs slack
+      var ex=cx+44,ey=BY+12,gx2=cx+38,gy=BY+36;
+      limbSeg(g,sx,sy,ex,ey,7,6,sM,sB);
+      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,5,0,7);g.fill();
+      limbSeg(g,ex,ey,gx2,gy,6,5,sT,sB);
+      handR={x:gx2,y:gy};
+      var hx=gx2,hy=gy;
+      plate(g,[[hx-3,hy-4],[hx+14,hy-2],[hx+14,hy+8],[hx-3,hy+6]],"#221a30","#100c18","#3a2a48");
+      plate(g,[[hx+12,hy-1],[hx+22,hy],[hx+22,hy+5],[hx+12,hy+4]],"#16101e","#08060e","#2a2038");
+    }
+  })();
 
-  // ---- neck ring + helmet ----
-  plate(g,[[cx-10,BY-34],[cx+10,BY-34],[cx+8,BY-28],[cx-8,BY-28]],sT,sB,ed);
-  var HY=BY-52, hr=20;
-  g.fillStyle=sM;g.beginPath();g.arc(cx,HY,hr+2,0,7);g.fill();g.strokeStyle=ed;g.lineWidth=1.4;g.beginPath();g.arc(cx,HY,hr+2,0,7);g.stroke();
-  g.fillStyle="#070a14";g.beginPath();g.arc(cx,HY,hr,0,7);g.fill();
-  /* Powered down, the visor fogs from the inside — heaviest at the bottom
-     where the cold settles. The starfield is suppressed below, so the dome
-     goes from "a window onto space" to "a window nobody is behind". */
-  if(offl){g.save();g.beginPath();g.arc(cx,HY,hr,0,7);g.clip();
-    var fog2=g.createLinearGradient(0,HY-hr*0.3,0,HY+hr);
-    fog2.addColorStop(0,"rgba(176,196,224,0)");fog2.addColorStop(1,"rgba(176,196,224,0.2)");
-    g.fillStyle=fog2;g.fillRect(cx-hr,HY-hr,hr*2,hr*2);g.restore();}
-  if(!offl){var stars=[[-8,-6],[4,-9],[10,-2],[-4,4],[7,6],[-10,2],[1,-3]];stars.forEach(function(sp,si){RB.fillStyle="rgba(220,210,255,"+(0.35+0.4*Math.sin(t*2+si*1.3))+")";RB.fillRect(cx+sp[0],HY+sp[1],1,1);});}
-  [RB,RE].forEach(function(c){if(offl){c.fillStyle="#20262e";c.fillRect(cx-3,HY-1,6,3);return;}var eg=c.createRadialGradient(cx,HY,1,cx,HY,11);eg.addColorStop(0,puh(0.8+0.2*pulse));eg.addColorStop(0.5,pu(0.5*pulse));eg.addColorStop(1,pu(0));c.fillStyle=eg;c.beginPath();c.arc(cx,HY,11,0,7);c.fill();c.fillStyle=puh(0.9);c.beginPath();c.arc(cx,HY,2.4,0,7);c.fill();});
-  /* The dome is grok's whole face, and it was a black circle with a starfield
-     and one thin white arc — no glass, no gold, nothing to say it is a visor
-     rather than a hole. Three additions, all reflections, because that is what
-     a helmet does: it shows you the room instead of a face. */
-  // gold flash coating across the lower dome, the way a real EVA visor is coated
-  g.save();g.beginPath();g.arc(cx,HY,hr,0,7);g.clip();
-  var gold=g.createLinearGradient(0,HY-hr*0.2,0,HY+hr);
-  gold.addColorStop(0,"rgba(214,168,88,0)");gold.addColorStop(1,"rgba(214,168,88,"+(offl?0.06:0.17)+")");
-  g.fillStyle=gold;g.fillRect(cx-hr,HY-hr,hr*2,hr*2);
-  // the lamp overhead, reflected as a bright cap
-  var lampref=g.createRadialGradient(cx-5,HY-hr*0.72,0.5,cx-5,HY-hr*0.72,hr*0.62);
-  lampref.addColorStop(0,"rgba(226,240,255,"+(offl?0.07:0.26)+")");lampref.addColorStop(1,"rgba(226,240,255,0)");
-  g.fillStyle=lampref;g.fillRect(cx-hr,HY-hr,hr*2,hr*2);
-  // the floor, reflected as a dim band along the bottom edge
-  g.fillStyle="rgba(120,150,190,"+(offl?0.03:0.08)+")";g.fillRect(cx-hr,HY+hr*0.55,hr*2,hr*0.45);
-  g.restore();
-  // hard glass edge highlight, and the rim of the neck ring catching light
-  g.strokeStyle="rgba(180,200,240,0.4)";g.lineWidth=2;g.beginPath();g.arc(cx-3,HY-3,hr-5,Math.PI*1.05,Math.PI*1.55);g.stroke();
-  g.strokeStyle="rgba(226,240,255,"+(offl?0.1:0.3)+")";g.lineWidth=1.2;g.beginPath();g.arc(cx,HY,hr+2,Math.PI*1.12,Math.PI*1.48);g.stroke();
-  /* Helmet lamp. An EVA suit carries one, it is the reason the visor can be
-     dark and the wearer can still see, and grok did not have it — so the only
-     unit whose face is a mirror also had no light of its own. Mounted left,
-     it throws a short forward cone while working. */
-  if(!offl){var hlx=cx-hr+3,hly=HY-hr*0.42;
-    g.fillStyle=sT;rr(g,hlx-5,hly-4,10,8,2);g.fill();
-    g.strokeStyle=ed;g.lineWidth=1;rr(g,hlx-5,hly-4,10,8,2);g.stroke();
-    [RB,RE].forEach(function(c){
-      c.fillStyle="rgba(236,246,255,"+(work?0.85:0.4)+")";c.fillRect(hlx-3,hly-2,4,4);
-      if(work){c.save();c.globalCompositeOperation="lighter";
-        var hc=c.createLinearGradient(hlx,hly,hlx-58,hly+16);
-        hc.addColorStop(0,"rgba(214,234,255,0.22)");hc.addColorStop(1,"rgba(214,234,255,0)");
-        c.fillStyle=hc;c.beginPath();c.moveTo(hlx-2,hly-4);c.lineTo(hlx-2,hly+4);
-        c.lineTo(hlx-58,hly+26);c.lineTo(hlx-58,hly-2);c.closePath();c.fill();c.restore();}});}
-  pl(g,cx+hr-4,HY-hr+6,cx+hr+4,HY-hr-6,eH,1.6);
-  if(!offl){RB.fillStyle="rgba(255,80,70,0.9)";RB.beginPath();RB.arc(cx+hr+4,HY-hr-6,2,0,7);RB.fill();RE.fillStyle="rgba(255,80,70,0.8)";RE.beginPath();RE.arc(cx+hr+4,HY-hr-6,2,0,7);RE.fill();}
+  // room-specific working overlay on the gun hand is skipped — the ray gun IS the tool
+
+  // ---- neck + power tubes + war helmet ----
+  // neck bearing
+  plate(g,[[cx-12,BY-36],[cx+12,BY-36],[cx+10,BY-28],[cx-10,BY-28]],sT,sB,ed);
+  rivet(g,cx-6,BY-32,eH);rivet(g,cx+6,BY-32,eH);
+  // power tubes (neck of a fighter)
+  [-1,1].forEach(function(sg){
+    var x0=cx+sg*10,y0=BY-30,x1=cx+sg*8,y1=BY-44;
+    g.strokeStyle="#05080e";g.lineWidth=5;g.beginPath();
+    g.moveTo(x0,y0);g.quadraticCurveTo(cx+sg*16,BY-38,x1,y1);g.stroke();
+    g.strokeStyle=offl?"#2c3440":"#5b6c85";g.lineWidth=1.6;g.beginPath();
+    g.moveTo(x0,y0);g.quadraticCurveTo(cx+sg*16,BY-38,x1,y1);g.stroke();
+    // rib rings
+    for(var ri=0;ri<3;ri++){var rt=0.25+ri*0.25;
+      var rx=x0+(x1-x0)*rt+sg*4*(1-Math.abs(rt-0.5)*2);
+      var ry=y0+(y1-y0)*rt;
+      g.strokeStyle=ed;g.lineWidth=1;g.beginPath();g.arc(rx,ry,2.2,0,7);g.stroke();
+    }
+  });
+
+  var HY=BY-54, hr=18;
+  // faceted helmet crown (not a soft dome)
+  plate(g,[[cx-hr-2,HY-2],[cx-10,HY-hr-4],[cx+10,HY-hr-4],[cx+hr+2,HY-2],[cx+hr,HY+10],[cx-hr,HY+10]],sT,sM,ed);
+  // centre ridge
+  pl(g,cx,HY-hr-2,cx,HY+6,eH,1.2);
+  // chevron brow that scowls
+  plate(g,[[cx-16,HY-6],[cx,HY+2],[cx+16,HY-6],[cx+14,HY-2],[cx,HY+6],[cx-14,HY-2]],sM,sB,ed);
+  // cheek guards
+  plate(g,[[cx-hr-1,HY+2],[cx-8,HY+4],[cx-10,HY+14],[cx-hr+2,HY+12]],sT,sB,ed);
+  plate(g,[[cx+8,HY+4],[cx+hr+1,HY+2],[cx+hr-2,HY+12],[cx+10,HY+14]],sT,sB,ed);
+  rivet(g,cx-12,HY+8,eH);rivet(g,cx+12,HY+8,eH);
+  // visor slit (firing slit, not a window)
+  g.fillStyle="#03060c";g.fillRect(cx-14,HY-2,28,7);
+  g.fillStyle="rgba(0,0,0,0.45)";g.fillRect(cx-14,HY-2,28,2);
+  [RB,RE].forEach(function(c){
+    if(offl){c.fillStyle="#1a1014";c.fillRect(cx-12,HY,24,3);c.fillStyle="rgba(180,40,40,0.55)";c.fillRect(cx-3,HY,6,3);return;}
+    c.fillStyle=pu(0.7+0.25*pulse);c.fillRect(cx-12,HY,24,3.5);
+    c.fillStyle=puh(0.9);c.fillRect(cx-4,HY,8,3.5);
+  });
+  // antenna mast on bolted bracket
+  plate(g,[[cx+hr-6,HY-hr],[cx+hr+2,HY-hr-2],[cx+hr+2,HY-hr+6],[cx+hr-6,HY-hr+8]],sM,sB,ed);
+  pl(g,cx+hr-2,HY-hr-2,cx+hr+6,HY-hr-12,eH,1.6);
+  if(!offl){RB.fillStyle="rgba(255,80,70,0.9)";RB.beginPath();RB.arc(cx+hr+6,HY-hr-12,2.2,0,7);RB.fill();
+    RE.fillStyle="rgba(255,80,70,0.8)";RE.beginPath();RE.arc(cx+hr+6,HY-hr-12,2.2,0,7);RE.fill();}
+
+  // helmet shadow on shoulders
+  cavity(g,cx-42,BY-34,84,18,0.4);
 
   RB.setTransform(1,0,0,1,0,0);RE.setTransform(1,0,0,1,0,0);RR.setTransform(1,0,0,1,0,0);
-  /* A helmet on a neck ring sits proud of the shoulders it turns above, and
-     grok's threw nothing onto them. The shadow also lands across the top of
-     the chest quilting, which is what tells you the suit is cloth under a
-     hard part rather than painted to look like it. */
-  /* Knee scuffs, and dirt up the lower legs.
-     A suit is fabric, and the two places fabric goes first are the knees and
-     everything below them. grok was the only unit whose whole surface was one
-     age — and the one whose surface is soft, so it should be showing more wear
-     than the armoured units, not less. */
-  g.save();g.globalAlpha=offl?0.4:0.85;
-  [-1,1].forEach(function(sg4){var kx2=cx+sg4*15;
-    var dg4=g.createLinearGradient(0,BY+64,0,BY+128);
-    dg4.addColorStop(0,"rgba(38,32,44,0)");dg4.addColorStop(1,"rgba(34,28,38,0.34)");
-    g.fillStyle=dg4;g.fillRect(kx2-13,BY+64,26,64);
-    g.fillStyle="rgba(196,206,226,0.13)";
-    g.fillRect(kx2-8,BY+70,15,2.4);g.fillRect(kx2-6,BY+75,10,1.6);});
-  g.restore();
-  /* Convolutes. A pressure suit bends where it is built to bend and nowhere
-     else — the joints are corrugated so the fabric can fold without the
-     internal volume changing. grok's legs were smooth tapers from hip to boot,
-     which is a drawing of a leg rather than a suit. Three ribs at each knee,
-     brightest on the fold that faces the lamp. */
-  /* The one hard part on a soft unit. grok is deliberately the matte one —
-     it is fabric — which makes the two machined components it does carry, the
-     neck ring and the waist bearing loop 11 added, the only places a specular
-     belongs. Putting it exactly there is what tells you the rest is cloth. */
-  if(!offl){g.save();
-    var wsp=g.createLinearGradient(cx-29,0,cx+29,0);
-    wsp.addColorStop(0,"rgba(224,236,255,0)");wsp.addColorStop(0.3,"rgba(224,236,255,0.34)");
-    wsp.addColorStop(0.46,"rgba(255,255,255,0.5)");wsp.addColorStop(0.68,"rgba(224,236,255,0.16)");
-    wsp.addColorStop(1,"rgba(224,236,255,0)");
-    g.fillStyle=wsp;g.fillRect(cx-29,BY+22,58,3.4);
-    g.fillStyle=wsp;g.fillRect(cx-21,BY-46,42,2.6);
-    g.restore();}
-  [-1,1].forEach(function(sg6){var bx4=cx+sg6*15;
-    for(var rb=0;rb<3;rb++){var ry4=BY+72+rb*7;
-      g.strokeStyle="rgba(3,6,12,0.55)";g.lineWidth=3.4;
-      g.beginPath();g.moveTo(bx4-12,ry4+1.6);g.quadraticCurveTo(bx4,ry4+4.6,bx4+12,ry4+1.6);g.stroke();
-      g.strokeStyle="rgba(196,206,232,"+(offl?0.06:0.15)+")";g.lineWidth=1.2;
-      g.beginPath();g.moveTo(bx4-12,ry4);g.quadraticCurveTo(bx4,ry4+3,bx4+12,ry4);g.stroke();}});
-  cavity(g,cx-36,BY-31,72,22,0.42);
-  buildRim(offl?[86,84,94]:[176,124,255]);      // grok: violet
+  buildRim(offl?[86,84,94]:[176,124,255]);
   var hh=handR||{x:cx+30,y:BY+26};
-  /* Grok's boots dangle — they are NOT on the floor, and saying so is the
-     whole reason the shadow softens with height in drawRobot. When the
-     thrusters are out (offline) it hangs lower and the shadow tightens. */
-  var GFY=BY+26+(offl?90:78);
-  return {hand:{x:TX(hh.x),y:TY(hh.y)},coreY:TY(BY),hy:TY(HY-20),offl:offl,work:work,
-          feet:[{x:TX(cx-14),y:TY(GFY),w:F*9},{x:TX(cx+14),y:TY(GFY),w:F*9}]};
+  var GFY=BY+28+(offl?90:78);
+  return {hand:{x:TX(hh.x),y:TY(hh.y)},coreY:TY(BY),hy:TY(HY-hr),offl:offl,work:work,
+          feet:[{x:TX(cx-14),y:TY(GFY),w:F*10},{x:TX(cx+14),y:TY(GFY),w:F*10}]};
 }
 
 /* ===================== KIMI — hovering companion drone, screen-face (pink) ===================== */
