@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>DARKSIDE (KM-09) — kimi prototype D</title>
+<style>
+  html,body{margin:0;background:#04060a;height:100%;font-family:ui-monospace,Menlo,Consolas,monospace}
+  #wrap{display:flex;flex-direction:column;align-items:center;padding:18px 0}
+  canvas{display:block;background:#000;border-radius:6px;max-width:94vw;height:auto}
+  #bar{margin-top:12px;display:flex;gap:8px}
+  #bar button{font:inherit;font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    padding:7px 14px;background:#0a0f16;border:1px solid #1c2733;border-radius:7px;color:#7d8ba0;cursor:pointer}
+  #bar button.on{color:#ff9ac8;border-color:#5c2a44;background:#1c0f18}
+  #cap{margin-top:10px;font-size:11px;color:#55657a;letter-spacing:.06em}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cv" width="520" height="600"></canvas>
+  <div id="bar">
+    <button data-st="working">working</button>
+    <button data-st="idle">idle</button>
+    <button data-st="offline">offline</button>
+  </div>
+  <div id="cap">DARKSIDE (KM-09) — the one that survived · battle-worn assault-recon drone · fleet-floor grammar</div>
+</div>
+<script>
+/* ============================================================================
+   PROTO D — "DARKSIDE" (KM-09)
+
+   The fleet's aesthetic, finally taken seriously: these are the units that
+   SURVIVED. Not elegant — armoured. Not delicate — built, hit, patched and
+   sent back up. Proto B/C were jewelry; this one is a gunship.
+
+     · wide armoured arrowhead hull, overlapping facet plates, real gaps
+     · two armoured ducted fans — rotor blur when turning, stopped blades
+       you can count when dead
+     · a scowling brow over a targeting visor — the two dots survive, as
+       OPTICS now. Idle is not daydreaming, it is a threat scan
+     · chin sensor pod on a ball gimbal; working, it designates
+     · the war record, written on the metal: a welded glacis patch over a
+       scorch, one mismatched replacement cheek plate, a gouge torn to the
+       underlayer, a scorched right duct, kill tallies, and a crescent
+       nose-art — the moon, painted the way a bomber crew paints it,
+       already chipping
+     · powered down it does not sag or drift — it sets down HARD on
+       landing skids, rotor stopped mid-blade, one emergency strobe left
+   ========================================================================== */
+var cv=document.getElementById("cv"), S=cv.getContext("2d");
+var W=520,H=600;
+var body=document.createElement("canvas"),emis=document.createElement("canvas"),rim=document.createElement("canvas");
+[body,emis,rim].forEach(function(c){c.width=W;c.height=H;});
+var RB=body.getContext("2d"),RE=emis.getContext("2d"),RR=rim.getContext("2d");
+
+/* ---- fleet grammar ---- */
+function rr(c,x,y,w,h,r){c.beginPath();if(c.roundRect)c.roundRect(x,y,w,h,r);else{c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}}
+function poly(c,pts){c.beginPath();for(var i=0;i<pts.length;i++){if(i)c.lineTo(pts[i][0],pts[i][1]);else c.moveTo(pts[i][0],pts[i][1]);}c.closePath();}
+function plate(c,pts,top,bot,ed){var y0=1e9,y1=-1e9;for(var i=0;i<pts.length;i++){if(pts[i][1]<y0)y0=pts[i][1];if(pts[i][1]>y1)y1=pts[i][1];}var gg=c.createLinearGradient(0,y0,0,y1);gg.addColorStop(0,top);gg.addColorStop(1,bot);poly(c,pts);c.fillStyle=gg;c.fill();if(ed){c.strokeStyle=ed;c.lineWidth=1.2;c.lineJoin="round";c.stroke();}}
+function pl(c,x0,y0,x1,y1,col,w){c.strokeStyle=col;c.lineWidth=w||1;c.beginPath();c.moveTo(x0,y0);c.lineTo(x1,y1);c.stroke();}
+function cavity(c,x,y,w,h,a){var gg=c.createLinearGradient(0,y,0,y+h);gg.addColorStop(0,"rgba(2,5,9,"+a+")");gg.addColorStop(1,"rgba(2,5,9,0)");c.fillStyle=gg;c.fillRect(x,y,w,h);}
+function bolt(c,x,y,r,lit){c.fillStyle="#05080e";c.beginPath();c.arc(x,y,r,0,7);c.fill();
+  var gg=c.createRadialGradient(x-r*0.3,y-r*0.4,0.4,x,y,r);gg.addColorStop(0,"rgba(200,214,238,"+(lit||0.35)+")");gg.addColorStop(1,"rgba(4,8,14,0.8)");
+  c.fillStyle=gg;c.beginPath();c.arc(x,y,r*0.66,0,7);c.fill();
+  pl(c,x-r*0.34,y,x+r*0.34,y,"rgba(3,6,11,0.85)",1);}
+function seg(c,x0,y0,x1,y1,w0,w1,top,bot,ed){var dx=x1-x0,dy=y1-y0,ln=Math.hypot(dx,dy)||1,nx=-dy/ln,ny=dx/ln;
+  plate(c,[[x0+nx*w0,y0+ny*w0],[x1+nx*w1,y1+ny*w1],[x1-nx*w1,y1-ny*w1],[x0-nx*w0,y0-ny*w0]],top,bot,ed);}
+
+var qs=new URLSearchParams(location.search);
+var STATE=qs.get("state")||"working";
+var reduced=qs.get("t")!==null;
+var T0=qs.get("t")===null?0:Number(qs.get("t"));
+
+document.querySelectorAll("#bar button").forEach(function(b){
+  if(b.dataset.st===STATE)b.classList.add("on");
+  b.onclick=function(){location.search="?state="+b.dataset.st;};
+});
+
+/* an armoured ducted fan. blur when turning; stopped blades when dead. */
+function duct(g,t,dx,dy,R,offl,work,scorch){
+  var sT=offl?"#20262f":"#323c52",sM=offl?"#10141b":"#1a212e",sB="#0a0e16",ed=offl?"#262c37":"#3a445a";
+  if(scorch){var sc=g.createRadialGradient(dx,dy,R*0.5,dx,dy,R*2.1);
+    sc.addColorStop(0,"rgba(0,0,0,0)");sc.addColorStop(1,"rgba(8,5,3,0.5)");
+    g.fillStyle=sc;g.beginPath();g.arc(dx,dy,R*2.1,0,7);g.fill();}
+  // armoured ring — an octagon with a bolted guard lip
+  var pts=[];for(var i=0;i<8;i++){var a=Math.PI/8+i*Math.PI/4;pts.push([dx+Math.cos(a)*(R+7),dy+Math.sin(a)*(R+7)*0.94]);}
+  plate(g,pts,sT,sB,ed);
+  g.fillStyle="#04070c";g.beginPath();g.arc(dx,dy,R,0,7);g.fill();
+  g.strokeStyle="#06090f";g.lineWidth=2;g.beginPath();g.arc(dx,dy,R,0,7);g.stroke();
+  // intake lip highlight (top arc catches the lamp)
+  g.strokeStyle="rgba(186,208,242,"+(offl?0.05:0.10)+")";g.lineWidth=1.4;
+  g.beginPath();g.arc(dx,dy,R+4,-Math.PI*0.78,-Math.PI*0.22);g.stroke();
+  if(offl){
+    // stopped mid-blade, and you can count them: two blades at a dead angle
+    g.save();g.translate(dx,dy);g.rotate(-0.5);
+    [0,Math.PI].forEach(function(ba){g.save();g.rotate(ba);
+      plate(g,[[-3,0],[4,-R*0.28],[6,-R*0.86],[-2,-R*0.8]],"#141a24","#080b12","#20283550");
+      g.restore();});
+    g.restore();
+  }else{
+    var rot=t*(work?26:9);
+    for(var rb=0;rb<3;rb++){var a0=rot+rb*(Math.PI*2/3);
+      g.strokeStyle="rgba(120,132,156,"+(work?0.32:0.5)+")";g.lineWidth=work?7:5;
+      g.beginPath();g.arc(dx,dy,R*0.62,a0,a0+(work?1.35:0.75));g.stroke();}
+    // stator spokes OVER the blur — the guard is armoured too
+    for(var sp=0;sp<3;sp++){var sa=sp*(Math.PI*2/3)+0.5;
+      pl(g,dx+Math.cos(sa)*R*0.2,dy+Math.sin(sa)*R*0.2,dx+Math.cos(sa)*R*0.97,dy+Math.sin(sa)*R*0.97,"rgba(8,12,18,0.85)",3);}
+  }
+  // hub
+  g.fillStyle="#05080e";g.beginPath();g.arc(dx,dy,5,0,7);g.fill();
+  bolt(g,dx,dy,3.4,offl?0.08:0.26);
+  // nav light on the outer lip
+  if(!offl){var lx=dx+(dx<260?-(R+7):(R+7));
+    RB.fillStyle="rgba(255,114,182,"+(0.5+0.3*Math.sin(t*3))+")";RB.beginPath();RB.arc(lx,dy-4,2,0,7);RB.fill();
+    RE.fillStyle="rgba(255,114,182,0.6)";RE.beginPath();RE.arc(lx,dy-4,2,0,7);RE.fill();}
+}
+
+function drawUnit(t,st){
+  var offl=st==="offline", work=st==="working";
+  [RB,RE,RR].forEach(function(c){c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,W,H);c.globalAlpha=1;c.globalCompositeOperation="source-over";});
+  var g=RB, cx=260;
+  var sT="#323c52",sM="#1a212e",sB="#0a0e16",ed="#3a445a",eH="#4a5872",rc="#06090f";
+  if(offl){sT="#20262f";sM="#10141b";sB="#070a0f";ed="#262c37";eH="#2e3540";}
+  var PK=offl?[74,80,92]:[255,114,182], PKH=offl?[120,126,138]:[255,182,214];
+  function pk(a){return "rgba("+PK[0]+","+PK[1]+","+PK[2]+","+a+")";}
+  function pkh(a){return "rgba("+PKH[0]+","+PKH[1]+","+PKH[2]+","+a+")";}
+  var pulse=offl?0:(work?(0.6+0.28*Math.sin(t*6)):(0.36+0.16*Math.sin(t*2)));
+  var bob=offl?0:Math.sin(t*1.7)*3;
+  var BY=offl?390:296+bob;          // powered: patrol altitude. dead: ON the deck.
+  var scan=offl?0:Math.sin(t*0.55); // optic pan — idle threat scan, locked fwd when working
+
+  /* ---- 0 · downwash (only when turning) ---- */
+  if(!offl){var dw=0.8+0.2*Math.sin(t*10);
+    [RB,RE].forEach(function(c){c.save();c.globalCompositeOperation="lighter";
+      [-108,108].forEach(function(dx2){var rg=c.createRadialGradient(cx+dx2,BY+24,2,cx+dx2,BY+24,36);
+        rg.addColorStop(0,pkh(0.20*dw));rg.addColorStop(0.5,pk(0.09*dw));rg.addColorStop(1,pk(0));
+        c.fillStyle=rg;c.beginPath();c.ellipse(cx+dx2,BY+24,36,11,0,0,7);c.fill();});
+      c.restore();});}
+
+  /* ---- 1 · ducts on their pylons (furthest plane) ---- */
+  [-1,1].forEach(function(sg){
+    var dx=cx+sg*108, dy=BY+0;
+    seg(g,cx+sg*60,BY-14,dx-sg*16,dy-2,9,7,sM,sB,ed);                   // pylon
+    bolt(g,cx+sg*66,BY-15,2.4,offl?0.06:0.2);
+    duct(g,t,dx,dy,23,offl,work,sg>0);                                  // right duct carries the scorch
+  });
+
+  /* ---- 2 · spine plate + bent blade antenna ---- */
+  plate(g,[[cx-64,BY-42],[cx+64,BY-42],[cx+54,BY-26],[cx-54,BY-26]],sM,sB,ed);
+  var bend=offl?10:5;
+  seg(g,cx-40,BY-42,cx-40-bend,BY-72,3.4,2,sT,sB,ed);
+  g.fillStyle=sM;g.beginPath();g.arc(cx-40-bend,BY-73,3,0,7);g.fill();
+  if(!offl){RE.fillStyle=pk(0.5);RE.beginPath();RE.arc(cx-40-bend,BY-73,1.6,0,7);RE.fill();}
+  // emergency strobe — the only light a dead gunship keeps
+  var strobe=offl?(Math.sin(t*2.4)>0.86?1:0):0;
+  g.fillStyle=offl?"#1a1414":sM;g.beginPath();g.arc(cx+40,BY-44,3.6,0,7);g.fill();
+  g.strokeStyle=ed;g.lineWidth=1;g.beginPath();g.arc(cx+40,BY-44,3.6,0,7);g.stroke();
+  if(strobe){RB.fillStyle="rgba(255,64,52,0.95)";RB.beginPath();RB.arc(cx+40,BY-44,2.4,0,7);RB.fill();
+    RE.fillStyle="rgba(255,64,52,0.8)";RE.beginPath();RE.arc(cx+40,BY-44,5,0,7);RE.fill();}
+
+  /* ---- 3 · main glacis: overlapping facet plates ---- */
+  // belly shadow plate (deepest)
+  plate(g,[[cx-78,BY-6],[cx+78,BY-6],[cx+60,BY+26],[cx-60,BY+26]],sM,"#05080d",ed);
+  // centre glacis
+  plate(g,[[cx-66,BY-36],[cx+66,BY-36],[cx+50,BY+16],[cx-50,BY+16]],sT,sB,ed);
+  pl(g,cx,BY-34,cx,BY+14,"rgba(4,8,14,0.55)",1.4);                    // centre arris
+  // left cheek — carries THE GOUGE: torn to the underlayer, bright torn lip
+  plate(g,[[cx-95,BY-26],[cx-66,BY-36],[cx-50,BY+16],[cx-78,BY+12]],sM,sB,ed);
+  poly(g,[[cx-80,BY-23],[cx-58,BY-11],[cx-63,BY-2],[cx-84,BY-13]]);g.fillStyle="rgba(2,4,8,1)";g.fill();
+  pl(g,cx-80,BY-23,cx-58,BY-11,"rgba(198,216,246,"+(offl?0.12:0.38)+")",1.5);   // torn edge catches
+  pl(g,cx-64,BY-4,cx-82,BY-14,"rgba(198,216,246,"+(offl?0.06:0.16)+")",1);
+  // right cheek — the REPLACEMENT: newer, bluer, weld-tacked, aligned with nothing
+  var rp2=[[cx+95,BY-26],[cx+66,BY-36],[cx+52,BY+16],[cx+80,BY+14]];
+  var rg2=g.createLinearGradient(0,BY-34,0,BY+14);
+  rg2.addColorStop(0,offl?"#232a33":"#33415c");rg2.addColorStop(1,offl?"#12161c":"#1a2434");
+  poly(g,rp2);g.fillStyle=rg2;g.fill();g.strokeStyle=offl?"#2a313b":"#44547a";g.lineWidth=1.1;g.stroke();
+  for(var ws=0;ws<4;ws++){pl(g,cx+64+ws*6,BY-31,cx+65+ws*6,BY-28,"rgba(140,150,170,0.5)",1.3);}
+  // glacis patch over the scorch (same doctrine as claude's pec)
+  var psc=g.createRadialGradient(cx-14,BY-8,6,cx-14,BY-8,26);
+  psc.addColorStop(0,"rgba(0,0,0,0)");psc.addColorStop(1,"rgba(10,6,4,0.4)");
+  g.fillStyle=psc;g.fillRect(cx-40,BY-30,52,44);
+  var pp=[[cx-34,BY-18],[cx-2,BY-22],[cx+4,BY-2],[cx-28,BY+2]];
+  var pg=g.createLinearGradient(0,BY-22,0,BY+2);
+  pg.addColorStop(0,offl?"#262d36":"#3a4660");pg.addColorStop(1,offl?"#141922":"#202a3c");
+  poly(g,pp);g.fillStyle=pg;g.fill();g.strokeStyle=offl?"#2c333d":"#4a5a80";g.lineWidth=1;g.stroke();
+  for(var ws2=0;ws2<4;ws2++){pl(g,pp[0][0]+3+ws2*8,pp[0][1]-2,pp[0][0]+4+ws2*8,pp[0][1]+1,"rgba(140,150,170,0.55)",1.3);}
+  bolt(g,cx-30,BY-14,1.8,offl?0.06:0.2);bolt(g,cx-2,BY-6,1.8,offl?0.06:0.2);
+  // chipped leading edges: bright metal nicks — albedo, does not dim
+  g.fillStyle="rgba(206,220,242,"+(offl?0.10:0.26)+")";
+  [[cx-86,BY-23],[cx-63,BY-33],[cx+87,BY-23],[cx+49,BY+12],[cx-47,BY+13]].forEach(function(nk,i){
+    g.fillRect(nk[0],nk[1],3+(i%2),1.6);});
+
+  // oil weeps under the pylons — albedo grime, does not dim with power
+  [-1,1].forEach(function(sg){g.fillStyle="rgba(70,50,30,0.30)";
+    poly(g,[[cx+sg*63,BY+2],[cx+sg*67,BY+2],[cx+sg*66,BY+14],[cx+sg*64,BY+14]]);g.fill();});
+
+  /* ---- 4 · brow + targeting visor ---- */
+  plate(g,[[cx-48,BY-40],[cx+48,BY-40],[cx+42,BY-24],[cx-42,BY-24]],sM,sB,ed);   // the scowl
+  cavity(g,cx-42,BY-26,84,6,0.55);
+  var vs={x:cx-40,y:BY-24,w:80,h:11};
+  rr(g,vs.x,vs.y,vs.w,vs.h,3);g.fillStyle="#04070c";g.fill();g.strokeStyle=rc;g.lineWidth=1;g.stroke();
+  if(offl){
+    RB.fillStyle="rgba(150,168,190,0.5)";RB.fillRect(vs.x+4,vs.y+5,vs.w-8,1.4);
+    RE.fillStyle="rgba(150,168,190,0.2)";RE.fillRect(vs.x+4,vs.y+5,vs.w-8,1.4);}
+  else{
+    var gaze=work?0:Math.round(scan*6);
+    [cx-16,cx+16].forEach(function(ex,i2){var ox=ex+gaze*(i2?1:0.8);
+      [RB,RE].forEach(function(c){var eg=c.createRadialGradient(ox,vs.y+5.5,0.4,ox,vs.y+5.5,7);
+        eg.addColorStop(0,pkh(0.85+0.15*pulse));eg.addColorStop(0.5,pk(0.5*pulse));eg.addColorStop(1,pk(0));
+        c.fillStyle=eg;c.beginPath();c.arc(ox,vs.y+5.5,7,0,7);c.fill();});
+      [RB,RE].forEach(function(c){c.fillStyle=pkh(0.95);rr(c,ox-2.5,vs.y+3,5,5,1.5);c.fill();});});
+  }
+  // kill tallies, stencilled left of the visor — paint, so they outlive power
+  g.fillStyle="rgba(198,208,224,"+(offl?0.16:0.4)+")";
+  for(var kt2=0;kt2<4;kt2++)g.fillRect(cx-38+kt2*4,BY-36,2,7);
+  g.save();g.translate(cx-30,BY-33);g.rotate(0.5);g.fillRect(-1,-5,2,10);g.restore();
+  // crescent nose-art, chipping — heritage the hard way
+  g.save();g.globalAlpha=offl?0.25:0.6;
+  g.strokeStyle=pk(0.9);g.lineWidth=2;
+  g.beginPath();g.arc(cx+30,BY-32,4.6,-0.7,Math.PI+0.7);g.stroke();
+  g.globalAlpha=1;g.fillStyle="rgba(10,14,20,0.9)";g.fillRect(cx+27,BY-36,2.4,2);g.fillRect(cx+32,BY-29,2,1.8); // chips
+  g.restore();
+
+  /* ---- 5 · chin sensor pod on a ball gimbal ---- */
+  plate(g,[[cx-12,BY+20],[cx+12,BY+20],[cx+8,BY+30],[cx-8,BY+30]],sM,sB,ed);       // mount
+  var pod={x:cx+(offl?0:Math.round(Math.sin(t*0.8)*4)),y:BY+40};
+  g.fillStyle="#05080e";g.beginPath();g.arc(cx,BY+32,6,0,7);g.fill();               // gimbal ball
+  var gb=g.createRadialGradient(cx-2,BY+30,0.5,cx,BY+32,6);
+  gb.addColorStop(0,"rgba(196,208,232,"+(offl?0.16:0.4)+")");gb.addColorStop(1,"rgba(4,8,14,0.7)");
+  g.fillStyle=gb;g.beginPath();g.arc(cx,BY+32,4,0,7);g.fill();
+  seg(g,cx,BY+34,pod.x,pod.y+8,5.5,4,sT,sB,ed);                                     // pod body
+  g.fillStyle=sM;g.beginPath();g.arc(pod.x,pod.y+10,4.4,0,7);g.fill();              // optic ball
+  if(!offl){RB.fillStyle=pkh(0.6+0.3*pulse);RB.beginPath();RB.arc(pod.x,pod.y+10,2.2,0,7);RB.fill();
+    RE.fillStyle=pk(0.7);RE.beginPath();RE.arc(pod.x,pod.y+10,2.2,0,7);RE.fill();}
+  if(work){ // designating: the beam is the job
+    var tx2=pod.x+44,ty2=BY+150;
+    g.save();g.strokeStyle=pk(0.35+0.15*Math.sin(t*9));g.lineWidth=1;
+    g.setLineDash([3,4]);g.lineDashOffset=-t*30;
+    g.beginPath();g.moveTo(pod.x,pod.y+12);g.lineTo(tx2,ty2);g.stroke();g.restore();
+    [RB,RE].forEach(function(c){c.save();c.globalCompositeOperation="lighter";
+      var tg2=c.createRadialGradient(tx2,ty2,0.5,tx2,ty2,12);
+      tg2.addColorStop(0,pkh(0.7));tg2.addColorStop(1,pk(0));
+      c.fillStyle=tg2;c.beginPath();c.arc(tx2,ty2,12,0,7);c.fill();c.restore();});
+  }
+
+  /* ---- 6 · landing skids: retracted in flight, DOWN when dead ---- */
+  [-1,1].forEach(function(sg){
+    if(offl){
+      seg(g,cx+sg*46,BY+20,cx+sg*58,BY+72,5,3.6,sM,sB,ed);
+      bolt(g,cx+sg*47,BY+22,2.2,0.08);
+      plate(g,[[cx+sg*70,BY+72],[cx+sg*44,BY+72],[cx+sg*46,BY+78],[cx+sg*68,BY+78]],sM,sB,ed); // foot pad
+    }else{
+      plate(g,[[cx+sg*54,BY+18],[cx+sg*42,BY+18],[cx+sg*40,BY+27],[cx+sg*51,BY+27]],sM,sB,ed); // retracted skid housing
+    }});
+
+  /* ---- 7 · offline: beacon catch on the left arris ---- */
+  if(offl){var bp=0.55;
+    pl(g,cx-88,BY-24,cx-74,BY+10,"rgba(255,64,52,"+(0.26*bp)+")",1.8);
+    pl(g,cx-130,BY-34,cx-130,BY+16,"rgba(255,64,52,"+(0.2*bp)+")",1.8);
+    RE.strokeStyle="rgba(255,64,52,"+(0.13*bp)+")";RE.lineWidth=2.4;
+    RE.beginPath();RE.moveTo(cx-88,BY-24);RE.lineTo(cx-74,BY+10);RE.stroke();}
+
+  /* ---- room light lands on the unit ---- */
+  RB.save();RB.globalCompositeOperation="source-atop";
+  var kt=offl?"rgba(96,110,136,0.13)":"rgba(255,214,160,0.07)";
+  var ktg=RB.createLinearGradient(0,BY-80,0,BY+90);
+  ktg.addColorStop(0,kt);ktg.addColorStop(1,"rgba(0,0,0,0.06)");
+  RB.fillStyle=ktg;RB.fillRect(0,0,W,H);RB.restore();
+
+  /* ---- rim light: pink key, cyan fill ---- */
+  RR.globalCompositeOperation="source-over";RR.drawImage(body,0,0);
+  RR.globalCompositeOperation="destination-out";RR.drawImage(body,-2.2,1.7);RR.drawImage(body,-1.5,-2.4);
+  RR.globalCompositeOperation="source-in";
+  var rl=RR.createLinearGradient(60,0,460,0);
+  rl.addColorStop(0,"rgba(255,114,182,0.95)");rl.addColorStop(0.42,"rgba(200,145,195,0.45)");rl.addColorStop(1,"rgba(95,214,255,1)");
+  RR.fillStyle=rl;RR.fillRect(0,0,W,H);RR.globalCompositeOperation="source-over";
+}
+
+/* ---- scene: identical staging to protos A/B/C ---- */
+function drawScene(t,st){
+  var offl=st==="offline";
+  var wall=S.createLinearGradient(0,0,0,H);
+  wall.addColorStop(0,offl?"#07090d":"#0b0e14");wall.addColorStop(0.75,offl?"#05070a":"#090c12");wall.addColorStop(1,"#05070b");
+  S.fillStyle=wall;S.fillRect(0,0,W,H);
+  if(!offl){var cone=S.createLinearGradient(0,40,0,470);
+    cone.addColorStop(0,"rgba(255,214,150,0.10)");cone.addColorStop(1,"rgba(255,214,150,0)");
+    S.fillStyle=cone;S.beginPath();S.moveTo(235,40);S.lineTo(285,40);S.lineTo(400,470);S.lineTo(120,470);S.closePath();S.fill();}
+  else{var bc=S.createRadialGradient(90,120,4,90,120,150);
+    bc.addColorStop(0,"rgba(255,60,50,0.12)");bc.addColorStop(1,"rgba(255,60,50,0)");
+    S.fillStyle=bc;S.fillRect(0,0,W,H);}
+  S.fillStyle=offl?"#07090c":"#0d1118";S.fillRect(0,470,W,H-470);
+  pl(S,0,470,W,470,"rgba(120,140,170,0.14)",1);
+  if(offl){
+    // ON the deck: two hard contact patches under the skids, no soft pool
+    [-58,58].forEach(function(dx){
+      var sh=S.createRadialGradient(260+dx,472,1,260+dx,472,26);
+      sh.addColorStop(0,"rgba(0,0,0,0.55)");sh.addColorStop(0.6,"rgba(0,0,0,0.25)");sh.addColorStop(1,"rgba(0,0,0,0)");
+      S.fillStyle=sh;S.beginPath();S.ellipse(260+dx,472,26,7,0,0,7);S.fill();});
+  }else{
+    var lift=120, spread=1+Math.min(2.6,lift/34), a=0.4/Math.pow(spread,1.25);
+    [-100,100].forEach(function(dx){
+      var sh=S.createRadialGradient(260+dx,474,1,260+dx,474,36*spread);
+      sh.addColorStop(0,"rgba(0,0,0,"+a+")");sh.addColorStop(0.55,"rgba(0,0,0,"+(a*0.45)+")");sh.addColorStop(1,"rgba(0,0,0,0)");
+      S.fillStyle=sh;S.beginPath();S.ellipse(260+dx,474,36*spread,11*spread,0,0,7);S.fill();});
+    S.save();S.globalCompositeOperation="lighter";
+    var tg=S.createRadialGradient(260,472,2,260,472,120);
+    tg.addColorStop(0,"rgba(255,114,182,0.10)");tg.addColorStop(1,"rgba(255,114,182,0)");
+    S.fillStyle=tg;S.beginPath();S.ellipse(260,472,120,15,0,0,7);S.fill();S.restore();
+  }
+  S.drawImage(body,0,0);
+  S.drawImage(rim,0,0);
+  S.save();S.globalCompositeOperation="lighter";S.drawImage(emis,0,0);S.restore();
+}
+
+function frame(){
+  var t=reduced?T0:(performance.now()/1000);
+  drawUnit(t,STATE);drawScene(t,STATE);
+  if(!reduced)requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>
