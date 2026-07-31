@@ -2818,30 +2818,52 @@ function buildGrok(t,st){
     }
   });
 
-  var HY=BY-54, hr=18;
-  // faceted helmet crown (not a soft dome)
-  plate(g,[[cx-hr-2,HY-2],[cx-10,HY-hr-4],[cx+10,HY-hr-4],[cx+hr+2,HY-2],[cx+hr,HY+10],[cx-hr,HY+10]],sT,sM,ed);
-  // centre ridge
-  pl(g,cx,HY-hr-2,cx,HY+6,eH,1.2);
-  // chevron brow that scowls
-  plate(g,[[cx-16,HY-6],[cx,HY+2],[cx+16,HY-6],[cx+14,HY-2],[cx,HY+6],[cx-14,HY-2]],sM,sB,ed);
-  // cheek guards
-  plate(g,[[cx-hr-1,HY+2],[cx-8,HY+4],[cx-10,HY+14],[cx-hr+2,HY+12]],sT,sB,ed);
-  plate(g,[[cx+8,HY+4],[cx+hr+1,HY+2],[cx+hr-2,HY+12],[cx+10,HY+14]],sT,sB,ed);
-  rivet(g,cx-12,HY+8,eH);rivet(g,cx+12,HY+8,eH);
-  // visor slit (firing slit, not a window)
-  g.fillStyle="#03060c";g.fillRect(cx-14,HY-2,28,7);
-  g.fillStyle="rgba(0,0,0,0.45)";g.fillRect(cx-14,HY-2,28,2);
+  /* LOOP 2 — the face is a weapon mount, not a visor.
+     Deeper chevron brow that casts into the slit; zygomatic wedges; squared
+     jaw step; two cold optics in the slit (not one friendly glow bar); a
+     chin guard that ends in corners. Expression machinery deleted. */
+  var HY=BY-54, hr=19;
+  // faceted crown with hard peak
+  plate(g,[[cx-hr-3,HY],[cx-12,HY-hr-6],[cx,HY-hr-8],[cx+12,HY-hr-6],[cx+hr+3,HY],[cx+hr+1,HY+12],[cx-hr-1,HY+12]],sT,sM,ed);
+  pl(g,cx,HY-hr-6,cx,HY+8,eH,1.4);
+  // nested crown petal
+  g.strokeStyle=rc;g.lineWidth=1;
+  g.beginPath();g.moveTo(cx-10,HY-hr);g.lineTo(cx,HY-hr-4);g.lineTo(cx+10,HY-hr);g.stroke();
+  // chevron brow — point drops hard into the slit so the unit scowls
+  plate(g,[[cx-18,HY-10],[cx,HY+4],[cx+18,HY-10],[cx+16,HY-4],[cx,HY+8],[cx-16,HY-4]],sM,sB,ed);
+  g.fillStyle="rgba(0,0,0,0.35)";poly(g,[[cx-16,HY-2],[cx,HY+6],[cx+16,HY-2],[cx+14,HY],[cx,HY+4],[cx-14,HY]]);g.fill();
+  // zygomatic wedges (cheekbones)
+  plate(g,[[cx-hr-2,HY-2],[cx-10,HY],[cx-12,HY+10],[cx-hr,HY+8]],"#323c50","#1a2434",ed);
+  plate(g,[[cx+10,HY],[cx+hr+2,HY-2],[cx+hr,HY+8],[cx+12,HY+10]],"#323c50","#1a2434",ed);
+  // cheek guard blades below
+  plate(g,[[cx-hr,HY+6],[cx-8,HY+8],[cx-10,HY+16],[cx-hr+2,HY+14]],sT,sB,ed);
+  plate(g,[[cx+8,HY+8],[cx+hr,HY+6],[cx+hr-2,HY+14],[cx+10,HY+16]],sT,sB,ed);
+  // squared jaw step
+  plate(g,[[cx-12,HY+12],[cx+12,HY+12],[cx+10,HY+18],[cx-10,HY+18]],sM,sB,ed);
+  rivet(g,cx-14,HY+10,eH);rivet(g,cx+14,HY+10,eH);rivet(g,cx,HY+15,eH);
+  // firing slit with TWO cold optics (battery, not a smile)
+  g.fillStyle="#02040a";g.fillRect(cx-15,HY-1,30,8);
+  g.fillStyle="rgba(0,0,0,0.5)";g.fillRect(cx-15,HY-1,30,2);
   [RB,RE].forEach(function(c){
-    if(offl){c.fillStyle="#1a1014";c.fillRect(cx-12,HY,24,3);c.fillStyle="rgba(180,40,40,0.55)";c.fillRect(cx-3,HY,6,3);return;}
-    c.fillStyle=pu(0.7+0.25*pulse);c.fillRect(cx-12,HY,24,3.5);
-    c.fillStyle=puh(0.9);c.fillRect(cx-4,HY,8,3.5);
+    if(offl){
+      c.fillStyle="#141018";c.fillRect(cx-13,HY+1,26,4);
+      c.fillStyle="rgba(180,40,40,0.6)";c.fillRect(cx-9,HY+1.5,4,3);c.fillRect(cx+5,HY+1.5,4,3);
+      return;
+    }
+    // left + right optics, cold, no catchlight
+    [[-8],[8]].forEach(function(ox){
+      c.fillStyle=pu(0.55+0.2*pulse);c.beginPath();c.arc(cx+ox[0],HY+3,3.2,0,7);c.fill();
+      c.fillStyle=puh(0.85);c.beginPath();c.arc(cx+ox[0],HY+3,1.4,0,7);c.fill();
+    });
+    // slit glow between them
+    c.fillStyle=pu(0.25*pulse);c.fillRect(cx-4,HY+2,8,2);
   });
-  // antenna mast on bolted bracket
-  plate(g,[[cx+hr-6,HY-hr],[cx+hr+2,HY-hr-2],[cx+hr+2,HY-hr+6],[cx+hr-6,HY-hr+8]],sM,sB,ed);
-  pl(g,cx+hr-2,HY-hr-2,cx+hr+6,HY-hr-12,eH,1.6);
-  if(!offl){RB.fillStyle="rgba(255,80,70,0.9)";RB.beginPath();RB.arc(cx+hr+6,HY-hr-12,2.2,0,7);RB.fill();
-    RE.fillStyle="rgba(255,80,70,0.8)";RE.beginPath();RE.arc(cx+hr+6,HY-hr-12,2.2,0,7);RE.fill();}
+  // antenna on bolted bracket (battle-clipped later)
+  plate(g,[[cx+hr-4,HY-hr-2],[cx+hr+4,HY-hr-4],[cx+hr+4,HY-hr+4],[cx+hr-4,HY-hr+6]],sM,sB,ed);
+  rivet(g,cx+hr,HY-hr,eH);
+  pl(g,cx+hr,HY-hr-2,cx+hr+7,HY-hr-14,eH,1.8);
+  if(!offl){RB.fillStyle="rgba(255,80,70,0.9)";RB.beginPath();RB.arc(cx+hr+7,HY-hr-14,2.2,0,7);RB.fill();
+    RE.fillStyle="rgba(255,80,70,0.8)";RE.beginPath();RE.arc(cx+hr+7,HY-hr-14,2.2,0,7);RE.fill();}
 
   // helmet shadow on shoulders
   cavity(g,cx-42,BY-34,84,18,0.4);
