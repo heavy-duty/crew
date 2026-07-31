@@ -2033,3 +2033,21 @@ One frame per documented loop, soft EVA → war veteran:
 Hover identity preserved (thrusters, dangling feet, soft airborne shadows).
 Purple vendor colour and rim preserved. `buildGrok` return contract
 (hand / feet / coreY / hy) unchanged.
+
+### Round 4 — SpaceX-lineage flight hardware (loops 16–25)
+
+Operator: remove the gun (it fought the silhouette); keep the badass
+shape; make it more space-themed — Grok is xAI, the team is SpaceX.
+
+16. **Delete the ray gun.** Gauntlets and room tools again. A-stance idle.
+17. **Raptor thruster bells** with regenerative cooling rings and feed lines.
+18. **Heat-shield tiles** on the leading chest — reentry vehicle, not paint.
+19. **Gold Kapton / MLI foil** at collar, elbows, hips — heritage that stays hard.
+20. **RCS verniers** on pauldron tips and hips — steers with fire.
+21. **Pressure canopy** — gold-tinted glass under a chevron brow, HUD reticles,
+    phased-array stub, neck seal ring.
+22. **Docking umbilical** — hard ring on the chest, umbilicus into the pack.
+23. **Flight markings** — `GX-07` serial stencil, hazard chevron, tallies.
+24. **Reentry scars** — directional plasma streaks, charred tile edges.
+25. **Cohesion** — boot pressure seals, cool-white leading specular.
+
