@@ -2783,23 +2783,42 @@ function buildGrok(t,st){
       // wrist clamp
       plate(g,[[gx2-8,gy-3],[gx2+8,gy-3],[gx2+8,gy+7],[gx2-8,gy+7]],sM,sB,ed);
       handR={x:gx2+2,y:gy-2};
-      // RAY GUN body — heavy plasma pistol
+      /* LOOP 5 — the ray gun earns its name.
+         Bigger receiver, heat-sink fins, muzzle brake, glowing charge coil,
+         underbarrel rail. Small body, big gun — that is the balance. */
       var hx=gx2+2,hy=gy-2;
-      plate(g,[[hx-4,hy-6],[hx+22,hy-10],[hx+24,hy+4],[hx-2,hy+8]],"#2a2038","#120e1c","#4a3a5e");
-      // barrel
-      plate(g,[[hx+20,hy-8],[hx+34,hy-9],[hx+34,hy+1],[hx+20,hy+2]],"#1a1428","#0a0812","#3a2a50");
-      // muzzle glow
+      // receiver
+      plate(g,[[hx-6,hy-8],[hx+26,hy-12],[hx+28,hy+6],[hx-4,hy+10]],"#2a2038","#120e1c","#4a3a5e");
+      // heat-sink fins on top
+      for(var fn=0;fn<4;fn++){var fx=hx+2+fn*5;
+        plate(g,[[fx,hy-14],[fx+3,hy-14],[fx+3,hy-8],[fx,hy-8]],sM,sB,ed);}
+      // barrel + muzzle brake
+      plate(g,[[hx+24,hy-9],[hx+42,hy-10],[hx+42,hy+2],[hx+24,hy+3]],"#1a1428","#0a0812","#3a2a50");
+      plate(g,[[hx+40,hy-12],[hx+46,hy-11],[hx+46,hy+3],[hx+40,hy+2]],sT,sB,ed);
+      // underbarrel rail
+      pl(g,hx+4,hy+8,hx+30,hy+6,ed,2);
+      // stock/grip
+      plate(g,[[hx-4,hy+4],[hx+6,hy+2],[hx+4,hy+16],[hx-6,hy+16]],sM,sB,ed);
+      // charge coil (emissive)
+      g.strokeStyle="#0a0612";g.lineWidth=3;g.beginPath();g.arc(hx+12,hy-2,6.5,0,7);g.stroke();
+      [RB,RE].forEach(function(c){
+        c.strokeStyle=pu(offl?0.1:0.7+0.2*pulse);c.lineWidth=2;
+        c.beginPath();c.arc(hx+12,hy-2,6,0,7);c.stroke();
+      });
+      // muzzle glow + core
       if(!offl){[RB,RE].forEach(function(c){
-        c.fillStyle=puh(0.85);c.fillRect(hx+32,hy-6,4,5);
+        c.fillStyle=puh(0.95);c.fillRect(hx+42,hy-7,5,7);
         c.save();c.globalCompositeOperation="lighter";
-        var mg=c.createRadialGradient(hx+36,hy-3,1,hx+36,hy-3,16);
-        mg.addColorStop(0,puh(0.7));mg.addColorStop(0.5,pu(0.35));mg.addColorStop(1,pu(0));
-        c.fillStyle=mg;c.beginPath();c.arc(hx+36,hy-3,16,0,7);c.fill();c.restore();
+        var mg=c.createRadialGradient(hx+48,hy-3,1,hx+48,hy-3,22);
+        mg.addColorStop(0,puh(0.85));mg.addColorStop(0.4,pu(0.45));mg.addColorStop(1,pu(0));
+        c.fillStyle=mg;c.beginPath();c.arc(hx+48,hy-3,22,0,7);c.fill();
+        // forward beam stab
+        if(work){var bg=c.createLinearGradient(hx+48,hy-3,hx+78,hy-6);
+          bg.addColorStop(0,puh(0.5));bg.addColorStop(1,pu(0));
+          c.fillStyle=bg;c.fillRect(hx+48,hy-5,30,4);}
+        c.restore();
       });}
-      // charge coil
-      g.strokeStyle=pu(offl?0.15:0.55);g.lineWidth=1.5;
-      g.beginPath();g.arc(hx+10,hy-2,5,0,7);g.stroke();
-      rivet(g,hx+4,hy,eH);rivet(g,hx+16,hy-4,eH);
+      rivet(g,hx+2,hy,eH);rivet(g,hx+20,hy-6,eH);rivet(g,hx+8,hy+10,eH);
     }else if(idle){
       // gun held low at hip, ready
       var ex=cx+44,ey=BY+8,gx2=cx+36,gy=BY+22;
@@ -2809,10 +2828,13 @@ function buildGrok(t,st){
       plate(g,[[gx2-8,gy-3],[gx2+8,gy-3],[gx2+8,gy+7],[gx2-8,gy+7]],sM,sB,ed);
       handR={x:gx2+4,y:gy};
       var hx=gx2+4,hy=gy;
-      plate(g,[[hx-2,hy-8],[hx+18,hy-6],[hx+18,hy+6],[hx-2,hy+4]],"#2a2038","#120e1c","#4a3a5e");
-      plate(g,[[hx+16,hy-5],[hx+28,hy-4],[hx+28,hy+3],[hx+16,hy+2]],"#1a1428","#0a0812","#3a2a50");
-      if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.5);c.fillRect(hx+26,hy-3,3,4);});}
-      g.strokeStyle=pu(0.4);g.lineWidth=1.2;g.beginPath();g.arc(hx+8,hy,4,0,7);g.stroke();
+      plate(g,[[hx-4,hy-10],[hx+22,hy-8],[hx+22,hy+8],[hx-4,hy+6]],"#2a2038","#120e1c","#4a3a5e");
+      plate(g,[[hx+20,hy-7],[hx+36,hy-6],[hx+36,hy+4],[hx+20,hy+3]],"#1a1428","#0a0812","#3a2a50");
+      plate(g,[[hx+34,hy-9],[hx+40,hy-8],[hx+40,hy+5],[hx+34,hy+4]],sT,sB,ed);
+      for(var fn=0;fn<3;fn++){plate(g,[[hx+2+fn*5,hy-13],[hx+5+fn*5,hy-13],[hx+5+fn*5,hy-8],[hx+2+fn*5,hy-8]],sM,sB,ed);}
+      if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.55+0.15*pulse);c.fillRect(hx+36,hy-4,4,5);
+        c.strokeStyle=pu(0.5);c.lineWidth=1.5;c.beginPath();c.arc(hx+10,hy-1,5,0,7);c.stroke();});}
+      rivet(g,hx+4,hy,eH);
     }else{
       // offline: gun hangs slack
       var ex=cx+44,ey=BY+12,gx2=cx+38,gy=BY+36;
