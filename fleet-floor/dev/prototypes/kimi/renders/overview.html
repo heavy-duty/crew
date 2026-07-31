@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>kimi — representation overview</title>
+<style>
+  html,body{margin:0;background:#04060a;font-family:ui-monospace,Menlo,Consolas,monospace;color:#8aa0b8}
+  #page{padding:28px 30px 22px}
+  h1{font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:#c7d4e4;margin:0 0 4px}
+  h1 b{color:#ff72b6}
+  .sub{font-size:10.5px;color:#55657a;letter-spacing:.08em;margin-bottom:18px}
+  .grid{display:grid;grid-template-columns:220px 1fr 1fr;gap:10px 14px;align-items:start}
+  .lab{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:#46566a;padding-top:6px}
+  .cell{background:#000;border:1px solid #131c26;border-radius:6px;overflow:hidden}
+  .cell img{display:block;width:100%}
+  .cap{font-size:9.5px;letter-spacing:.1em;color:#65788c;padding:6px 8px;border-top:1px solid #131c26;text-transform:uppercase}
+  .cap b{color:#ff9ac8;font-weight:400}
+  .head{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:#c7d4e4;padding:0 0 8px 2px}
+  .head span{color:#46566a}
+</style>
+</head>
+<body>
+<div id="page">
+  <h1>how should <b>kimi</b> be represented — two prototypes</h1>
+  <div class="sub">current unit vs. proto A “KM-04 TENDER” (evolution) vs. proto B “SELENE” (rethink) · fleet-floor grammar · working / offline</div>
+  <div class="grid">
+    <div></div>
+    <div class="head">working <span>· t=8s</span></div>
+    <div class="head">offline</div>
+
+    <div class="lab">current<br>fleet-floor main<br><br><span style="color:#3a4656">rounded-rect drone<br>· single-primitive<br>&nbsp;&nbsp;silhouette<br>· face carries<br>&nbsp;&nbsp;everything</span></div>
+    <div class="cell"><img src="current-kimi-working.png"><div class="cap">current — working</div></div>
+    <div class="cell"><img src="current-kimi-offline.png"><div class="cap">current — offline (sags behind station)</div></div>
+
+    <div class="lab">proto A<br>“KM-04 TENDER”<br><br><span style="color:#3a4656">same drone,<br>drawn assembled<br>· gimbal window<br>· ducted repulsor<br>· two shells +<br>&nbsp;&nbsp;service history</span></div>
+    <div class="cell"><img src="A-working.png"><div class="cap"><b>A</b> — working</div></div>
+    <div class="cell"><img src="A-offline.png"><div class="cap"><b>A</b> — offline (dead-man's roll, rotors stopped)</div></div>
+
+    <div class="lab">proto B<br>“SELENE”<br><br><span style="color:#3a4656">the rethink<br>· moon-phase face<br>&nbsp;&nbsp;is the state readout<br>· gimbal rings lose<br>&nbsp;&nbsp;lock when dead<br>· gravity lens hover</span></div>
+    <div class="cell"><img src="B-working.png"><div class="cap"><b>B</b> — working</div></div>
+    <div class="cell"><img src="B-offline.png"><div class="cap"><b>B</b> — offline (new moon, rings at rest)</div></div>
+  </div>
+</div>
+</body>
+</html>

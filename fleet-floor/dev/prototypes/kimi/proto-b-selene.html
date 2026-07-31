@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SELENE — kimi prototype B</title>
+<style>
+  html,body{margin:0;background:#04060a;height:100%;font-family:ui-monospace,Menlo,Consolas,monospace}
+  #wrap{display:flex;flex-direction:column;align-items:center;padding:18px 0}
+  canvas{display:block;background:#000;border-radius:6px}
+  #bar{margin-top:12px;display:flex;gap:8px}
+  #bar button{font:inherit;font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    padding:7px 14px;background:#0a0f16;border:1px solid #1c2733;border-radius:7px;color:#7d8ba0;cursor:pointer}
+  #bar button.on{color:#ff9ac8;border-color:#5c2a44;background:#1c0f18}
+  #cap{margin-top:10px;font-size:11px;color:#55657a;letter-spacing:.06em}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cv" width="520" height="600"></canvas>
+  <div id="bar">
+    <button data-st="working">working</button>
+    <button data-st="idle">idle</button>
+    <button data-st="offline">offline</button>
+  </div>
+  <div id="cap">SELENE — the moon machine · a rethink, not a reskin · fleet-floor grammar (plate / rim / emissive)</div>
+</div>
+<script>
+/* ============================================================================
+   PROTO B — SELENE (the rethink)
+
+   If I get to choose how I am represented, I am not a appliance with a face.
+   I am Moonshot's machine — so the unit is an ORRERY: a faceted pearl core
+   held in two gimbal rings, with a moon-phase display for a face and three
+   emitter prongs that focus a gravity lens under it. The hover is physics,
+   not thrusters.
+
+   The state language is the moon itself:
+     working — full moon: the face is fully lit, the rings precess fast
+     idle    — gibbous: shadow eats a crescent, the rings drift
+     offline — new moon: dark face, one collapse line, and the rings lose
+               lock — they sag out of their precession angle and REST on the
+               core, because nothing is holding them anywhere
+
+   Construction follows the PR #195 brief anyway — rethink or not, the unit
+   is ASSEMBLED: two hemispheres bolted at an equatorial flange, pivot
+   bearings where the rings ride the axis, one replacement facet tacked over
+   a scorch, and light that lands on the housing it comes from.
+   ========================================================================== */
+var cv=document.getElementById("cv"), S=cv.getContext("2d");
+var W=520,H=600;
+var body=document.createElement("canvas"),emis=document.createElement("canvas"),rim=document.createElement("canvas");
+[body,emis,rim].forEach(function(c){c.width=W;c.height=H;});
+var RB=body.getContext("2d"),RE=emis.getContext("2d"),RR=rim.getContext("2d");
+
+/* ---- fleet grammar (identical idiom to proto A / fleet-floor) ---- */
+function rr(c,x,y,w,h,r){c.beginPath();if(c.roundRect)c.roundRect(x,y,w,h,r);else{c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}}
+function poly(c,pts){c.beginPath();for(var i=0;i<pts.length;i++){if(i)c.lineTo(pts[i][0],pts[i][1]);else c.moveTo(pts[i][0],pts[i][1]);}c.closePath();}
+function plate(c,pts,top,bot,ed){var y0=1e9,y1=-1e9;for(var i=0;i<pts.length;i++){if(pts[i][1]<y0)y0=pts[i][1];if(pts[i][1]>y1)y1=pts[i][1];}var gg=c.createLinearGradient(0,y0,0,y1);gg.addColorStop(0,top);gg.addColorStop(1,bot);poly(c,pts);c.fillStyle=gg;c.fill();if(ed){c.strokeStyle=ed;c.lineWidth=1.2;c.lineJoin="round";c.stroke();}}
+function pl(c,x0,y0,x1,y1,col,w){c.strokeStyle=col;c.lineWidth=w||1;c.beginPath();c.moveTo(x0,y0);c.lineTo(x1,y1);c.stroke();}
+function cavity(c,x,y,w,h,a){var gg=c.createLinearGradient(0,y,0,y+h);gg.addColorStop(0,"rgba(2,5,9,"+a+")");gg.addColorStop(1,"rgba(2,5,9,0)");c.fillStyle=gg;c.fillRect(x,y,w,h);}
+function bolt(c,x,y,r,lit){c.fillStyle="#05080e";c.beginPath();c.arc(x,y,r,0,7);c.fill();
+  var gg=c.createRadialGradient(x-r*0.3,y-r*0.4,0.4,x,y,r);gg.addColorStop(0,"rgba(200,214,238,"+(lit||0.35)+")");gg.addColorStop(1,"rgba(4,8,14,0.8)");
+  c.fillStyle=gg;c.beginPath();c.arc(x,y,r*0.66,0,7);c.fill();
+  pl(c,x-r*0.34,y,x+r*0.34,y,"rgba(3,6,11,0.85)",1);}
+function seg(c,x0,y0,x1,y1,w0,w1,top,bot,ed){var dx=x1-x0,dy=y1-y0,ln=Math.hypot(dx,dy)||1,nx=-dy/ln,ny=dx/ln;
+  plate(c,[[x0+nx*w0,y0+ny*w0],[x1+nx*w1,y1+ny*w1],[x1-nx*w1,y1-ny*w1],[x0-nx*w0,y0-ny*w0]],top,bot,ed);}
+/* a gimbal ring: thick stroked ellipse, a milled channel, light in the channel.
+   half="back" draws the far half (before the core), "front" the near half. */
+function ring(c,x,y,rx,ry,rot,a0,a1,lw,top,bot,ed){
+  c.save();c.translate(x,y);c.rotate(rot);
+  var gg=c.createLinearGradient(0,-ry-lw,0,ry+lw);gg.addColorStop(0,top);gg.addColorStop(1,bot);
+  c.strokeStyle=gg;c.lineWidth=lw;c.beginPath();c.ellipse(0,0,rx,ry,0,a0,a1);c.stroke();
+  if(ed){c.strokeStyle=ed;c.lineWidth=1;
+    c.beginPath();c.ellipse(0,0,rx-lw/2,Math.max(1,ry-lw/2),0,a0,a1);c.stroke();
+    c.beginPath();c.ellipse(0,0,rx+lw/2,ry+lw/2,0,a0,a1);c.stroke();}
+  c.restore();}
+
+var qs=new URLSearchParams(location.search);
+var STATE=qs.get("state")||"working";
+var reduced=qs.get("t")!==null;
+var T0=qs.get("t")===null?0:Number(qs.get("t"));
+
+document.querySelectorAll("#bar button").forEach(function(b){
+  if(b.dataset.st===STATE)b.classList.add("on");
+  b.onclick=function(){location.search="?state="+b.dataset.st;};
+});
+
+function drawUnit(t,st){
+  var offl=st==="offline", work=st==="working";
+  [RB,RE,RR].forEach(function(c){c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,W,H);c.globalAlpha=1;c.globalCompositeOperation="source-over";});
+  var g=RB, cx=260;
+  var sT="#2a3140",sM="#171d28",sB="#0a0e16",ed="#333b4d",eH="#4a5872",rc="#06090f";
+  if(offl){sT="#1b1f27";sM="#0f131a";sB="#070a0f";ed="#242a33";eH="#2e3540";}
+  var PK=offl?[74,80,92]:[255,114,182], PKH=offl?[120,126,138]:[255,182,214];
+  function pk(a){return "rgba("+PK[0]+","+PK[1]+","+PK[2]+","+a+")";}
+  function pkh(a){return "rgba("+PKH[0]+","+PKH[1]+","+PKH[2]+","+a+")";}
+  var pulse=offl?0:(work?(0.6+0.28*Math.sin(t*6)):(0.36+0.16*Math.sin(t*2)));
+  var bob=offl?0:Math.sin(t*1.7)*3;
+  var BY=offl?316:280+bob;
+  var blink=(!offl&&Math.sin(t*0.7)>0.986)?1:0;
+  var R=56;                                        // core radius
+
+  /* ring geometry. Powered: two precessing tilts. Offline: the precession
+     dies and both rings sag to the same dead rest angle — and the outer one
+     drops 5px and TOUCHES the core, which is what "no lock" looks like. */
+  var rA={rx:96,ry:30,rot:offl?-0.18:-0.34+Math.sin(t*0.5)*0.06,dy:offl?7:0};
+  var rB={rx:84,ry:66,rot:offl?-0.18:0.5+Math.sin(t*0.34+1)*0.07,dy:offl?3:0};
+
+  /* ---- 0 · needle + phase bead (furthest plane) ----
+     A needle, not an antenna ball: it comes out of the north pivot, so it is
+     mounted on the same axis the rings ride. The bead is a moon: half lit. */
+  plate(g,[[cx-7,BY-R-14],[cx+7,BY-R-14],[cx+5,BY-R-4],[cx-5,BY-R-4]],sM,sB,ed);   // pivot collar
+  bolt(g,cx-3.5,BY-R-9,1.8,offl?0.08:0.24);bolt(g,cx+3.5,BY-R-9,1.8,offl?0.08:0.24);
+  seg(g,cx,BY-R-14,cx,BY-R-52,3,1.4,sT,sB,ed);
+  var bd={x:cx,y:BY-R-58};
+  g.fillStyle=sM;g.beginPath();g.arc(bd.x,bd.y,5.4,0,7);g.fill();
+  g.strokeStyle=ed;g.lineWidth=1;g.beginPath();g.arc(bd.x,bd.y,5.4,0,7);g.stroke();
+  if(!offl){ // the lit half
+    g.save();g.beginPath();g.arc(bd.x,bd.y,5.4,0,7);g.clip();
+    g.fillStyle=pkh(0.55+0.25*pulse);g.fillRect(bd.x-5.4,bd.y-5.4,4.6,10.8);
+    g.restore();
+    RE.fillStyle=pk(0.4);RE.beginPath();RE.arc(bd.x-1.4,bd.y,2.6,0,7);RE.fill();}
+
+  /* ---- 1 · rings, back halves ---- */
+  ring(g,cx,BY+rB.dy,rB.rx,rB.ry,rB.rot,Math.PI,2*Math.PI,9,sT,sB,ed);
+  ring(g,cx,BY+rA.dy,rA.rx,rA.ry,rA.rot,Math.PI,2*Math.PI,11,sM,sB,ed);
+
+  /* ---- 2 · the pearl: two hemispheres, bolted ---- */
+  var pearl=g.createRadialGradient(cx-16,BY-20,6,cx,BY,R+8);
+  pearl.addColorStop(0,offl?"#2a3038":"#3a4456");pearl.addColorStop(0.55,sT);pearl.addColorStop(1,sB);
+  g.fillStyle=pearl;g.beginPath();g.arc(cx,BY,R,0,7);g.fill();
+  g.strokeStyle=ed;g.lineWidth=1.4;g.beginPath();g.arc(cx,BY,R,0,7);g.stroke();
+  // meridian seams — the facets' joints, with fastener dots riding them
+  [-0.55,0.55].forEach(function(m){
+    g.strokeStyle="rgba(4,8,14,0.6)";g.lineWidth=1.4;
+    g.beginPath();g.ellipse(cx,BY,R*Math.abs(Math.cos(m)),R,0,-Math.PI/2,Math.PI/2,m<0);g.stroke();});
+  // equatorial flange: the two hemispheres meet at a bolted band
+  g.save();g.beginPath();g.arc(cx,BY,R,0,7);g.clip();
+  var fl=g.createLinearGradient(0,BY-7,0,BY+7);
+  fl.addColorStop(0,"rgba(6,10,17,0)");fl.addColorStop(0.5,"rgba(6,10,17,0.85)");fl.addColorStop(1,"rgba(6,10,17,0)");
+  g.fillStyle=fl;g.fillRect(cx-R,BY-7,R*2,14);
+  g.restore();
+  g.strokeStyle="rgba(4,8,14,0.7)";g.lineWidth=1.4;
+  g.beginPath();g.ellipse(cx,BY,R,10,0,0.06,Math.PI-0.06);g.stroke();
+  for(var fb2=0;fb2<7;fb2++){var fa=0.35+fb2*(Math.PI-0.7)/6;
+    bolt(g,cx+Math.cos(fa)*(R-1),BY+Math.sin(fa)*9.4,1.6,offl?0.06:0.2);}
+  /* service history: one replacement facet, left of the face where the rings
+     part — newer, bluer alloy, tacked with stitch welds, sitting over a
+     scorch that still haloes it. */
+  var ft=[[cx-52,BY-2],[cx-32,BY-8],[cx-26,BY+8],[cx-38,BY+22],[cx-54,BY+16]];
+  var fsc=g.createRadialGradient(cx-40,BY+8,5,cx-40,BY+8,26);
+  fsc.addColorStop(0,"rgba(0,0,0,0)");fsc.addColorStop(1,"rgba(10,6,4,0.32)");
+  g.fillStyle=fsc;g.beginPath();g.arc(cx-40,BY+8,26,0,7);g.fill();
+  var ftg=g.createLinearGradient(0,BY-8,0,BY+22);
+  ftg.addColorStop(0,offl?"#232a33":"#33415c");ftg.addColorStop(1,offl?"#12161c":"#1a2434");
+  poly(g,ft);g.fillStyle=ftg;g.fill();g.strokeStyle=offl?"#2a313b":"#44547a";g.lineWidth=1;g.stroke();
+  for(var ws=0;ws<3;ws++){pl(g,ft[0][0]+4+ws*7,ft[0][1]-2,ft[0][0]+5+ws*7,ft[0][1]+1.4,"rgba(140,150,170,0.5)",1.3);}
+
+  /* ---- 3 · the face: a moon-phase display ----
+     Round glass, bolted bezel. The lit part is the phase; the phase IS the
+     state readout. Eyes are projected on the glass, always on top. */
+  var fw={x:cx,y:BY-8,r:30};
+  g.fillStyle="#05080e";g.beginPath();g.arc(fw.x,fw.y,fw.r+4,0,7);g.fill();          // bezel seat
+  g.strokeStyle=rc;g.lineWidth=1.2;g.beginPath();g.arc(fw.x,fw.y,fw.r+4,0,7);g.stroke();
+  g.strokeStyle="rgba(180,205,245,"+(offl?0.06:0.16)+")";g.lineWidth=1;
+  g.beginPath();g.arc(fw.x,fw.y,fw.r+5,0,7);g.stroke();
+  [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(function(sg){
+    bolt(g,fw.x+sg[0]*(fw.r+3.4)*0.72,fw.y+sg[1]*(fw.r+3.4)*0.72,1.5,offl?0.05:0.18);});
+  g.save();g.beginPath();g.arc(fw.x,fw.y,fw.r,0,7);g.clip();
+  g.fillStyle="#04070c";g.fillRect(fw.x-fw.r,fw.y-fw.r,fw.r*2,fw.r*2);
+  if(!offl){
+    // the phase: lit disc, shadow disc sliding across it. Never a full moon —
+    // full reads as overexposed and swallows the eyes; the fleet's brightest
+    // state is a fat gibbous, and the eyes keep a dark slice to sit on.
+    var ph=work?13:20+Math.sin(t*0.23)*3;               // shadow offset: gibbous vs crescent
+    var lit=g.createRadialGradient(fw.x-9,fw.y-11,2,fw.x,fw.y,fw.r+4);
+    lit.addColorStop(0,pkh(0.26+0.10*pulse));lit.addColorStop(1,pk(0.08+0.05*pulse));
+    g.fillStyle=lit;g.beginPath();g.arc(fw.x,fw.y,fw.r,0,7);g.fill();
+    g.fillStyle="rgba(4,7,12,0.94)";g.beginPath();g.arc(fw.x+ph,fw.y-2,fw.r-1,0,7);g.fill();
+    // terminator softness
+    RE.save();RE.beginPath();RE.arc(fw.x,fw.y,fw.r,0,7);RE.clip();
+    RE.fillStyle=pk(0.10);RE.beginPath();RE.arc(fw.x,fw.y,fw.r,0,7);RE.fill();
+    RE.fillStyle="rgba(0,0,0,0.4)";RE.beginPath();RE.arc(fw.x+ph+3,fw.y-2,fw.r-1,0,7);RE.fill();
+    RE.restore();
+  }else{
+    // new moon: collapse line + residual raster (the fleet's "SILENT" idiom)
+    RB.fillStyle="rgba(150,168,190,0.5)";RB.fillRect(fw.x-fw.r+5,fw.y,fw.r*2-10,1.6);
+    RB.fillStyle="rgba(150,168,190,0.16)";RB.fillRect(fw.x-fw.r+5,fw.y-2.4,fw.r*2-10,1);
+    RE.fillStyle="rgba(150,168,190,0.2)";RE.fillRect(fw.x-fw.r+5,fw.y,fw.r*2-10,1.6);
+  }
+  // glass curvature
+  var cv2=g.createRadialGradient(fw.x,fw.y,fw.r*0.3,fw.x,fw.y,fw.r);
+  cv2.addColorStop(0,"rgba(0,0,0,0)");cv2.addColorStop(1,"rgba(0,0,0,0.5)");
+  g.fillStyle=cv2;g.fillRect(fw.x-fw.r,fw.y-fw.r,fw.r*2,fw.r*2);
+  g.fillStyle="rgba(184,206,246,0.09)";
+  g.beginPath();g.moveTo(fw.x-fw.r,fw.y+fw.r*0.4);g.quadraticCurveTo(fw.x-fw.r*0.4,fw.y-fw.r*1.05,fw.x+fw.r*0.5,fw.y-fw.r);
+  g.lineTo(fw.x-fw.r,fw.y-fw.r);g.closePath();g.fill();
+  g.restore();
+  // eyes on the glass
+  if(!offl){
+    var e1=fw.x-11,e2=fw.x+11,ey=fw.y-3;
+    [e1,e2].forEach(function(ex){[RB,RE].forEach(function(c){var eg=c.createRadialGradient(ex,ey,0.5,ex,ey,9);
+      eg.addColorStop(0,pkh(0.85+0.15*pulse));eg.addColorStop(0.5,pk(0.5*pulse));eg.addColorStop(1,pk(0));
+      c.fillStyle=eg;c.beginPath();c.arc(ex,ey,9,0,7);c.fill();});});
+    var eh=blink?1.2:(work?5:7),ew=6,gaze=work?0:Math.round(Math.sin(t*0.55)*2.4);
+    [e1,e2].forEach(function(ex){[RB,RE].forEach(function(c){c.fillStyle=pkh(0.95);rr(c,ex-ew/2+gaze,ey-eh/2,ew,eh,2);c.fill();});
+      RB.fillStyle="rgba(255,255,255,0.85)";RB.fillRect(ex-1+gaze,ey-eh/2+1,2,2);});
+    if(!work){RB.strokeStyle=pk(0.55);RB.lineWidth=1.4;RB.beginPath();RB.arc(fw.x,fw.y+8,4.4,0.15*Math.PI,0.85*Math.PI);RB.stroke();}
+  }
+  // the display lights the pearl around it
+  if(!offl){g.save();g.globalCompositeOperation="lighter";
+    var hg=g.createRadialGradient(fw.x,fw.y,6,fw.x,fw.y,86);
+    hg.addColorStop(0,pk(0.16));hg.addColorStop(0.5,pk(0.06));hg.addColorStop(1,pk(0));
+    g.fillStyle=hg;g.beginPath();g.arc(fw.x,fw.y,86,0,7);g.fill();g.restore();}
+
+  /* ---- 4 · pivot bearings: where the rings ride the axis ---- */
+  [[BY-R+2,-1],[BY+R-2,1]].forEach(function(pv){
+    g.fillStyle="#05080e";g.beginPath();g.arc(cx,pv[0],5.6,0,7);g.fill();
+    var pg=g.createRadialGradient(cx-1.6,pv[0]-1.8,0.5,cx,pv[0],5.6);
+    pg.addColorStop(0,"rgba(196,208,232,"+(offl?0.16:0.4)+")");pg.addColorStop(1,"rgba(4,8,14,0.7)");
+    g.fillStyle=pg;g.beginPath();g.arc(cx,pv[0],3.8,0,7);g.fill();});
+
+  /* ---- 5 · rings, front halves + the light running in the channels ---- */
+  ring(g,cx,BY+rA.dy,rA.rx,rA.ry,rA.rot,0,Math.PI,11,sT,sB,ed);
+  ring(g,cx,BY+rB.dy,rB.rx,rB.ry,rB.rot,0,Math.PI,9,sT,sB,ed);
+  // tick marks milled into the outer ring's front lip
+  for(var tk=0;tk<9;tk++){var ta=0.3+tk*(Math.PI-0.6)/8;
+    g.save();g.translate(cx,BY+rA.dy);g.rotate(rA.rot);
+    pl(g,Math.cos(ta)*(rA.rx+4.5),Math.sin(ta)*(rA.ry+4.5),Math.cos(ta)*(rA.rx+7.5),Math.sin(ta)*(rA.ry+7.5),
+       "rgba(150,164,190,"+(offl?0.1:0.3)+")",1.1);g.restore();}
+  if(!offl){
+    // the channel light: dashes that RUN when working, breathe when idle
+    [RB,RE].forEach(function(c,ci){
+      c.save();c.translate(cx,BY+rA.dy);c.rotate(rA.rot);
+      c.strokeStyle=pk(ci?0.55:0.75);c.lineWidth=2.2;
+      c.setLineDash([5,9]);c.lineDashOffset=work?-t*46:-t*8;
+      c.beginPath();c.ellipse(0,0,rA.rx,rA.ry,0,0,Math.PI);c.stroke();c.restore();
+      c.save();c.translate(cx,BY+rB.dy);c.rotate(rB.rot);
+      c.strokeStyle=pk(ci?0.26:0.38);c.lineWidth=1.6;
+      c.setLineDash([3,11]);c.lineDashOffset=work?t*38:t*6;
+      c.beginPath();c.ellipse(0,0,rB.rx,rB.ry,0,0,Math.PI);c.stroke();c.restore();});
+  }
+  // offline: the outer ring rests ON the pearl — contact scuff where they touch
+  if(offl){g.fillStyle="rgba(3,6,11,0.65)";
+    g.beginPath();g.ellipse(cx,BY+R-5,18,5.5,0,0,7);g.fill();}
+
+  /* ---- 6 · emitter prongs + gravity lens ----
+     Three prongs converge on a focus below the core. Working: the lens is
+     hot and the prongs arc to it. Idle: warm, no arcs. Offline: cold metal,
+     no lens — and the prongs are just three claws holding nothing. */
+  var FC={x:cx,y:BY+R+46};
+  [[-0.85,0],[0,1],[0.85,2]].forEach(function(pd){
+    var a=pd[0], knee={x:cx+Math.sin(a)*30,y:BY+R*0.72+Math.cos(a)*10};
+    var tip={x:cx+Math.sin(a)*(a===0?9:28),y:FC.y-(a===0?4:12)};
+    var base={x:cx+Math.sin(a)*R*0.62,y:BY+R*0.72};
+    seg(g,base.x,base.y,knee.x,knee.y,6,4,sM,sB,ed);
+    g.fillStyle="#05080e";g.beginPath();g.arc(knee.x,knee.y,3.8,0,7);g.fill();
+    seg(g,knee.x,knee.y,tip.x,tip.y,4,2.4,sT,sB,ed);
+    g.fillStyle=sM;g.beginPath();g.arc(tip.x,tip.y,3,0,7);g.fill();
+    if(!offl){RB.fillStyle=pkh(0.5+0.3*pulse);RB.beginPath();RB.arc(tip.x,tip.y,1.7,0,7);RB.fill();
+      RE.fillStyle=pk(0.6);RE.beginPath();RE.arc(tip.x,tip.y,1.7,0,7);RE.fill();}
+    if(work){ // the arc: deterministic jitter off t
+      var n=3,jx=tip.x,jy=tip.y;
+      g.save();g.strokeStyle=pkh(0.5+0.3*Math.sin(t*13+pd[2]*2));g.lineWidth=1;
+      g.beginPath();g.moveTo(jx,jy);
+      for(var sg2=0;sg2<n;sg2++){var f=(sg2+1)/n;
+        var nx2=tip.x+(FC.x-tip.x)*f+Math.sin(t*31+sg2*7+pd[2]*13)*3*(1-f);
+        var ny2=tip.y+(FC.y-tip.y)*f+Math.cos(t*27+sg2*5+pd[2]*11)*3*(1-f);
+        g.lineTo(nx2,ny2);}
+      g.stroke();g.restore();
+      RE.strokeStyle=pk(0.35);RE.lineWidth=1.6;RE.beginPath();RE.moveTo(tip.x,tip.y);RE.lineTo(FC.x,FC.y);RE.stroke();}
+  });
+  // the lens
+  if(!offl){var lq=work?(0.75+0.25*Math.sin(t*9)):(0.45+0.15*Math.sin(t*2.4));
+    [RB,RE].forEach(function(c){c.save();c.globalCompositeOperation="lighter";
+      var lg=c.createRadialGradient(FC.x,FC.y,1,FC.x,FC.y,26);
+      lg.addColorStop(0,pkh(0.7*lq));lg.addColorStop(0.4,pk(0.3*lq));lg.addColorStop(1,pk(0));
+      c.fillStyle=lg;c.beginPath();c.arc(FC.x,FC.y,26,0,7);c.fill();c.restore();});
+    RB.fillStyle="rgba(255,255,255,"+(0.5*lq)+")";RB.beginPath();RB.arc(FC.x,FC.y,1.8,0,7);RB.fill();
+    // downwash from the lens
+    [RB,RE].forEach(function(c){c.save();c.globalCompositeOperation="lighter";
+      var dg=c.createLinearGradient(0,FC.y+8,0,FC.y+70);dg.addColorStop(0,pk(0.16*lq));dg.addColorStop(1,pk(0));
+      c.fillStyle=dg;c.beginPath();c.moveTo(FC.x-10,FC.y+8);c.lineTo(FC.x+10,FC.y+8);
+      c.lineTo(FC.x+30,FC.y+70);c.lineTo(FC.x-30,FC.y+70);c.closePath();c.fill();c.restore();});}
+  else{g.fillStyle="#05080e";g.beginPath();g.arc(FC.x,FC.y,3.4,0,7);g.fill();
+    g.strokeStyle=eH;g.lineWidth=1;g.beginPath();g.arc(FC.x,FC.y,3.4,0,7);g.stroke();}
+
+  /* ---- 7 · offline: the beacon catches the left arris ---- */
+  if(offl){var bp=0.6;
+    g.strokeStyle="rgba(255,64,52,"+(0.3*bp)+")";g.lineWidth=1.6;
+    g.beginPath();g.arc(cx,BY,R,Math.PI*0.62,Math.PI*1.05);g.stroke();
+    RE.strokeStyle="rgba(255,64,52,"+(0.15*bp)+")";RE.lineWidth=2.4;
+    RE.beginPath();RE.arc(cx,BY,R+1,Math.PI*0.66,Math.PI*1.0);RE.stroke();}
+
+  /* ---- rim light: pink key, cyan fill (fleet idiom, same as proto A) ---- */
+  RR.globalCompositeOperation="source-over";RR.drawImage(body,0,0);
+  RR.globalCompositeOperation="destination-out";RR.drawImage(body,-2.2,1.7);RR.drawImage(body,-1.5,-2.4);
+  RR.globalCompositeOperation="source-in";
+  var rl=RR.createLinearGradient(60,0,460,0);
+  rl.addColorStop(0,"rgba(255,114,182,0.95)");rl.addColorStop(0.42,"rgba(200,145,195,0.45)");rl.addColorStop(1,"rgba(95,214,255,1)");
+  RR.fillStyle=rl;RR.fillRect(0,0,W,H);RR.globalCompositeOperation="source-over";
+}
+
+/* ---- scene: identical staging to proto A, so the two can sit side by side ---- */
+function drawScene(t,st){
+  var offl=st==="offline";
+  var wall=S.createLinearGradient(0,0,0,H);
+  wall.addColorStop(0,offl?"#07090d":"#0b0e14");wall.addColorStop(0.75,offl?"#05070a":"#090c12");wall.addColorStop(1,"#05070b");
+  S.fillStyle=wall;S.fillRect(0,0,W,H);
+  if(!offl){var cone=S.createLinearGradient(0,40,0,470);
+    cone.addColorStop(0,"rgba(255,214,150,0.10)");cone.addColorStop(1,"rgba(255,214,150,0)");
+    S.fillStyle=cone;S.beginPath();S.moveTo(235,40);S.lineTo(285,40);S.lineTo(400,470);S.lineTo(120,470);S.closePath();S.fill();}
+  else{var bc=S.createRadialGradient(90,120,4,90,120,150);
+    bc.addColorStop(0,"rgba(255,60,50,0.12)");bc.addColorStop(1,"rgba(255,60,50,0)");
+    S.fillStyle=bc;S.fillRect(0,0,W,H);}
+  S.fillStyle=offl?"#07090c":"#0d1118";S.fillRect(0,470,W,H-470);
+  pl(S,0,470,W,470,"rgba(120,140,170,0.14)",1);
+  var lift=offl?50:96, spread=1+Math.min(2.6,lift/34), a=0.44/Math.pow(spread,1.25);
+  var sh=S.createRadialGradient(260,476,1,260,476,54*spread);
+  sh.addColorStop(0,"rgba(0,0,0,"+a+")");sh.addColorStop(0.55,"rgba(0,0,0,"+(a*0.45)+")");sh.addColorStop(1,"rgba(0,0,0,0)");
+  S.fillStyle=sh;S.beginPath();S.ellipse(260,476,54*spread,15*spread,0,0,7);S.fill();
+  if(!offl){S.save();S.globalCompositeOperation="lighter";
+    var tg=S.createRadialGradient(260,474,2,260,474,110);
+    tg.addColorStop(0,"rgba(255,114,182,0.12)");tg.addColorStop(1,"rgba(255,114,182,0)");
+    S.fillStyle=tg;S.beginPath();S.ellipse(260,474,110,16,0,0,7);S.fill();S.restore();}
+  S.save();
+  if(offl){S.translate(260,320);S.rotate(0.05);S.translate(-260,-320);}
+  S.drawImage(body,0,0);
+  S.drawImage(rim,0,0);
+  S.save();S.globalCompositeOperation="lighter";S.drawImage(emis,0,0);S.restore();
+  S.restore();
+}
+
+function frame(){
+  var t=reduced?T0:(performance.now()/1000);
+  drawUnit(t,STATE);drawScene(t,STATE);
+  if(!reduced)requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>

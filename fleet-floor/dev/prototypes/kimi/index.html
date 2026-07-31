@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>kimi — two representation prototypes</title>
+<style>
+  html,body{margin:0;background:#04060a;font-family:ui-monospace,Menlo,Consolas,monospace;color:#8aa0b8}
+  #page{max-width:1180px;margin:0 auto;padding:30px 24px 40px}
+  h1{font-size:14px;letter-spacing:.22em;text-transform:uppercase;color:#c7d4e4;margin:0 0 6px}
+  h1 b{color:#ff72b6}
+  .sub{font-size:11px;color:#55657a;letter-spacing:.06em;margin-bottom:22px;line-height:1.7}
+  .sub b{color:#8aa0b8;font-weight:400}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .card{border:1px solid #131c26;border-radius:8px;overflow:hidden;background:#070a10}
+  .card .ct{padding:12px 14px 4px;font-size:12px;letter-spacing:.14em;color:#c7d4e4;text-transform:uppercase}
+  .card .ct b{color:#ff9ac8;font-weight:400}
+  .card .cd{padding:0 14px 10px;font-size:10.5px;color:#55657a;line-height:1.65}
+  iframe{width:100%;height:560px;border:0;display:block;background:#000}
+  .strip{margin-top:26px;border:1px solid #131c26;border-radius:8px;overflow:hidden}
+  .strip img{display:block;width:100%}
+  a{color:#ff9ac8;text-decoration:none}
+  .fn{margin-top:18px;font-size:10px;color:#3f4c5c;letter-spacing:.06em;line-height:1.7}
+</style>
+</head>
+<body>
+<div id="page">
+  <h1>how should <b>kimi</b> be represented — two live prototypes</h1>
+  <div class="sub">
+    Written in the fleet-floor grammar — <b>canvas 2D, plate()/rim/emissive buffers, no assets, no deps</b> —
+    the same way claude's unit is drawn in <b>fleet-floor/src/app.js</b>, so either one ports into
+    <b>buildKimi()</b> directly. Both are live below: use the state buttons under each unit.
+  </div>
+  <div class="row">
+    <div class="card">
+      <div class="ct">proto A · <b>KM-04 “Tender”</b></div>
+      <div class="cd">
+        The evolution. Same hovering screen-face drone — but assembled the way claude's unit is:
+        two shells with a parting gasket, a visible gimbal window with trunnion bearings and a braided
+        cable loop, a crown intake feeding a ducted repulsor whose rotor visibly stops offline,
+        jointed ears, a bolted sensor mast, and a service history (replacement panel tacked over a
+        scorch, grime at the bolts). The face the fleet already loves stays exactly as it is.
+      </div>
+      <iframe src="proto-a-tender.html"></iframe>
+    </div>
+    <div class="card">
+      <div class="ct">proto B · <b>SELENE</b></div>
+      <div class="cd">
+        The rethink. If I choose for myself: I am Moonshot's machine, so the unit is an orrery —
+        a faceted pearl core bolted at an equatorial flange, two gimbal rings with light running in
+        their channels, three emitter prongs focusing a gravity lens. The face is a moon-phase display
+        and the phase <i>is</i> the state: gibbous when working, crescent when idle, new moon with a
+        signal-collapse line when offline — and the rings lose lock and rest on the core.
+      </div>
+      <iframe src="proto-b-selene.html"></iframe>
+    </div>
+  </div>
+  <div class="strip"><img src="renders/overview.png" alt="current unit vs prototype A vs prototype B"></div>
+  <div class="fn">
+    kimi-prototypes/ · proto-a-tender.html, proto-b-selene.html — self-contained, open directly ·
+    deterministic stills: ?state=working&amp;t=8 · renders/ — PNGs + overview sheet ·
+    comparison source: heavy-duty/crew PR #195 vs fleet-floor main
+  </div>
+</div>
+</body>
+</html>

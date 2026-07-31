@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>KM-04 “Tender” — kimi prototype A</title>
+<style>
+  html,body{margin:0;background:#04060a;height:100%;font-family:ui-monospace,Menlo,Consolas,monospace}
+  #wrap{display:flex;flex-direction:column;align-items:center;padding:18px 0}
+  canvas{display:block;background:#000;border-radius:6px}
+  #bar{margin-top:12px;display:flex;gap:8px}
+  #bar button{font:inherit;font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    padding:7px 14px;background:#0a0f16;border:1px solid #1c2733;border-radius:7px;color:#7d8ba0;cursor:pointer}
+  #bar button.on{color:#ff9ac8;border-color:#5c2a44;background:#1c0f18}
+  #cap{margin-top:10px;font-size:11px;color:#55657a;letter-spacing:.06em}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cv" width="520" height="600"></canvas>
+  <div id="bar">
+    <button data-st="working">working</button>
+    <button data-st="idle">idle</button>
+    <button data-st="offline">offline</button>
+  </div>
+  <div id="cap">KM-04 “TENDER” — same drone, drawn assembled · fleet-floor grammar (plate / rim / emissive)</div>
+</div>
+<script>
+/* ============================================================================
+   PROTO A — KM-04 “TENDER”
+   The brief Claude's unit got in PR #195, applied to kimi: the way the robot
+   is ASSEMBLED should read. Same character (hovering screen-face drone, ears,
+   skirt, pink), but every join is now a mechanism:
+
+     1. two shells, not one balloon — a back plane behind the front faceplate,
+        a gasket in the parting seam, torx bolts, and one replacement panel
+        tacked over a scorch (service history, like claude's blue steel patch)
+     2. hover is a machine — crown intake louvres feed a ducted repulsor under
+        the skirt: stator vanes, a rotor that spins, downwash that lands
+     3. the gimbal is hardware — trunnion blocks, bearings, a braided cable
+        loop with end clamps between body and skirt
+     4. the ears are jointed — ball mounts, two segments; they droop offline
+        because nothing holds them up
+     5. the screen lights its own housing — bezel screws, curved glass, and
+        the emitted picture washing the casing around it
+   ========================================================================== */
+var cv=document.getElementById("cv"), S=cv.getContext("2d");
+var W=520,H=600;
+var body=document.createElement("canvas"),emis=document.createElement("canvas"),rim=document.createElement("canvas");
+[body,emis,rim].forEach(function(c){c.width=W;c.height=H;});
+var RB=body.getContext("2d"),RE=emis.getContext("2d"),RR=rim.getContext("2d");
+
+/* ---- fleet grammar (same idioms as fleet-floor/src/app.js) ---- */
+function rr(c,x,y,w,h,r){c.beginPath();if(c.roundRect)c.roundRect(x,y,w,h,r);else{c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}}
+function poly(c,pts){c.beginPath();for(var i=0;i<pts.length;i++){if(i)c.lineTo(pts[i][0],pts[i][1]);else c.moveTo(pts[i][0],pts[i][1]);}c.closePath();}
+function plate(c,pts,top,bot,ed){var y0=1e9,y1=-1e9;for(var i=0;i<pts.length;i++){if(pts[i][1]<y0)y0=pts[i][1];if(pts[i][1]>y1)y1=pts[i][1];}var gg=c.createLinearGradient(0,y0,0,y1);gg.addColorStop(0,top);gg.addColorStop(1,bot);poly(c,pts);c.fillStyle=gg;c.fill();if(ed){c.strokeStyle=ed;c.lineWidth=1.2;c.lineJoin="round";c.stroke();}}
+function pl(c,x0,y0,x1,y1,col,w){c.strokeStyle=col;c.lineWidth=w||1;c.beginPath();c.moveTo(x0,y0);c.lineTo(x1,y1);c.stroke();}
+function cavity(c,x,y,w,h,a){var gg=c.createLinearGradient(0,y,0,y+h);gg.addColorStop(0,"rgba(2,5,9,"+a+")");gg.addColorStop(1,"rgba(2,5,9,0)");c.fillStyle=gg;c.fillRect(x,y,w,h);}
+function bolt(c,x,y,r,lit){c.fillStyle="#05080e";c.beginPath();c.arc(x,y,r,0,7);c.fill();
+  var gg=c.createRadialGradient(x-r*0.3,y-r*0.4,0.4,x,y,r);gg.addColorStop(0,"rgba(200,214,238,"+(lit||0.35)+")");gg.addColorStop(1,"rgba(4,8,14,0.8)");
+  c.fillStyle=gg;c.beginPath();c.arc(x,y,r*0.66,0,7);c.fill();
+  pl(c,x-r*0.34,y,x+r*0.34,y,"rgba(3,6,11,0.85)",1);}            // torx slot
+function seg(c,x0,y0,x1,y1,w0,w1,top,bot,ed){var dx=x1-x0,dy=y1-y0,ln=Math.hypot(dx,dy)||1,nx=-dy/ln,ny=dx/ln;
+  plate(c,[[x0+nx*w0,y0+ny*w0],[x1+nx*w1,y1+ny*w1],[x1-nx*w1,y1-ny*w1],[x0-nx*w0,y0-ny*w0]],top,bot,ed);}
+
+var qs=new URLSearchParams(location.search);
+var STATE=qs.get("state")||"working";
+var reduced=qs.get("t")!==null;                 // static frame for screenshots
+var T0=qs.get("t")===null?0:Number(qs.get("t"));
+
+document.querySelectorAll("#bar button").forEach(function(b){
+  if(b.dataset.st===STATE)b.classList.add("on");
+  b.onclick=function(){location.search="?state="+b.dataset.st;};
+});
+
+function drawUnit(t,st){
+  var offl=st==="offline", work=st==="working";
+  [RB,RE,RR].forEach(function(c){c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,W,H);c.globalAlpha=1;c.globalCompositeOperation="source-over";});
+  var g=RB, cx=260;
+  var sT="#2a3140",sM="#171d28",sB="#0a0e16",ed="#333b4d",eH="#4a5872",rc="#06090f";
+  if(offl){sT="#1b1f27";sM="#0f131a";sB="#070a0f";ed="#242a33";eH="#2e3540";}
+  var PK=offl?[74,80,92]:[255,114,182], PKH=offl?[120,126,138]:[255,182,214];
+  function pk(a){return "rgba("+PK[0]+","+PK[1]+","+PK[2]+","+a+")";}
+  function pkh(a){return "rgba("+PKH[0]+","+PKH[1]+","+PKH[2]+","+a+")";}
+  var pulse=offl?0:(work?(0.6+0.28*Math.sin(t*6)):(0.36+0.16*Math.sin(t*2)));
+  var bob=offl?0:Math.sin(t*1.7)*3;
+  var BY=offl?330:296+bob;                       // body centre line; offline sags to parking altitude
+  var blink=(!offl&&Math.sin(t*0.7)>0.986)?1:0;
+
+  /* ---- 0 · sensor mast (behind everything, furthest plane) ----
+     One mast, centred, bolted through the crown — the antenna is MOUNTED, the
+     way claude's went from a balloon to a bracket. Short and stout: thin whips
+     next to the ears were visual noise. */
+  var lean=offl?8:2+Math.sin(t*0.9)*0.8;
+  plate(g,[[cx-9,BY-72],[cx+9,BY-72],[cx+7,BY-62],[cx-7,BY-62]],sM,sB,ed);          // bracket foot
+  bolt(g,cx-5,BY-67,2.2,offl?0.08:0.24);bolt(g,cx+5,BY-67,2.2,offl?0.08:0.24);
+  seg(g,cx,BY-72,cx-lean,BY-104,4.5,3,sT,sB,ed);                                     // mast
+  g.fillStyle=sM;g.beginPath();g.arc(cx-lean,BY-106,6,0,7);g.fill();                 // LIDAR dome
+  g.strokeStyle=ed;g.lineWidth=1;g.beginPath();g.arc(cx-lean,BY-106,6,-0.4,Math.PI+0.4);g.stroke();
+  if(!offl){RB.fillStyle=pkh(0.55+0.3*pulse);RB.beginPath();RB.arc(cx-lean,BY-106,2.6,0,7);RB.fill();
+    RE.fillStyle=pk(0.7);RE.beginPath();RE.arc(cx-lean,BY-106,2.6,0,7);RE.fill();}
+
+  /* ---- 1 · ears: jointed, ball-mounted, two segments ----
+     The ears are kimi's mood. They stay. But they were stalks sprouting from
+     the shell — now a ball mount carries a two-segment ear, and the hinge is
+     visible. Offline they fold outward and down: nothing holds them up. */
+  [-1,1].forEach(function(sg){
+    var bx=cx+sg*62, by=BY-52;
+    var a1=offl?sg*0.5:sg*0.38+sg*Math.sin(t*1.1+sg)*0.04;
+    var mx=bx+Math.sin(a1)*20, my=by-Math.cos(a1)*20;
+    var a2=offl?sg*1.05:sg*0.5+sg*Math.sin(t*1.4+sg*2)*0.05;
+    var tx=mx+Math.sin(a2)*18, ty=my-Math.cos(a2)*18;
+    g.fillStyle="#05080e";g.beginPath();g.arc(bx,by,5.5,0,7);g.fill();               // ball socket
+    var bs=g.createRadialGradient(bx-1.5,by-2,0.5,bx,by,5.5);
+    bs.addColorStop(0,"rgba(196,208,232,"+(offl?0.14:0.34)+")");bs.addColorStop(1,"rgba(4,8,14,0.7)");
+    g.fillStyle=bs;g.beginPath();g.arc(bx,by,3.8,0,7);g.fill();
+    seg(g,bx,by,mx,my,4.2,2.8,sM,sB,ed);                                             // lower segment
+    g.fillStyle="#05080e";g.beginPath();g.arc(mx,my,3.4,0,7);g.fill();               // mid hinge
+    seg(g,mx,my,tx,ty,2.8,2,sT,sB,ed);                                               // paddle
+    g.fillStyle=sM;g.beginPath();g.arc(tx,ty,5.4,0,7);g.fill();
+    g.strokeStyle=ed;g.lineWidth=1;g.beginPath();g.arc(tx,ty,5.4,0,7);g.stroke();
+    if(!offl){RB.fillStyle=pkh(0.7+0.3*pulse);RB.beginPath();RB.arc(tx,ty,2.6,0,7);RB.fill();
+      RE.fillStyle=pk(0.8);RE.beginPath();RE.arc(tx,ty,2.6,0,7);RE.fill();}
+  });
+
+  /* ---- 2 · crown intake (the hover system's mouth) ----
+     A drone this heavy eats air from above. Louvres in a bolted frame on the
+     crown; offline the damper vane sits shut. */
+  plate(g,[[cx-44,BY-64],[cx+44,BY-64],[cx+38,BY-46],[cx-38,BY-46]],sM,sB,ed);
+  for(var lv=0;lv<6;lv++){var lx=cx-30+lv*12;
+    pl(g,lx,BY-61,lx+(offl?1:3),BY-49,"rgba(4,7,12,0.9)",3.4);
+    if(!offl&&work){pl(g,lx+0.5,BY-60,lx+2.5,BY-50,pk(0.16+0.1*Math.sin(t*9+lv)),1.4);}}
+  bolt(g,cx-38,BY-55,2.4,offl?0.08:0.22);bolt(g,cx+38,BY-55,2.4,offl?0.08:0.22);
+
+  /* ---- 3 · BACK SHELL (one plane behind, darker) ----
+     The unit ships as two shells; you can only say so if the back one exists.
+     Drawn first, a plane darker, peeking past the faceplate on the right and
+     bottom — and the faceplate casts on it. */
+  var bs={x:cx-80,y:BY-44,w:176,h:116,r:26};
+  var bgr2=g.createLinearGradient(0,bs.y,0,bs.y+bs.h);
+  bgr2.addColorStop(0,offl?"#12161d":"#1a212d");bgr2.addColorStop(1,"#05080d");
+  rr(g,bs.x,bs.y,bs.w,bs.h,bs.r);g.fillStyle=bgr2;g.fill();g.strokeStyle=offl?"#1a1f27":"#262f3f";g.lineWidth=1.2;g.stroke();
+  // cooling slots in the back shell, visible past the faceplate edge
+  for(var cs=0;cs<4;cs++){pl(g,cx+72,BY-24+cs*14,cx+84,BY-24+cs*14,"rgba(3,6,11,0.8)",3);}
+  // faceplate shadow cast onto the back shell
+  var fsh=g.createLinearGradient(bs.x,0,bs.x+16,0);
+  fsh.addColorStop(0,"rgba(0,0,0,0)");fsh.addColorStop(1,"rgba(0,0,0,0.4)");
+  g.fillStyle=fsh;rr(g,bs.x,bs.y,bs.w,bs.h,bs.r);g.fill();
+
+  /* ---- 4 · gimbal: trunnions + cable loop (body hangs in a yoke) ----
+     The one place this unit articulates. Two trunnion blocks with real
+     bearings, and a braided power/data loop with clamped ends. */
+  [-1,1].forEach(function(sg){
+    var yx=cx+sg*56;
+    plate(g,[[yx-9,BY+42],[yx+9,BY+42],[yx+11,BY+84],[yx-11,BY+84]],sT,sB,ed);
+    g.fillStyle="#05080e";g.beginPath();g.arc(yx,BY+62,7,0,7);g.fill();
+    var tg=g.createRadialGradient(yx-2,BY+59,0.6,yx,BY+62,7);
+    tg.addColorStop(0,"rgba(196,208,232,"+(offl?0.16:0.4)+")");tg.addColorStop(1,"rgba(4,8,14,0.7)");
+    g.fillStyle=tg;g.beginPath();g.arc(yx,BY+62,4.6,0,7);g.fill();
+    bolt(g,yx,BY+76,2.2,offl?0.08:0.2);
+  });
+  // braided cable: three strand arcs with clamp collars at both ends
+  var sag2=offl?12:7+Math.sin(t*1.7+1)*1.5;
+  for(var st3=0;st3<3;st3++){
+    g.strokeStyle=st3===1?"rgba(90,102,126,0.85)":"rgba(16,22,32,0.9)";g.lineWidth=1.8;
+    g.beginPath();g.moveTo(cx-30,BY+46);
+    g.quadraticCurveTo(cx+(st3-1)*6,BY+66+sag2+st3*2,cx+30,BY+46);g.stroke();}
+  [-30,30].forEach(function(dx){plate(g,[[cx+dx-4,BY+40],[cx+dx+4,BY+40],[cx+dx+4,BY+50],[cx+dx-4,BY+50]],sM,sB,ed);});
+
+  /* ---- 5 · FRONT FACEPLATE ---- */
+  var fb={x:cx-78,y:BY-50,w:156,h:100,r:24};
+  var fgr=g.createLinearGradient(0,fb.y,0,fb.y+fb.h);
+  fgr.addColorStop(0,sT);fgr.addColorStop(1,sB);
+  rr(g,fb.x,fb.y,fb.w,fb.h,fb.r);g.fillStyle=fgr;g.fill();g.strokeStyle=ed;g.lineWidth=1.6;g.stroke();
+  // crown highlight: moulded polymer, a soft band not a hot point
+  if(!offl){var ksp=g.createLinearGradient(0,fb.y,0,fb.y+34);
+    ksp.addColorStop(0,"rgba(230,242,255,0.26)");ksp.addColorStop(0.5,"rgba(230,242,255,0.06)");ksp.addColorStop(1,"rgba(230,242,255,0)");
+    g.fillStyle=ksp;rr(g,fb.x+4,fb.y+2,fb.w-8,34,20);g.fill();}
+  // parting seam + gasket, mid-height, with the front lip catching the lamp
+  pl(g,fb.x+2,BY+8,fb.x+fb.w-2,BY+8,"rgba(3,7,13,0.55)",2.2);
+  pl(g,fb.x+3,BY+6.4,fb.x+fb.w-3,BY+6.4,"rgba(186,208,242,"+(offl?0.05:0.14)+")",1);
+  // faceplate bolts, four, with grime weeping from the bottom two (albedo)
+  [[fb.x+10,fb.y+10],[fb.x+fb.w-10,fb.y+10],[fb.x+10,fb.y+fb.h-10],[fb.x+fb.w-10,fb.y+fb.h-10]].forEach(function(p,i){
+    bolt(g,p[0],p[1],2.6,offl?0.08:0.26);
+    if(i>1){g.fillStyle="rgba(70,44,24,0.28)";poly(g,[[p[0]-1.2,p[1]+2],[p[0]+1.2,p[1]+2],[p[0]+0.5,p[1]+7],[p[0]-0.5,p[1]+7]]);g.fill();}
+  });
+
+  /* service history: a replacement panel over a scorch, lower left.
+     Newer polymer — bluer, glossier — tacked on with stitch welds, corners
+     aligned with nothing the way repairs never are. */
+  var rp={x:fb.x+8,y:BY+16,w:44,h:26};
+  g.save();g.translate(rp.x+rp.w/2,rp.y+rp.h/2);g.rotate(-0.03);g.translate(-rp.x-rp.w/2,-rp.y-rp.h/2);
+  var rg2=g.createLinearGradient(0,rp.y,0,rp.y+rp.h);
+  rg2.addColorStop(0,offl?"#232a33":"#33415c");rg2.addColorStop(1,offl?"#12161c":"#1a2434");
+  rr(g,rp.x,rp.y,rp.w,rp.h,4);g.fillStyle=rg2;g.fill();g.strokeStyle=offl?"#2a313b":"#44547a";g.lineWidth=1;g.stroke();
+  for(var sw2=0;sw2<5;sw2++){pl(g,rp.x+4+sw2*9,rp.y-2,rp.x+5+sw2*9,rp.y+1.4,"rgba(140,150,170,0.5)",1.4);}   // weld stitches
+  if(!offl){pl(g,rp.x+3,rp.y+2,rp.x+rp.w-6,rp.y+1,"rgba(220,235,255,0.25)",1);}                            // newer gloss
+  g.restore();
+  // the scorch it covers still haloes the patch
+  var sc4=g.createRadialGradient(rp.x+rp.w/2,rp.y+rp.h/2,10,rp.x+rp.w/2,rp.y+rp.h/2,34);
+  sc4.addColorStop(0,"rgba(0,0,0,0)");sc4.addColorStop(1,"rgba(10,6,4,0.35)");
+  g.fillStyle=sc4;g.fillRect(rp.x-14,rp.y-14,rp.w+28,rp.h+28);
+
+  /* asset tag, corner lifting (kept from loop 11 — it was right) */
+  g.fillStyle="rgba(196,206,222,"+(offl?0.14:0.3)+")";g.fillRect(fb.x+fb.w-40,BY+30,26,14);
+  g.fillStyle="rgba(20,26,36,0.55)";g.fillRect(fb.x+fb.w-38,BY+32,20,2.4);g.fillRect(fb.x+fb.w-38,BY+37,14,1.8);
+  g.fillStyle="rgba(168,180,198,"+(offl?0.1:0.22)+")";
+  poly(g,[[fb.x+fb.w-20,BY+40],[fb.x+fb.w-14,BY+44],[fb.x+fb.w-20,BY+44]]);g.fill();
+
+  /* status spine: five cells, kimi's only hard readout (kept from L14) */
+  if(!offl){for(var lc=0;lc<5;lc++){
+    var lit=work?((Math.floor(t*3)%5)>=lc?1:0.16):((Math.sin(t*1.6)>0.3&&lc===0)?1:0.16);
+    [RB,RE].forEach(function(c){c.fillStyle=pkh(0.75*lit);c.fillRect(fb.x+16+lc*(fb.w-32)/5,fb.y+7,(fb.w-32)/5-3,2.4);});}}
+
+  /* ---- 6 · screen: recessed, curved, emitted ---- */
+  var sc={x:fb.x+14,y:fb.y+16,w:fb.w-28,h:52,r:12};
+  rr(g,sc.x,sc.y,sc.w,sc.h,sc.r);g.fillStyle="#05080e";g.fill();g.strokeStyle=rc;g.lineWidth=1;g.stroke();
+  g.save();rr(g,sc.x,sc.y,sc.w,sc.h,sc.r);g.clip();
+  cavity(g,sc.x,sc.y,sc.w,14,0.62);cavity(g,sc.x,sc.y+sc.h-8,sc.w,8,0.26);
+  var curve=g.createRadialGradient(sc.x+sc.w*0.5,sc.y+sc.h*0.44,sc.w*0.14,sc.x+sc.w*0.5,sc.y+sc.h*0.5,sc.w*0.72);
+  curve.addColorStop(0,"rgba(0,0,0,0)");curve.addColorStop(1,"rgba(0,0,0,0.6)");
+  g.fillStyle=curve;g.fillRect(sc.x,sc.y,sc.w,sc.h);
+  if(!offl){var wash=g.createLinearGradient(0,sc.y+sc.h,0,sc.y);wash.addColorStop(0,pk(0.16));wash.addColorStop(1,pk(0));
+    g.fillStyle=wash;g.fillRect(sc.x,sc.y,sc.w,sc.h);
+    RB.fillStyle=pk(0.05);for(var sl=sc.y+3;sl<sc.y+sc.h;sl+=3)RB.fillRect(sc.x+2,sl,sc.w-4,1);}
+  g.fillStyle="rgba(184,206,246,0.055)";
+  g.beginPath();g.moveTo(sc.x,sc.y+sc.h*0.6);g.quadraticCurveTo(sc.x+sc.w*0.24,sc.y-sc.h*0.04,sc.x+sc.w*0.5,sc.y);g.lineTo(sc.x,sc.y);g.closePath();g.fill();
+  g.restore();
+  g.strokeStyle="rgba(180,205,245,"+(offl?0.06:0.16)+")";g.lineWidth=1;rr(g,sc.x-1,sc.y-1,sc.w+2,sc.h+2,sc.r+1);g.stroke();
+  // bezel screws
+  [[sc.x-4,sc.y-4],[sc.x+sc.w+4,sc.y-4],[sc.x-4,sc.y+sc.h+4],[sc.x+sc.w+4,sc.y+sc.h+4]].forEach(function(p){bolt(g,p[0],p[1],1.8,offl?0.06:0.2);});
+  // the screen lights its own housing
+  if(!offl){g.save();g.globalCompositeOperation="lighter";
+    var sb=g.createRadialGradient(cx,BY-20,8,cx,BY-20,120);
+    sb.addColorStop(0,pk(0.18));sb.addColorStop(0.45,pk(0.07));sb.addColorStop(1,pk(0));
+    g.fillStyle=sb;g.beginPath();g.arc(cx,BY-20,120,0,7);g.fill();g.restore();}
+
+  /* ---- 7 · face ---- */
+  var e1=cx-26,e2=cx+26,ey=BY-24;
+  if(offl){
+    // signal collapse: one bright line + residual raster (kept from loop 3)
+    var deadY=BY-14;
+    RB.fillStyle="rgba(150,168,190,0.5)";RB.fillRect(sc.x+4,deadY,sc.w-8,1.6);
+    RB.fillStyle="rgba(150,168,190,0.16)";RB.fillRect(sc.x+4,deadY-2.4,sc.w-8,1);RB.fillRect(sc.x+4,deadY+3.4,sc.w-8,1);
+    RE.fillStyle="rgba(150,168,190,0.22)";RE.fillRect(sc.x+4,deadY,sc.w-8,1.6);
+  }else{
+    [e1,e2].forEach(function(ex){[RB,RE].forEach(function(c){var eg=c.createRadialGradient(ex,ey,0.5,ex,ey,13);
+      eg.addColorStop(0,pkh(0.8+0.2*pulse));eg.addColorStop(0.5,pk(0.5*pulse));eg.addColorStop(1,pk(0));
+      c.fillStyle=eg;c.beginPath();c.arc(ex,ey,13,0,7);c.fill();});});
+    var eh=blink?1.4:(work?6:9), ew=8, gaze=work?0:Math.round(Math.sin(t*0.55)*3);
+    [e1,e2].forEach(function(ex){[RB,RE].forEach(function(c){c.fillStyle=pkh(0.92);rr(c,ex-ew/2+gaze,ey-eh/2,ew,eh,2.5);c.fill();});
+      RB.fillStyle="rgba(255,255,255,0.85)";RB.fillRect(ex-1.4+gaze,ey-eh/2+1.4,2.4,2.4);});
+    RB.strokeStyle=pk(0.6);RB.lineWidth=1.6;RB.beginPath();
+    if(work){RB.moveTo(cx-6,BY-2);RB.lineTo(cx+6,BY-2);}
+    else{RB.arc(cx,BY-8,6,0.12*Math.PI,0.88*Math.PI);}
+    RB.stroke();
+  }
+
+  /* ---- 8 · side pods with parked manipulators ----
+     Arms live IN the pods; you see the park clamps. Working: the right arm
+     deploys, three segments, joint language shared with the ears. */
+  [-1,1].forEach(function(sg){
+    var px=cx+sg*86, py=BY+6;
+    plate(g,[[px-7,py-26],[px+sg*11,py-22],[px+sg*11,py+30],[px-7,py+26]],sM,sB,ed);
+    g.fillStyle="#05080e";g.beginPath();g.arc(px+sg*4,py-14,3.4,0,7);g.fill();       // park clamp
+    bolt(g,px+sg*4,py+16,2,offl?0.06:0.18);
+    // not deployed: the right arm is home, folded into its pod — you can see the stub
+    if(sg>0&&!work){seg(g,px-2,py-18,px-4,py+20,3.4,2.6,sM,sB,ed);
+      g.fillStyle=sT;g.beginPath();g.arc(px-4,py+22,3.2,0,7);g.fill();}
+  });
+  if(work){
+    var j0={x:cx+92,y:BY+18},j1={x:cx+126,y:BY+2},j2={x:cx+148,y:BY-32};
+    g.fillStyle="#05080e";g.beginPath();g.arc(j0.x,j0.y,5,0,7);g.fill();
+    seg(g,j0.x,j0.y,j1.x,j1.y,5,3.6,sM,sB,ed);
+    g.fillStyle="#05080e";g.beginPath();g.arc(j1.x,j1.y,4.4,0,7);g.fill();
+    var eb=g.createRadialGradient(j1.x-1.4,j1.y-1.6,0.5,j1.x,j1.y,4.4);
+    eb.addColorStop(0,"rgba(196,208,232,0.4)");eb.addColorStop(1,"rgba(4,8,14,0.7)");
+    g.fillStyle=eb;g.beginPath();g.arc(j1.x,j1.y,3,0,7);g.fill();
+    seg(g,j1.x,j1.y,j2.x,j2.y,3.4,2.4,sT,sB,ed);
+    plate(g,[[j2.x-3,j2.y-9],[j2.x+13,j2.y-12],[j2.x+16,j2.y-2],[j2.x+1,j2.y+1]],"#2a3444","#12181f","#3d4c63"); // the tool
+    if(!offl){RE.fillStyle=pk(0.6);RE.beginPath();RE.arc(j2.x+13,j2.y-7,1.8,0,7);RE.fill();}
+  }
+
+  /* ---- 9 · skirt + repulsor: hover as a machine ----
+     The skirt is the duct, and it hangs off the gimbal with a VISIBLE gap —
+     the window where the trunnions and cable live, like claude's waist. Under
+     the duct: stator vanes you can count, a rotor that blurs when it spins
+     and STOPS when offline (and you can see it stopped), and the downwash
+     that carries the light to the floor. */
+  plate(g,[[cx-72,BY+82],[cx+72,BY+82],[cx+58,BY+106],[cx-58,BY+106]],sM,sB,ed);     // duct bell
+  cavity(g,cx-68,BY+82,136,10,0.5);
+  // decal band on the duct — kimi's marking
+  g.fillStyle=pk(offl?0.14:0.4);g.fillRect(cx-40,BY+88,80,2.4);
+  g.fillStyle=pk(offl?0.09:0.26);g.fillRect(cx-28,BY+94,16,2);g.fillRect(cx+8,BY+94,20,2);
+  // stator vanes behind the rotor plane
+  for(var sv=0;sv<7;sv++){var vx=cx-42+sv*14;
+    pl(g,vx,BY+106,vx-2,BY+116,"rgba(10,14,22,0.95)",3.6);}
+  // rotor: arcs that blur with speed; stopped it is a disc with three blades
+  if(offl){
+    g.fillStyle="rgba(14,19,28,0.95)";g.beginPath();g.ellipse(cx,BY+112,40,9,0,0,7);g.fill();
+    g.strokeStyle="rgba(60,68,84,0.9)";g.lineWidth=1.2;g.beginPath();g.ellipse(cx,BY+112,40,9,0,0,7);g.stroke();
+    for(var rb=0;rb<3;rb++){var ba=0.5+rb*(Math.PI*2/3);
+      pl(g,cx,BY+112,cx+Math.cos(ba)*36,BY+112+Math.sin(ba)*8,"rgba(52,60,76,0.9)",3);}
+  }else{
+    var rot=t*(work?22:7);
+    for(var ra=0;ra<3;ra++){var a0=rot+ra*(Math.PI*2/3);
+      g.strokeStyle="rgba(120,132,156,"+(work?0.35:0.55)+")";
+      g.lineWidth=work?5.5:4.5;g.beginPath();
+      g.ellipse(cx,BY+112,40,9,0,a0,a0+(work?1.3:0.7));g.stroke();}
+  }
+  g.fillStyle="#05080e";g.beginPath();g.ellipse(cx,BY+112,7,3.4,0,0,7);g.fill();     // hub
+  if(!offl){RB.fillStyle=pkh(0.5+0.3*pulse);RB.beginPath();RB.ellipse(cx,BY+112,3,1.8,0,0,7);RB.fill();
+    RE.fillStyle=pk(0.6);RE.beginPath();RE.ellipse(cx,BY+112,3,1.8,0,0,7);RE.fill();}
+  // duct lip + bolts
+  pl(g,cx-58,BY+106,cx+58,BY+106,"rgba(186,208,242,"+(offl?0.05:0.16)+")",1.2);
+  bolt(g,cx-48,BY+98,2,offl?0.06:0.18);bolt(g,cx+48,BY+98,2,offl?0.06:0.18);
+  // downwash
+  if(!offl){var dw=0.8+0.2*Math.sin(t*10);
+    [RB,RE].forEach(function(c){c.save();c.globalCompositeOperation="lighter";
+      var rg3=c.createRadialGradient(cx,BY+118,2,cx,BY+118,64);
+      rg3.addColorStop(0,pkh(0.4*dw));rg3.addColorStop(0.5,pk(0.2*dw));rg3.addColorStop(1,pk(0));
+      c.fillStyle=rg3;c.beginPath();c.ellipse(cx,BY+118,64,16,0,0,7);c.fill();
+      var dg=c.createLinearGradient(0,BY+118,0,BY+188);dg.addColorStop(0,pk(0.18*dw));dg.addColorStop(1,pk(0));
+      c.fillStyle=dg;c.beginPath();c.moveTo(cx-42,BY+118);c.lineTo(cx+42,BY+118);c.lineTo(cx+58,BY+188);c.lineTo(cx-58,BY+188);c.closePath();c.fill();c.restore();});}
+
+  /* ---- 10 · offline: catch the room's beacon on the left arris ---- */
+  if(offl){var bp=0.6;
+    var rg4=g.createLinearGradient(fb.x,0,fb.x+26,0);
+    rg4.addColorStop(0,"rgba(255,64,52,"+(0.14*bp)+")");rg4.addColorStop(1,"rgba(255,64,52,0)");
+    g.fillStyle=rg4;rr(g,fb.x,fb.y,28,fb.h,fb.r);g.fill();
+    RE.strokeStyle="rgba(255,64,52,"+(0.16*bp)+")";RE.lineWidth=2;
+    RE.beginPath();RE.moveTo(fb.x+fb.r+8,fb.y+1);RE.lineTo(fb.x+fb.r,fb.y+1);
+    RE.arc(fb.x+fb.r,fb.y+fb.r,fb.r-1,-Math.PI/2,Math.PI,true);RE.lineTo(fb.x+1,fb.y+fb.h-fb.r);RE.stroke();}
+
+  /* ---- rim light: pink key, cyan fill (fleet idiom) ---- */
+  RR.globalCompositeOperation="source-over";RR.drawImage(body,0,0);
+  RR.globalCompositeOperation="destination-out";RR.drawImage(body,-2.2,1.7);RR.drawImage(body,-1.5,-2.4);
+  RR.globalCompositeOperation="source-in";
+  var rl=RR.createLinearGradient(60,0,460,0);
+  rl.addColorStop(0,"rgba(255,114,182,0.95)");rl.addColorStop(0.42,"rgba(200,145,195,0.45)");rl.addColorStop(1,"rgba(95,214,255,1)");
+  RR.fillStyle=rl;RR.fillRect(0,0,W,H);RR.globalCompositeOperation="source-over";
+}
+
+/* ---- scene: enough room to read the unit against ---- */
+function drawScene(t,st){
+  var offl=st==="offline";
+  var wall=S.createLinearGradient(0,0,0,H);
+  wall.addColorStop(0,offl?"#07090d":"#0b0e14");wall.addColorStop(0.75,offl?"#05070a":"#090c12");wall.addColorStop(1,"#05070b");
+  S.fillStyle=wall;S.fillRect(0,0,W,H);
+  // key cone
+  if(!offl){var cone=S.createLinearGradient(0,40,0,470);
+    cone.addColorStop(0,"rgba(255,214,150,0.10)");cone.addColorStop(1,"rgba(255,214,150,0)");
+    S.fillStyle=cone;S.beginPath();S.moveTo(235,40);S.lineTo(285,40);S.lineTo(400,470);S.lineTo(120,470);S.closePath();S.fill();}
+  else{var bc=S.createRadialGradient(90,120,4,90,120,150);
+    bc.addColorStop(0,"rgba(255,60,50,0.12)");bc.addColorStop(1,"rgba(255,60,50,0)");
+    S.fillStyle=bc;S.fillRect(0,0,W,H);}
+  // floor
+  S.fillStyle=offl?"#07090c":"#0d1118";S.fillRect(0,470,W,H-470);
+  pl(S,0,470,W,470,"rgba(120,140,170,0.14)",1);
+  // contact pool (the floater's single wide soft shadow)
+  var lift=offl?60:120, spread=1+Math.min(2.6,lift/34), a=0.44/Math.pow(spread,1.25);
+  var sh=S.createRadialGradient(260,476,1,260,476,60*spread);
+  sh.addColorStop(0,"rgba(0,0,0,"+a+")");sh.addColorStop(0.55,"rgba(0,0,0,"+(a*0.45)+")");sh.addColorStop(1,"rgba(0,0,0,0)");
+  S.fillStyle=sh;S.beginPath();S.ellipse(260,476,60*spread,16*spread,0,0,7);S.fill();
+  if(!offl){S.save();S.globalCompositeOperation="lighter";
+    var tg=S.createRadialGradient(260,474,2,260,474,120);
+    tg.addColorStop(0,"rgba(255,114,182,0.12)");tg.addColorStop(1,"rgba(255,114,182,0)");
+    S.fillStyle=tg;S.beginPath();S.ellipse(260,474,120,18,0,0,7);S.fill();S.restore();}
+  // unit (offline it drifts with a dead-man's roll — posture, not just dark pixels)
+  S.save();
+  if(offl){S.translate(260,306);S.rotate(0.055);S.translate(-260,-306);}
+  S.drawImage(body,0,0);
+  S.drawImage(rim,0,0);
+  S.save();S.globalCompositeOperation="lighter";S.drawImage(emis,0,0);S.restore();
+  S.restore();
+}
+
+var t0=performance.now();
+function frame(){
+  var t=reduced?T0:(t0?(performance.now()-t0)/1000:0);
+  drawUnit(t,STATE);drawScene(t,STATE);
+  if(!reduced)requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>
