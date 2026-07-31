@@ -2647,20 +2647,22 @@ function buildGrok(t,st){
     var hxp=cx+sgn*14,hy0=BY+28;
     var kx=hxp+sgn*(offl?5:12),ky=hy0+(offl?48:38);
     var fx=hxp+sgn*3,fy=ky+(offl?42:40);
-    // thigh plate
-    limbSeg(g,hxp,hy0,kx,ky,9,7.5,sM,sB);
+    // thigh plate — forged mass
+    limbSeg(g,hxp,hy0,kx,ky,11,9,sM,sB);
     // knee cap
-    plate(g,[[kx-8,ky-6],[kx+8,ky-6],[kx+7,ky+8],[kx-7,ky+8]],sT,sM,ed);
-    rivet(g,kx,ky+1,eH);
-    if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.55+0.2*pulse);c.fillRect(kx-3,ky-2,6,2.5);});}
-    // shin + hydraulic
-    limbSeg(g,kx,ky,fx,fy,7,6,sT,sB);
-    pl(g,kx+sgn*6,ky+4,fx+sgn*5,fy-6,"#0a0f18",3.5);
-    pl(g,kx+sgn*6,ky+4,fx+sgn*5,fy-6,offl?"#333c48":"#7e94b2",1.1);
-    // boot
-    plate(g,[[fx-9,fy-3],[fx+9,fy-3],[fx+12,fy+10],[fx-10,fy+10]],sM,sB,ed);
-    plate(g,[[fx-10,fy+7],[fx+12,fy+7],[fx+12,fy+10],[fx-10,fy+10]],"#0a0e16","#03050a",null);
-    rivet(g,fx-4,fy+2,eH);rivet(g,fx+5,fy+2,eH);
+    plate(g,[[kx-10,ky-7],[kx+10,ky-7],[kx+9,ky+10],[kx-9,ky+10]],sT,sM,ed);
+    rivet(g,kx,ky+1,eH);rivet(g,kx-4,ky+4,eH);
+    if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.55+0.2*pulse);c.fillRect(kx-4,ky-2,8,3);});}
+    // shin + hydraulic ram
+    limbSeg(g,kx,ky,fx,fy,8.5,7,sT,sB);
+    pl(g,kx+sgn*7,ky+4,fx+sgn*6,fy-6,"#0a0f18",4.5);
+    pl(g,kx+sgn*7,ky+4,fx+sgn*6,fy-6,offl?"#333c48":"#7e94b2",1.3);
+    // clamp band at ankle
+    g.strokeStyle=eH;g.lineWidth=1.6;g.beginPath();g.moveTo(fx-8,fy-4);g.lineTo(fx+8,fy-4);g.stroke();
+    // heavy boot
+    plate(g,[[fx-11,fy-4],[fx+11,fy-4],[fx+14,fy+12],[fx-12,fy+12]],sM,sB,ed);
+    plate(g,[[fx-12,fy+8],[fx+14,fy+8],[fx+14,fy+12],[fx-12,fy+12]],"#0a0e16","#03050a",null);
+    rivet(g,fx-5,fy+2,eH);rivet(g,fx+6,fy+2,eH);
   }
   leg(-1);leg(1);
 
@@ -2702,15 +2704,24 @@ function buildGrok(t,st){
     pb.addColorStop(0,pu(0.22*(0.6+0.4*pulse)));pb.addColorStop(0.55,pu(0.07));pb.addColorStop(1,pu(0));
     RB.fillStyle=pb;RB.beginPath();RB.arc(cx,BY+4,52,0,7);RB.fill();RB.restore();}
 
-  // ---- combat pauldrons (asymmetric veteran) ----
-  // left: forged original, ridged, outer spike
-  plate(g,[[cx-48,BY-30],[cx-22,BY-34],[cx-18,BY-12],[cx-44,BY-8]],sT,sB,ed);
-  plate(g,[[cx-50,BY-26],[cx-42,BY-28],[cx-40,BY-14],[cx-48,BY-12]],sM,sB,ed); // spike
-  rivet(g,cx-30,BY-26,eH);rivet(g,cx-38,BY-18,eH);
-  // right: field replacement — squarer, three fat bolts
-  plate(g,[[cx+22,BY-34],[cx+48,BY-30],[cx+44,BY-8],[cx+18,BY-12]],"#2e384c","#141c28",ed);
-  rivet(g,cx+28,BY-28,eH);rivet(g,cx+36,BY-24,eH);rivet(g,cx+32,BY-16,eH);
-  weep(cx+28,BY-26,8);weep(cx+36,BY-22,7);
+  /* LOOP 3 — chad pass: pauldrons that OWN the silhouette.
+     Wider, heavier, mismatched. Left forged with ridge + outer spike;
+     right a crude field plate with three fat bolts. Trapezius collar
+     slopes from hull onto the neck tubes. */
+  // trapezius collar under the neck tubes
+  plate(g,[[cx-28,BY-34],[cx+28,BY-34],[cx+22,BY-26],[cx-22,BY-26]],sM,sB,ed);
+  // left pauldron — forged original, broad
+  plate(g,[[cx-56,BY-32],[cx-20,BY-36],[cx-16,BY-10],[cx-50,BY-6]],sT,sB,ed);
+  plate(g,[[cx-58,BY-28],[cx-48,BY-30],[cx-46,BY-12],[cx-56,BY-10]],sM,sB,ed); // outer spike
+  pl(g,cx-40,BY-30,cx-36,BY-12,rc,1); // ridge
+  rivet(g,cx-32,BY-28,eH);rivet(g,cx-44,BY-18,eH);rivet(g,cx-28,BY-16,eH);
+  // right — field replacement, squarer, no chamfer polish
+  plate(g,[[cx+20,BY-36],[cx+56,BY-30],[cx+52,BY-6],[cx+16,BY-10]],"#2e384c","#121a26",ed);
+  rivet(g,cx+28,BY-30,eH);rivet(g,cx+40,BY-26,eH);rivet(g,cx+36,BY-14,eH);
+  weep(cx+28,BY-28,10);weep(cx+40,BY-24,8);weep(cx+36,BY-12,6);
+  // pauldron contact shade onto upper arm roots
+  g.fillStyle="rgba(0,0,0,0.28)";
+  g.fillRect(cx-48,BY-10,18,8);g.fillRect(cx+30,BY-10,18,8);
 
   // ---- arms ----
   var handR;
@@ -2719,13 +2730,13 @@ function buildGrok(t,st){
     var sx=cx-40,sy=BY-16;
     if(idle){ // gun at hip, left hand near chest
       var ex=cx-36,ey=BY+6,gx2=cx-22,gy=BY+18;
-      limbSeg(g,sx,sy,ex,ey,7,6,sM,sB);
+      limbSeg(g,sx,sy,ex,ey,9,7.5,sM,sB);
       // elbow joint
-      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,5,0,7);g.fill();g.strokeStyle=ed;g.lineWidth=1;g.beginPath();g.arc(ex,ey,5,0,7);g.stroke();
-      if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.5);c.fillRect(ex-2,ey-2,4,2);});}
-      limbSeg(g,ex,ey,gx2,gy,6,5,sT,sB);
-      // gauntlet
-      plate(g,[[gx2-7,gy-4],[gx2+7,gy-4],[gx2+8,gy+8],[gx2-8,gy+8]],sT,sB,ed);
+      g.fillStyle=sB;g.beginPath();g.arc(ex,ey,6,0,7);g.fill();g.strokeStyle=ed;g.lineWidth=1;g.beginPath();g.arc(ex,ey,6,0,7);g.stroke();
+      if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.5);c.fillRect(ex-2.5,ey-2,5,2.5);});}
+      limbSeg(g,ex,ey,gx2,gy,7.5,6.5,sT,sB);
+      // heavy gauntlet
+      plate(g,[[gx2-9,gy-5],[gx2+9,gy-5],[gx2+10,gy+10],[gx2-10,gy+10]],sT,sB,ed);
       rivet(g,gx2,gy+1,eH);
     }else if(work){
       var ex=cx-42,ey=BY+4,gx2=cx-34,gy=BY+28;
