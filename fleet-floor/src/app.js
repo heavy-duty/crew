@@ -2634,23 +2634,41 @@ function buildGrok(t,st){
       g.strokeStyle=offl?"#2c3440":"#5b6c85";g.lineWidth=1.3;g.beginPath();
       g.moveTo(x0,BY-10);g.quadraticCurveTo(mx2,my2,x1,y1);g.stroke();});});
 
-  // ---- backpack plate + armored thruster pods (military hardware) ----
+  /* LOOP 17 — Raptor-lineage thruster bells.
+     Not stubby rectangles: a regeneratively-cooled bell, throat, and
+     hollow mouth with an ember down the throat. The pack is a service
+     module, not a slab. */
   plate(g,[[cx-22,BY-28],[cx+22,BY-28],[cx+20,BY+30],[cx-20,BY+30]],sM,sB,ed);
-  // heat-sink fins on pack
   for(var fi=0;fi<4;fi++){var fy=BY-18+fi*10;pl(g,cx-18,fy,cx+18,fy,rc,1);}
+  // propellant feed lines pack→pods
   [-1,1].forEach(function(sg){
-    // pod body — chamfered, bolted
-    plate(g,[[cx+sg*18,BY-6],[cx+sg*36,BY-4],[cx+sg*36,BY+24],[cx+sg*18,BY+22]],sT,sB,ed);
-    plate(g,[[cx+sg*20,BY-2],[cx+sg*34,BY],[cx+sg*34,BY+8],[cx+sg*20,BY+6]],"#323c50","#1a2230",null);
-    rivet(g,cx+sg*22,BY+2,eH);rivet(g,cx+sg*30,BY+3,eH);
-    // nozzle — canted, hollow mouth with ember
-    var nx=cx+sg*27, ny0=BY+22;
-    plate(g,[[nx-7,ny0],[nx+7,ny0],[nx+6,ny0+16],[nx-6,ny0+16]],sT,sB,ed);
-    g.fillStyle=rc;g.fillRect(nx-4,ny0+12,8,5);
-    if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.7*thr);c.fillRect(nx-3,ny0+13,6,3);
-      c.fillStyle=puh(0.5*thr);c.fillRect(nx-1.5,ny0+11,3,2);});}
-    // clamp band
-    g.strokeStyle=eH;g.lineWidth=1.4;g.beginPath();g.moveTo(nx-7,ny0+6);g.lineTo(nx+7,ny0+6);g.stroke();
+    g.strokeStyle="#05080e";g.lineWidth=3;g.beginPath();
+    g.moveTo(cx+sg*18,BY+4);g.lineTo(cx+sg*24,BY+10);g.stroke();
+    g.strokeStyle=offl?"#2c3440":"#6a7d98";g.lineWidth=1.2;g.beginPath();
+    g.moveTo(cx+sg*18,BY+4);g.lineTo(cx+sg*24,BY+10);g.stroke();
+  });
+  [-1,1].forEach(function(sg){
+    // engine bay housing
+    plate(g,[[cx+sg*16,BY-4],[cx+sg*38,BY-2],[cx+sg*38,BY+20],[cx+sg*16,BY+18]],sT,sB,ed);
+    plate(g,[[cx+sg*18,BY],[cx+sg*36,BY+2],[cx+sg*36,BY+8],[cx+sg*18,BY+6]],"#323c50","#1a2230",null);
+    rivet(g,cx+sg*20,BY+3,eH);rivet(g,cx+sg*32,BY+4,eH);
+    // Raptor bell — flares wider at the mouth
+    var nx=cx+sg*27, ny0=BY+18;
+    plate(g,[[nx-5,ny0],[nx+5,ny0],[nx+9,ny0+20],[nx-9,ny0+20]],"#2a3448","#0c1018",ed);
+    // cooling channel rings on the bell
+    for(var cr=0;cr<3;cr++){var cy=ny0+4+cr*5;
+      g.strokeStyle=rc;g.lineWidth=0.9;g.beginPath();
+      g.moveTo(nx-5-cr*1.2,cy);g.lineTo(nx+5+cr*1.2,cy);g.stroke();}
+    // throat + hollow mouth
+    g.fillStyle=rc;g.fillRect(nx-3,ny0,6,4);
+    g.fillStyle="#02040a";g.beginPath();g.ellipse(nx,ny0+18,7,3.5,0,0,7);g.fill();
+    if(!offl){[RB,RE].forEach(function(c){
+      c.fillStyle=puh(0.75*thr);c.beginPath();c.ellipse(nx,ny0+17,4,2,0,0,7);c.fill();
+      c.fillStyle=pu(0.55*thr);c.fillRect(nx-2,ny0+2,4,8);
+    });}
+    // gimbal clamp at the throat
+    g.strokeStyle=eH;g.lineWidth=1.6;g.beginPath();g.moveTo(nx-6,ny0+2);g.lineTo(nx+6,ny0+2);g.stroke();
+    rivet(g,nx-5,ny0+2,eH);rivet(g,nx+5,ny0+2,eH);
   });
 
   // ---- legs (armored assemblies; dangle more offline) ----
@@ -2678,9 +2696,11 @@ function buildGrok(t,st){
     pl(g,kx+sgn*7,ky+4,fx+sgn*6,fy-6,offl?"#333c48":"#7e94b2",1.3);
     // clamp band at ankle
     g.strokeStyle=eH;g.lineWidth=1.6;g.beginPath();g.moveTo(fx-8,fy-4);g.lineTo(fx+8,fy-4);g.stroke();
-    // heavy boot
+    // heavy boot with pressure-seal ring (LOOP 25 cohesion)
     plate(g,[[fx-11,fy-4],[fx+11,fy-4],[fx+14,fy+12],[fx-12,fy+12]],sM,sB,ed);
     plate(g,[[fx-12,fy+8],[fx+14,fy+8],[fx+14,fy+12],[fx-12,fy+12]],"#0a0e16","#03050a",null);
+    g.strokeStyle=offl?"#2a323e":"#6a7a92";g.lineWidth=1.3;
+    g.beginPath();g.ellipse(fx,fy+1,9,3,0,0,7);g.stroke();
     rivet(g,fx-5,fy+2,eH);rivet(g,fx+6,fy+2,eH);
   }
   leg(-1);leg(1);
@@ -2697,6 +2717,20 @@ function buildGrok(t,st){
   plate(g,[[cx-32,BY+20],[cx-38,BY-8],[cx-28,BY-32],[cx+28,BY-32],[cx+38,BY-8],[cx+32,BY+20]],sT,sM,ed);
   // upper bevel plane
   plate(g,[[cx-30,BY-6],[cx-24,BY-28],[cx+24,BY-28],[cx+30,BY-6],[cx+24,BY+2],[cx-24,BY+2]],"#323c50","#1a2434",null);
+  /* LOOP 18 — heat-shield tiles on the leading chest and crown.
+     Black hexagonal/rect tiles like a reentry vehicle, not paint.
+     Gaps between tiles are the structure reading. */
+  g.save();
+  g.beginPath();poly(g,[[cx-28,BY-4],[cx-22,BY-26],[cx+22,BY-26],[cx+28,BY-4],[cx+22,BY+0],[cx-22,BY+0]]);g.clip();
+  var tileC=offl?"#1a1e26":"#1e2430", tileG=offl?"#0c1016":"#121820";
+  for(var ty=BY-26;ty<BY+2;ty+=5){
+    for(var tx=cx-26;tx<cx+26;tx+=7){
+      var ox=((ty>>2)&1)*3.5;
+      g.fillStyle=tileC;g.fillRect(tx+ox,ty,6,4);
+      g.strokeStyle=tileG;g.lineWidth=0.6;g.strokeRect(tx+ox,ty,6,4);
+    }
+  }
+  g.restore();
   // sternum split
   pl(g,cx,BY-24,cx,BY+16,rc,1.2);
   pl(g,cx-26,BY-10,cx+26,BY-10,rc,1);
@@ -2729,6 +2763,20 @@ function buildGrok(t,st){
      slopes from hull onto the neck tubes. */
   // trapezius collar under the neck tubes
   plate(g,[[cx-28,BY-34],[cx+28,BY-34],[cx+22,BY-26],[cx-22,BY-26]],sM,sB,ed);
+  /* LOOP 20 — RCS vernier thrusters. Tiny attitude jets on pauldron tips
+     and hips — the unit steers with fire, not just main bells. Cold gas
+     puffs when idle, harder when working. */
+  function rcs(x,y,ang){
+    g.save();g.translate(x,y);g.rotate(ang||0);
+    plate(g,[[-3,-2],[5,-2],[6,2],[-3,2]],sT,sB,ed);
+    g.fillStyle=rc;g.fillRect(4,-1.2,3,2.4);
+    if(!offl){[RB,RE].forEach(function(c){
+      c.fillStyle=pu((work?0.7:0.35)*(0.7+0.3*pulse));c.fillRect(5,-0.8,4,1.6);
+    });}
+    g.restore();
+  }
+  rcs(cx-54,BY-22,-0.4);rcs(cx+54,BY-20,0.4);
+  rcs(cx-30,BY+32,1.1);rcs(cx+30,BY+32,-1.1);
   // left pauldron — forged original, broad
   plate(g,[[cx-56,BY-32],[cx-20,BY-36],[cx-16,BY-10],[cx-50,BY-6]],sT,sB,ed);
   plate(g,[[cx-58,BY-28],[cx-48,BY-30],[cx-46,BY-12],[cx-56,BY-10]],sM,sB,ed); // outer spike
@@ -2756,6 +2804,24 @@ function buildGrok(t,st){
   // pauldron contact shade onto upper arm roots
   g.fillStyle="rgba(0,0,0,0.28)";
   g.fillRect(cx-48,BY-10,18,8);g.fillRect(cx+30,BY-10,18,8);
+  /* LOOP 19 — gold Kapton / MLI foil. The one space-heritage material that
+     still reads hard: crinkled gold on joint boots and under the collar,
+     not a soft blanket over the whole suit. */
+  var goldF=offl?"rgba(140,110,50,0.18)":"rgba(196,150,60,0.42)";
+  var goldH=offl?"rgba(180,150,80,0.12)":"rgba(230,190,90,0.28)";
+  // collar MLI ring
+  g.strokeStyle=goldF;g.lineWidth=2.2;g.beginPath();
+  g.moveTo(cx-16,BY-30);g.quadraticCurveTo(cx,BY-34,cx+16,BY-30);g.stroke();
+  g.strokeStyle=goldH;g.lineWidth=0.8;g.beginPath();
+  g.moveTo(cx-14,BY-31);g.quadraticCurveTo(cx,BY-34.5,cx+14,BY-31);g.stroke();
+  // elbow-boot foil on both sides (idle visible)
+  [-1,1].forEach(function(sg){
+    var ex=cx+sg*42, ey=BY+2;
+    g.fillStyle=goldF;g.beginPath();g.ellipse(ex,ey,5,3.5,sg*0.2,0,7);g.fill();
+    g.strokeStyle=goldH;g.lineWidth=0.7;g.beginPath();g.ellipse(ex,ey,5,3.5,sg*0.2,0,7);g.stroke();
+  });
+  // hip joint foil
+  g.fillStyle=goldF;g.fillRect(cx-12,BY+18,8,3);g.fillRect(cx+4,BY+18,8,3);
 
   /* LOOP 4 — a service history. Factory-clean armour is untested armour.
      Left pauldron gouge (dark trench, bright torn lip); right pec field
@@ -2770,10 +2836,18 @@ function buildGrok(t,st){
   rivet(g,cx+13,BY,eH);rivet(g,cx+24,BY-1,eH);rivet(g,cx+14,BY+8,eH);rivet(g,cx+25,BY+7,eH);
   // weld stitches along top of patch
   for(var ws=0;ws<5;ws++){var wx=cx+12+ws*3.2;pl(g,wx,BY-3,wx+1.5,BY-1,"rgba(150,170,200,"+(offl?0.1:0.28)+")",0.9);}
-  // unit mark + tallies (worn gold)
+  /* LOOP 23 — flight hardware markings.
+     Block serial like a Starship tile stencil, a thin hazard chevron on
+     the pack, tallies still in worn gold. Not a logo — a serial number. */
+  g.fillStyle="rgba(220,228,240,"+(offl?0.18:0.45)+")";
+  g.font="bold 6px monospace";g.fillText("GX-07",cx-28,BY+14);
   g.fillStyle="rgba(196,168,84,"+(offl?0.2:0.55)+")";
-  g.font="bold 7px monospace";g.fillText("GX",cx-26,BY+14);
-  for(var tk=0;tk<3;tk++){g.fillRect(cx-14+tk*4,BY+10,1.4,6);}
+  for(var tk=0;tk<3;tk++){g.fillRect(cx-8+tk*4,BY+10,1.4,6);}
+  // black chevron stripe on left pack edge (visible beside arm gap)
+  g.fillStyle="rgba(8,10,14,"+(offl?0.4:0.7)+")";
+  poly(g,[[cx-20,BY-8],[cx-14,BY-8],[cx-16,BY+6],[cx-22,BY+6]]);g.fill();
+  g.fillStyle="rgba(230,200,60,"+(offl?0.15:0.4)+")";
+  g.fillRect(cx-19,BY-6,3,2);g.fillRect(cx-20,BY,3,2);
   /* LOOP 14 — strapped crack on the left pec. Something split the plate;
      the unit finished the job with a reweld and a strap of newer steel
      bolted across it. Scar tissue as reinforcement. */
@@ -2782,6 +2856,22 @@ function buildGrok(t,st){
   pl(g,cx-23.5,BY-18.5,cx-8.5,BY-6.5,"rgba(170,192,222,"+(offl?0.1:0.28)+")",0.8);
   plate(g,[[cx-22,BY-12],[cx-6,BY-8],[cx-8,BY-2],[cx-24,BY-6]],"#3a4a62","#1e2a3c",ed);
   rivet(g,cx-20,BY-9,eH);rivet(g,cx-10,BY-6,eH);
+
+  /* LOOP 22 — docking umbilical. A hard ring on the lower chest with
+     keyed slots and a trailing umbilicus into the pack — the unit
+     refuels and hard-docks, it does not just float. */
+  var dx=cx+16, dy=BY+12;
+  g.fillStyle=sB;g.beginPath();g.arc(dx,dy,8,0,7);g.fill();
+  g.strokeStyle=eH;g.lineWidth=1.6;g.beginPath();g.arc(dx,dy,8,0,7);g.stroke();
+  g.strokeStyle=ed;g.lineWidth=1;g.beginPath();g.arc(dx,dy,5.5,0,7);g.stroke();
+  g.fillStyle=rc;g.beginPath();g.arc(dx,dy,3,0,7);g.fill();
+  rivet(g,dx-5,dy-5,eH);rivet(g,dx+5,dy-5,eH);rivet(g,dx,dy+6,eH);
+  // umbilicus cable dock→pack
+  g.strokeStyle="#05080e";g.lineWidth=3.5;g.beginPath();
+  g.moveTo(dx+6,dy+2);g.quadraticCurveTo(cx+28,BY+20,cx+18,BY+8);g.stroke();
+  g.strokeStyle=offl?"#2c3440":"#5b6c85";g.lineWidth=1.2;g.beginPath();
+  g.moveTo(dx+6,dy+2);g.quadraticCurveTo(cx+28,BY+20,cx+18,BY+8);g.stroke();
+  if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.35+0.2*pulse);c.beginPath();c.arc(dx,dy,2,0,7);c.fill();});}
 
   // ---- arms ----
   var handR;
@@ -2884,52 +2974,56 @@ function buildGrok(t,st){
     }
   });
 
-  /* LOOP 2 — the face is a weapon mount, not a visor.
-     Deeper chevron brow that casts into the slit; zygomatic wedges; squared
-     jaw step; two cold optics in the slit (not one friendly glow bar); a
-     chin guard that ends in corners. Expression machinery deleted. */
-  var HY=BY-(offl?48:54), hr=19;  // LOOP 15: offline head sags in the mount
-  // faceted crown with hard peak
+  /* LOOP 21 — pressure canopy, not a tank helmet.
+     Faceted hard shell with a gold-tinted glass canopy strip under a
+     chevron brow. Twin HUD reticles inside the canopy (cold, no smile).
+     Pressure seal ring at the neck. Antenna is a phased array stub. */
+  var HY=BY-(offl?48:54), hr=19;
+  // hard shell crown
   plate(g,[[cx-hr-3,HY],[cx-12,HY-hr-6],[cx,HY-hr-8],[cx+12,HY-hr-6],[cx+hr+3,HY],[cx+hr+1,HY+12],[cx-hr-1,HY+12]],sT,sM,ed);
   pl(g,cx,HY-hr-6,cx,HY+8,eH,1.4);
-  // nested crown petal
-  g.strokeStyle=rc;g.lineWidth=1;
-  g.beginPath();g.moveTo(cx-10,HY-hr);g.lineTo(cx,HY-hr-4);g.lineTo(cx+10,HY-hr);g.stroke();
-  // chevron brow — point drops hard into the slit so the unit scowls
-  plate(g,[[cx-18,HY-10],[cx,HY+4],[cx+18,HY-10],[cx+16,HY-4],[cx,HY+8],[cx-16,HY-4]],sM,sB,ed);
-  g.fillStyle="rgba(0,0,0,0.35)";poly(g,[[cx-16,HY-2],[cx,HY+6],[cx+16,HY-2],[cx+14,HY],[cx,HY+4],[cx-14,HY]]);g.fill();
-  // zygomatic wedges (cheekbones)
-  plate(g,[[cx-hr-2,HY-2],[cx-10,HY],[cx-12,HY+10],[cx-hr,HY+8]],"#323c50","#1a2434",ed);
-  plate(g,[[cx+10,HY],[cx+hr+2,HY-2],[cx+hr,HY+8],[cx+12,HY+10]],"#323c50","#1a2434",ed);
-  // cheek guard blades below
-  plate(g,[[cx-hr,HY+6],[cx-8,HY+8],[cx-10,HY+16],[cx-hr+2,HY+14]],sT,sB,ed);
-  plate(g,[[cx+8,HY+8],[cx+hr,HY+6],[cx+hr-2,HY+14],[cx+10,HY+16]],sT,sB,ed);
-  // squared jaw step
-  plate(g,[[cx-12,HY+12],[cx+12,HY+12],[cx+10,HY+18],[cx-10,HY+18]],sM,sB,ed);
-  rivet(g,cx-14,HY+10,eH);rivet(g,cx+14,HY+10,eH);rivet(g,cx,HY+15,eH);
-  // firing slit with TWO cold optics (battery, not a smile)
-  g.fillStyle="#02040a";g.fillRect(cx-15,HY-1,30,8);
-  g.fillStyle="rgba(0,0,0,0.5)";g.fillRect(cx-15,HY-1,30,2);
+  // heat tiles on crown leading edge
+  g.fillStyle=offl?"#1a1e26":"#1e2430";
+  for(var ct=0;ct<5;ct++){g.fillRect(cx-10+ct*4.5,HY-hr-4,3.8,3);}
+  // chevron brow over canopy
+  plate(g,[[cx-18,HY-10],[cx,HY+2],[cx+18,HY-10],[cx+16,HY-5],[cx,HY+5],[cx-16,HY-5]],sM,sB,ed);
+  g.fillStyle="rgba(0,0,0,0.4)";poly(g,[[cx-16,HY-2],[cx,HY+4],[cx+16,HY-2],[cx+14,HY],[cx,HY+3],[cx-14,HY]]);g.fill();
+  // cheek / jaw
+  plate(g,[[cx-hr-2,HY],[cx-10,HY+2],[cx-12,HY+12],[cx-hr,HY+10]],"#323c50","#1a2434",ed);
+  plate(g,[[cx+10,HY+2],[cx+hr+2,HY],[cx+hr,HY+10],[cx+12,HY+12]],"#323c50","#1a2434",ed);
+  plate(g,[[cx-12,HY+10],[cx+12,HY+10],[cx+10,HY+17],[cx-10,HY+17]],sM,sB,ed);
+  rivet(g,cx-14,HY+8,eH);rivet(g,cx+14,HY+8,eH);
+  // pressure seal ring
+  g.strokeStyle=eH;g.lineWidth=1.5;g.beginPath();g.arc(cx,HY+14,11,0.15*Math.PI,0.85*Math.PI);g.stroke();
+  // GOLD-TINTED canopy glass (space heritage, still cold)
+  g.fillStyle="#03060c";g.fillRect(cx-15,HY-2,30,9);
+  g.save();g.beginPath();g.rect(cx-15,HY-2,30,9);g.clip();
+  var canopy=g.createLinearGradient(0,HY-2,0,HY+7);
+  canopy.addColorStop(0,"rgba(196,150,60,"+(offl?0.06:0.22)+")");
+  canopy.addColorStop(0.55,"rgba(40,60,100,"+(offl?0.04:0.12)+")");
+  canopy.addColorStop(1,"rgba(196,150,60,"+(offl?0.04:0.14)+")");
+  g.fillStyle=canopy;g.fillRect(cx-15,HY-2,30,9);
+  // lamp reflection on glass
+  g.fillStyle="rgba(220,235,255,"+(offl?0.04:0.14)+")";g.fillRect(cx-12,HY-1,10,2);
+  g.restore();
+  // twin HUD reticles inside canopy
   [RB,RE].forEach(function(c){
     if(offl){
       c.fillStyle="#141018";c.fillRect(cx-13,HY+1,26,4);
-      c.fillStyle="rgba(180,40,40,0.6)";c.fillRect(cx-9,HY+1.5,4,3);c.fillRect(cx+5,HY+1.5,4,3);
+      c.fillStyle="rgba(180,40,40,0.55)";c.fillRect(cx-9,HY+1.5,4,3);c.fillRect(cx+5,HY+1.5,4,3);
       return;
     }
-    // left + right optics, cold, no catchlight
-    [[-8],[8]].forEach(function(ox){
-      c.fillStyle=pu(0.55+0.2*pulse);c.beginPath();c.arc(cx+ox[0],HY+3,3.2,0,7);c.fill();
-      c.fillStyle=puh(0.85);c.beginPath();c.arc(cx+ox[0],HY+3,1.4,0,7);c.fill();
+    [[-7],[7]].forEach(function(ox){
+      c.strokeStyle=pu(0.65+0.2*pulse);c.lineWidth=1;
+      c.strokeRect(cx+ox[0]-3,HY+0.5,6,5);
+      c.fillStyle=puh(0.85);c.fillRect(cx+ox[0]-1,HY+2,2,2);
     });
-    // slit glow between them
-    c.fillStyle=pu(0.25*pulse);c.fillRect(cx-4,HY+2,8,2);
   });
-  // antenna on bolted bracket (battle-clipped later)
-  plate(g,[[cx+hr-4,HY-hr-2],[cx+hr+4,HY-hr-4],[cx+hr+4,HY-hr+4],[cx+hr-4,HY-hr+6]],sM,sB,ed);
-  rivet(g,cx+hr,HY-hr,eH);
-  pl(g,cx+hr,HY-hr-2,cx+hr+7,HY-hr-14,eH,1.8);
-  if(!offl){RB.fillStyle="rgba(255,80,70,0.9)";RB.beginPath();RB.arc(cx+hr+7,HY-hr-14,2.2,0,7);RB.fill();
-    RE.fillStyle="rgba(255,80,70,0.8)";RE.beginPath();RE.arc(cx+hr+7,HY-hr-14,2.2,0,7);RE.fill();}
+  // phased-array antenna stub (not a whip)
+  plate(g,[[cx+hr-5,HY-hr],[cx+hr+3,HY-hr-2],[cx+hr+3,HY-hr+5],[cx+hr-5,HY-hr+7]],sM,sB,ed);
+  rivet(g,cx+hr-1,HY-hr+2,eH);
+  g.fillStyle=sT;g.fillRect(cx+hr-2,HY-hr-8,4,8);
+  if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.5+0.3*pulse);c.fillRect(cx+hr-1,HY-hr-7,2,3);});}
 
   /* LOOP 10 — light and wear: helmet casts on collar; thruster soot;
      paint gone from the lips that lead; bolt weep already on pauldrons. */
@@ -2947,7 +3041,30 @@ function buildGrok(t,st){
   g.fillRect(cx-14,HY-8,3,1.2);g.fillRect(cx+12,HY-7,2.5,1);
   // chest leading-edge nicks
   g.fillRect(cx-30,BY-28,3,1.4);g.fillRect(cx+26,BY-26,3,1.2);
+  /* LOOP 24 — reentry scars. Plasma streaks and charred tile edges:
+     the unit has come home the hard way more than once. Directional
+     streaks from crown down the right shoulder — reentry vector. */
+  g.strokeStyle="rgba(40,22,12,"+(offl?0.25:0.45)+")";g.lineWidth=2;
+  g.beginPath();g.moveTo(cx+4,HY-hr-2);g.lineTo(cx+22,BY-20);g.lineTo(cx+36,BY-8);g.stroke();
+  g.strokeStyle="rgba(60,30,14,"+(offl?0.15:0.3)+")";g.lineWidth=1.2;
+  g.beginPath();g.moveTo(cx+8,HY-hr);g.lineTo(cx+28,BY-16);g.stroke();
+  // charred tile edges on chest leading lip
+  g.fillStyle="rgba(30,16,8,"+(offl?0.25:0.4)+")";
+  g.fillRect(cx-22,BY-26,8,2);g.fillRect(cx+12,BY-25,10,2);
+  // violet plasma ghost along the streak when powered
+  if(!offl){RB.save();RB.globalCompositeOperation="lighter";
+    RB.strokeStyle=pu(0.12*pulse);RB.lineWidth=3;
+    RB.beginPath();RB.moveTo(cx+6,HY-hr);RB.lineTo(cx+24,BY-18);RB.stroke();
+    RB.restore();}
 
+  /* LOOP 25 — space-hardware specular: cool white on the leading pauldron
+     lips and canopy rim only. The rest stays matte flight metal. */
+  if(!offl){g.save();
+    g.fillStyle="rgba(210,224,245,0.18)";
+    g.fillRect(cx-52,BY-32,8,2);g.fillRect(cx+42,BY-30,10,2);
+    g.fillStyle="rgba(210,224,245,0.12)";
+    g.fillRect(cx-10,HY-hr-6,20,1.5);
+    g.restore();}
   RB.setTransform(1,0,0,1,0,0);RE.setTransform(1,0,0,1,0,0);RR.setTransform(1,0,0,1,0,0);
   buildRim(offl?[86,84,94]:[176,124,255]);
   var hh=handR||{x:cx+30,y:BY+26};
