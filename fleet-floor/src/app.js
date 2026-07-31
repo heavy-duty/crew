@@ -2804,9 +2804,16 @@ function buildGrok(t,st){
       g.fillStyle=sB;g.beginPath();g.arc(ex,ey,6,0,7);g.fill();g.strokeStyle=ed;g.lineWidth=1;g.beginPath();g.arc(ex,ey,6,0,7);g.stroke();
       if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.5);c.fillRect(ex-2.5,ey-2,5,2.5);});}
       limbSeg(g,ex,ey,gx2,gy,7.5,6.5,sT,sB);
-      // heavy gauntlet
+      // heavy gauntlet with stud knuckles
       plate(g,[[gx2-9,gy-5],[gx2+9,gy-5],[gx2+10,gy+10],[gx2-10,gy+10]],sT,sB,ed);
       rivet(g,gx2,gy+1,eH);
+      /* LOOP 15 — stud knuckles + holster strap on the free hip.
+         Even the empty hand is a weapon. */
+      for(var kn=0;kn<3;kn++){g.fillStyle=eH;g.beginPath();g.arc(gx2-5+kn*5,gy+8,1.6,0,7);g.fill();}
+      // holster strap across hip
+      g.strokeStyle="rgba(60,70,90,0.8)";g.lineWidth=2.5;
+      g.beginPath();g.moveTo(cx-28,BY+20);g.lineTo(cx+8,BY+28);g.stroke();
+      plate(g,[[cx+6,BY+24],[cx+18,BY+26],[cx+16,BY+36],[cx+4,BY+34]],sM,sB,ed);
     }else if(work){
       var ex=cx-42,ey=BY+4,gx2=cx-34,gy=BY+28;
       limbSeg(g,sx,sy,ex,ey,9,7.5,sM,sB);armRods(sx,sy,ex,ey);
@@ -2927,7 +2934,7 @@ function buildGrok(t,st){
      Deeper chevron brow that casts into the slit; zygomatic wedges; squared
      jaw step; two cold optics in the slit (not one friendly glow bar); a
      chin guard that ends in corners. Expression machinery deleted. */
-  var HY=BY-54, hr=19;
+  var HY=BY-(offl?48:54), hr=19;  // LOOP 15: offline head sags in the mount
   // faceted crown with hard peak
   plate(g,[[cx-hr-3,HY],[cx-12,HY-hr-6],[cx,HY-hr-8],[cx+12,HY-hr-6],[cx+hr+3,HY],[cx+hr+1,HY+12],[cx-hr-1,HY+12]],sT,sM,ed);
   pl(g,cx,HY-hr-6,cx,HY+8,eH,1.4);
