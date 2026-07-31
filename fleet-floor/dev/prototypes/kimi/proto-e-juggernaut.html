@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>JUGGERNAUT — kimi prototype E</title>
+<style>
+  html,body{margin:0;background:#04060a;height:100%;font-family:ui-monospace,Menlo,Consolas,monospace}
+  #wrap{display:flex;flex-direction:column;align-items:center;padding:18px 0}
+  canvas{display:block;background:#000;border-radius:6px;max-width:94vw;height:auto}
+  #bar{margin-top:12px;display:flex;gap:8px}
+  #bar button{font:inherit;font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    padding:7px 14px;background:#0a0f16;border:1px solid #1c2733;border-radius:7px;color:#7d8ba0;cursor:pointer}
+  #bar button.on{color:#ff9ac8;border-color:#5c2a44;background:#1c0f18}
+  #cap{margin-top:10px;font-size:11px;color:#55657a;letter-spacing:.06em}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cv" width="520" height="600"></canvas>
+  <div id="bar">
+    <button data-st="working">working</button>
+    <button data-st="idle">idle</button>
+    <button data-st="offline">offline</button>
+  </div>
+  <div id="cap">JUGGERNAUT (KM-09X) — a siege torso on a torch · no legs, no props, no excuses · fleet-floor grammar</div>
+</div>
+<script>
+/* ============================================================================
+   PROTO E — "JUGGERNAUT" (KM-09X)
+
+   Last shot. The brief: chad, strong, powerful — and the honest post-mortem
+   on D2 was that it was SPINDLY: thin struts, thin cables, small head, and
+   clever where it should have been heavy. So this one is built out of three
+   or four HUGE shapes and nothing else:
+
+     · a monolithic chest like a bunker front, caged reactor furnace dead
+       centre — the one light that matters
+     · two pauldrons the size of engine cowls, because they ARE: armoured
+       grav bells under each, glowing at the rim
+     · a head buried between them under a brow like a bunker slit — no
+       neck, two optics (one pink, one amber — the glass eye ships now)
+     · two siege arms ending in hammer gauntlets with stud knuckles
+     · no legs. the torso tapers into an armoured nozzle cowl and the torch
+       does the rest. offline it settles onto its own knuckles — fists on
+       the deck, head down, torch cold. even dead it rests like a fighter
+   ========================================================================== */
+var cv=document.getElementById("cv"), S=cv.getContext("2d");
+var W=520,H=600;
+var body=document.createElement("canvas"),emis=document.createElement("canvas"),rim=document.createElement("canvas");
+[body,emis,rim].forEach(function(c){c.width=W;c.height=H;});
+var RB=body.getContext("2d"),RE=emis.getContext("2d"),RR=rim.getContext("2d");
+
+function rr(c,x,y,w,h,r){c.beginPath();if(c.roundRect)c.roundRect(x,y,w,h,r);else{c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}}
+function poly(c,pts){c.beginPath();for(var i=0;i<pts.length;i++){if(i)c.lineTo(pts[i][0],pts[i][1]);else c.moveTo(pts[i][0],pts[i][1]);}c.closePath();}
+function plate(c,pts,top,bot,ed){var y0=1e9,y1=-1e9;for(var i=0;i<pts.length;i++){if(pts[i][1]<y0)y0=pts[i][1];if(pts[i][1]>y1)y1=pts[i][1];}var gg=c.createLinearGradient(0,y0,0,y1);gg.addColorStop(0,top);gg.addColorStop(1,bot);poly(c,pts);c.fillStyle=gg;c.fill();if(ed){c.strokeStyle=ed;c.lineWidth=1.2;c.lineJoin="round";c.stroke();}}
+function pl(c,x0,y0,x1,y1,col,w){c.strokeStyle=col;c.lineWidth=w||1;c.beginPath();c.moveTo(x0,y0);c.lineTo(x1,y1);c.stroke();}
+function cavity(c,x,y,w,h,a){var gg=c.createLinearGradient(0,y,0,y+h);gg.addColorStop(0,"rgba(2,5,9,"+a+")");gg.addColorStop(1,"rgba(2,5,9,0)");c.fillStyle=gg;c.fillRect(x,y,w,h);}
+function bolt(c,x,y,r,lit){c.fillStyle="#05080e";c.beginPath();c.arc(x,y,r,0,7);c.fill();
+  var gg=c.createRadialGradient(x-r*0.3,y-r*0.4,0.4,x,y,r);gg.addColorStop(0,"rgba(200,214,238,"+(lit||0.35)+")");gg.addColorStop(1,"rgba(4,8,14,0.8)");
+  c.fillStyle=gg;c.beginPath();c.arc(x,y,r*0.66,0,7);c.fill();
+  pl(c,x-r*0.34,y,x+r*0.34,y,"rgba(3,6,11,0.85)",1);}
+function seg(c,x0,y0,x1,y1,w0,w1,top,bot,ed){var dx=x1-x0,dy=y1-y0,ln=Math.hypot(dx,dy)||1,nx=-dy/ln,ny=dx/ln;
+  plate(c,[[x0+nx*w0,y0+ny*w0],[x1+nx*w1,y1+ny*w1],[x1-nx*w1,y1-ny*w1],[x0-nx*w0,y0-ny*w0]],top,bot,ed);}
+function hose(c,x0,y0,x1,y1,sag,w){
+  var mx=(x0+x1)/2,my=Math.max(y0,y1)+sag;
+  c.strokeStyle="rgba(12,17,25,0.98)";c.lineWidth=w;
+  c.beginPath();c.moveTo(x0,y0);c.quadraticCurveTo(mx,my,x1,y1);c.stroke();
+  c.strokeStyle="rgba(120,132,156,0.35)";c.lineWidth=w*0.28;
+  c.beginPath();c.moveTo(x0,y0);c.quadraticCurveTo(mx,my,x1,y1);c.stroke();}
+
+var qs=new URLSearchParams(location.search);
+var STATE=qs.get("state")||"working";
+var reduced=qs.get("t")!==null;
+var T0=qs.get("t")===null?0:Number(qs.get("t"));
+
+document.querySelectorAll("#bar button").forEach(function(b){
+  if(b.dataset.st===STATE)b.classList.add("on");
+  b.onclick=function(){location.search="?state="+b.dataset.st;};
+});
+
+function drawUnit(t,st){
+  var offl=st==="offline", work=st==="working";
+  [RB,RE,RR].forEach(function(c){c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,W,H);c.globalAlpha=1;c.globalCompositeOperation="source-over";});
+  var g=RB, cx=260;
+  var sT="#2e3850",sM="#161d2b",sB="#090d15",ed="#35405a",eH="#4a5872",rc="#05080e";
+  if(offl){sT="#1d2330";sM="#0e121b";sB="#06090f";ed="#232a38";eH="#2c3444";}
+  var PK=offl?[74,80,92]:[255,114,182], PKH=offl?[120,126,138]:[255,182,214];
+  var AM=offl?[80,80,88]:[255,176,84], AMH=offl?[130,124,120]:[255,214,150];
+  function pk(a){return "rgba("+PK[0]+","+PK[1]+","+PK[2]+","+a+")";}
+  function pkh(a){return "rgba("+PKH[0]+","+PKH[1]+","+PKH[2]+","+a+")";}
+  var pulse=offl?0:(work?(0.62+0.26*Math.sin(t*6)):(0.38+0.14*Math.sin(t*2)));
+  var bob=offl?0:Math.sin(t*1.6)*2.2;
+  var BY=offl?344:250+bob;          // chest centre; offline = knuckles on the deck
+  var th=offl?0:(work?(0.78+0.22*Math.sin(t*11)+0.07*Math.sin(t*23)):(0.44+0.1*Math.sin(t*3)));
+
+  /* ---- 0 · the torch (furthest plane) ----
+     A siege engine does not drift down like a leaf; it hangs LOW over a
+     short, violent column of fire and the deck remembers it. */
+  var nozY=BY+168;
+  if(!offl){
+    [RB,RE].forEach(function(c,ci){c.save();c.globalCompositeOperation="lighter";
+      var jg=c.createLinearGradient(0,nozY,0,468);
+      jg.addColorStop(0,pkh((ci?0.3:0.42)*th));jg.addColorStop(0.45,pk((ci?0.13:0.2)*th));jg.addColorStop(1,pk(0));
+      var wb=Math.sin(t*7)*3.5;
+      c.fillStyle=jg;c.beginPath();
+      c.moveTo(cx-18,nozY);c.lineTo(cx+18,nozY);
+      c.lineTo(cx+22+wb,468);c.lineTo(cx-22-wb,468);c.closePath();c.fill();
+      if(!ci){c.fillStyle="rgba(255,240,248,"+(0.4*th)+")";
+        c.beginPath();c.moveTo(cx-7,nozY);c.lineTo(cx+7,nozY);c.lineTo(cx+10+wb*0.4,468);c.lineTo(cx-10-wb*0.4,468);c.closePath();c.fill();}
+      c.restore();});
+    [RB,RE].forEach(function(c){c.save();c.globalCompositeOperation="lighter";
+      var nz=c.createRadialGradient(cx,nozY+4,1,cx,nozY+4,22);
+      nz.addColorStop(0,"rgba(255,240,248,"+(0.55*th)+")");nz.addColorStop(0.5,pk(0.3*th));nz.addColorStop(1,pk(0));
+      c.fillStyle=nz;c.beginPath();c.arc(cx,nozY+4,22,0,7);c.fill();c.restore();});
+  }
+
+  /* ---- 1 · pauldron grav bells: the glow under the armour ---- */
+  [-1,1].forEach(function(sg){
+    var bx=cx+sg*118,by2=BY-8;
+    g.fillStyle="#04070c";g.beginPath();g.ellipse(bx,by2+26,26,13,0,0,7);g.fill();     // bell mouth
+    if(!offl){var bg=0.5+0.3*pulse;
+      [RB,RE].forEach(function(c){c.save();c.globalCompositeOperation="lighter";
+        var rg=c.createRadialGradient(bx,by2+26,2,bx,by2+26,26);
+        rg.addColorStop(0,pkh(0.4*bg));rg.addColorStop(0.5,pk(0.18*bg));rg.addColorStop(1,pk(0));
+        c.fillStyle=rg;c.beginPath();c.ellipse(bx,by2+26,26,13,0,0,7);c.fill();c.restore();});}
+    // bell vanes
+    for(var v=0;v<3;v++){pl(g,bx-14+v*14,by2+18,bx-12+v*14,by2+32,"rgba(8,12,18,0.9)",3.4);}
+  });
+
+  /* ---- 2 · siege arms: piston, hammer gauntlet, stud knuckles ---- */
+  [-1,1].forEach(function(sg){
+    var shx=cx+sg*108,shy=BY-30, elx=cx+sg*134,ely=BY+30, gxx=cx+sg*128,gyy=BY+96;
+    // shoulder ball in its socket
+    g.fillStyle="#04070c";g.beginPath();g.arc(shx,shy,13,0,7);g.fill();
+    plate(g,[[shx-10,shy-14],[shx+10,shy-14],[shx+8,shy+2],[shx-8,shy+2]],sM,sB,ed);
+    bolt(g,shx-5,shy-7,2,offl?0.06:0.2);bolt(g,shx+5,shy-7,2,offl?0.06:0.2);
+    var sg2=g.createRadialGradient(shx-4,shy-5,2,shx,shy,13);
+    sg2.addColorStop(0,"rgba(196,208,232,"+(offl?0.14:0.32)+")");sg2.addColorStop(1,"rgba(4,8,14,0.8)");
+    g.fillStyle=sg2;g.beginPath();g.arc(shx,shy,8.6,0,7);g.fill();
+    // upper arm: thick armour + the piston along its underside
+    seg(g,shx,shy+4,elx,ely,18,14,sT,sB,ed);
+    pl(g,shx+sg*2,shy+10,elx+sg*2,ely-4,"rgba(6,9,15,0.9)",4);
+    pl(g,shx+sg*2,shy+10,elx+sg*2,ely-4,"rgba(150,164,190,"+(offl?0.08:0.24)+")",1.4);
+    // elbow: dark ball, lit crescent
+    g.fillStyle="#04070c";g.beginPath();g.arc(elx,ely,10,0,7);g.fill();
+    g.strokeStyle="rgba(150,164,190,"+(offl?0.08:0.26)+")";g.lineWidth=1.6;
+    g.beginPath();g.arc(elx,ely,7,-2.4,0.6);g.stroke();
+    bolt(g,elx,ely,2.6,offl?0.06:0.2);
+    // the GAUNTLET: a hammer block, knuckle studs, scuffed to metal
+    seg(g,elx,ely+2,gxx,gyy-30,14,17,sM,sB,ed);
+    var gw=52,gh=62;
+    plate(g,[[gxx-gw/2,gyy-28],[gxx+gw/2,gyy-28],[gxx+gw/2-6,gyy+gh-28],[gxx-gw/2+2,gyy+gh-28]],sT,sB,ed);
+    cavity(g,gxx-gw/2,gyy-28,gw,9,0.5);
+    pl(g,gxx-gw/2+3,gyy+gh-30,gxx+gw/2-3,gyy+gh-30,"rgba(3,6,11,0.6)",2);        // knuckle line
+    for(var fg=1;fg<4;fg++){pl(g,gxx-gw/2+fg*(gw/4),gyy+gh-30,gxx-gw/2+fg*(gw/4)-1,gyy+gh-33,"rgba(3,6,11,0.5)",1.4);}
+    for(var ks=0;ks<4;ks++){bolt(g,gxx-gw/2+8+ks*((gw-16)/3),gyy+gh-33,2.6,offl?0.06:0.24);}
+    pl(g,gxx-gw/2+4,gyy+gh-28.6,gxx+gw/2-8,gyy+gh-28.6,"rgba(198,216,246,"+(offl?0.08:0.2)+")",1.2); // fist bottom catch
+    g.fillStyle="rgba(206,220,242,"+(offl?0.08:0.22)+")";                          // scuffed striking face
+    g.fillRect(gxx-gw/2+5,gyy+gh-29.6,10,1.6);g.fillRect(gxx+4,gyy-26,8,1.6);
+    // hydraulic hose: pauldron to gauntlet — one thick line, not spaghetti
+    hose(g,shx-sg*9,shy+2,gxx-sg*18,gyy-22,22,5.2);
+  });
+
+  /* ---- 3 · CHEST: the bunker ---- */
+  // under-torso shadow plate
+  plate(g,[[cx-88,BY+20],[cx+88,BY+20],[cx+64,BY+66],[cx-64,BY+66]],sM,"#05080d",ed);
+  // main glacis — one huge slab, faceted
+  plate(g,[[cx-96,BY-62],[cx+96,BY-62],[cx+84,BY+30],[cx-84,BY+30]],sT,sB,ed);
+  pl(g,cx,BY-62,cx,BY+30,"rgba(4,8,14,0.55)",1.6);                               // centre arris
+  pl(g,cx-96,BY-62,cx-34,BY-40,"rgba(4,8,14,0.4)",1.3);                          // facet seams
+  pl(g,cx+96,BY-62,cx+34,BY-40,"rgba(4,8,14,0.4)",1.3);
+  pl(g,cx-95,BY-61,cx+95,BY-61,"rgba(186,208,242,"+(offl?0.06:0.18)+")",1.4);    // crown catch
+  cavity(g,cx-84,BY+24,168,10,0.55);                                             // the glacis throws a hard line
+  // plastron over the lower chest — bolted, KM-09X stencilled
+  plate(g,[[cx-58,BY+6],[cx+58,BY+6],[cx+50,BY+34],[cx-50,BY+34]],sM,sB,ed);
+  bolt(g,cx-50,BY+12,2.4,offl?0.06:0.22);bolt(g,cx+50,BY+12,2.4,offl?0.06:0.22);
+  g.fillStyle="rgba(198,208,224,"+(offl?0.12:0.3)+")";
+  g.font="700 10px ui-monospace,monospace";g.textAlign="center";
+  g.fillText("KM-09X",cx,BY+28);
+  /* the REACTOR: octagonal caged furnace, the one light that matters.
+     Two heavy bars in front of the fire; bloom leaks around, never through. */
+  var rc2={x:cx,y:BY-16};
+  var pts=[];for(var o=0;o<8;o++){var a=Math.PI/8+o*Math.PI/4;pts.push([rc2.x+Math.cos(a)*33,rc2.y+Math.sin(a)*33]);}
+  g.fillStyle="#04070c";poly(g,pts);g.fill();g.strokeStyle=ed;g.lineWidth=1.4;g.stroke();
+  var fw={x:rc2.x-19,y:rc2.y-16,w:38,h:32};
+  rr(g,fw.x,fw.y,fw.w,fw.h,4);g.fillStyle="#05090f";g.fill();g.strokeStyle=rc;g.lineWidth=1;g.stroke();
+  if(!offl){
+    var fire=g.createRadialGradient(rc2.x,rc2.y+2,1,rc2.x,rc2.y+2,16);
+    fire.addColorStop(0,"rgba(255,240,250,"+(0.9*pulse+0.1)+")");
+    fire.addColorStop(0.45,pkh(0.65*pulse+0.1));fire.addColorStop(1,pk(0.14));
+    g.fillStyle=fire;g.fillRect(fw.x+1,fw.y+1,fw.w-2,fw.h-2);
+    RE.save();RE.beginPath();rr(RE,fw.x,fw.y,fw.w,fw.h,4);RE.clip();
+    var f2=RE.createRadialGradient(rc2.x,rc2.y+2,1,rc2.x,rc2.y+2,20);
+    f2.addColorStop(0,"rgba(255,240,250,0.9)");f2.addColorStop(0.5,pk(0.55));f2.addColorStop(1,pk(0));
+    RE.fillStyle=f2;RE.fillRect(fw.x,fw.y,fw.w,fw.h);RE.restore();
+    // the furnace lights the chest it is set into
+    g.save();g.globalCompositeOperation="lighter";
+    var ch=g.createRadialGradient(rc2.x,rc2.y,8,rc2.x,rc2.y,72);
+    ch.addColorStop(0,pk(0.16));ch.addColorStop(0.5,pk(0.06));ch.addColorStop(1,pk(0));
+    g.fillStyle=ch;g.beginPath();g.arc(rc2.x,rc2.y,72,0,7);g.fill();g.restore();
+  }else{
+    RB.fillStyle="rgba(150,168,190,0.3)";RB.fillRect(fw.x+4,rc2.y,fw.w-8,1.5);
+  }
+  [RB,RE].forEach(function(c,ci){if(ci===1&&offl)return;
+    c.fillStyle=ci?"rgba(5,8,13,0.94)":"#0d121c";
+    c.fillRect(rc2.x-3,fw.y-2,6,fw.h+4);
+    c.fillRect(fw.x-2,rc2.y-2.2,fw.w+4,4.4);});
+  bolt(g,rc2.x,fw.y-6,2.4,offl?0.06:0.24);bolt(g,rc2.x,fw.y+fw.h+6,2.4,offl?0.06:0.24);
+  // reactor mount bolts on the glacis
+  [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(function(sg){bolt(g,rc2.x+sg[0]*36,rc2.y+sg[1]*34,2.6,offl?0.06:0.24);});
+
+  /* ---- 4 · pauldrons: layered cowls over the bells ---- */
+  [-1,1].forEach(function(sg){
+    var px=cx+sg*118,py=BY-56;
+    // upper cowl — the biggest single plate on the unit
+    plate(g,[[px-sg*56,py+6],[px-sg*30,py-22],[px+sg*34,py-26],[px+sg*52,py-6],[px+sg*44,py+22],[px-sg*40,py+26]],sT,sB,ed);
+    pl(g,px-sg*30,py-22,px+sg*34,py-26,"rgba(186,208,242,"+(offl?0.07:0.2)+")",1.5);   // crown catch
+    // lower rim plate
+    plate(g,[[px-sg*48,py+28],[px+sg*44,py+24],[px+sg*38,py+42],[px-sg*42,py+44]],sM,sB,ed);
+    cavity(g,px-sg*44,py+24,sg>0?86:86,6,0.5);
+    // rim bolts + grime weep (albedo)
+    [px-sg*40,px-sg*8,px+sg*28].forEach(function(bxp,i){
+      bolt(g,bxp,py+33,2.4,offl?0.06:0.22);
+      if(i===1){g.fillStyle="rgba(70,50,30,0.3)";poly(g,[[bxp-1.2,py+35],[bxp+1.2,py+35],[bxp+0.5,py+42],[bxp-0.5,py+42]]);g.fill();}});
+  });
+  // the GOUGE across the left pauldron — torn lip catches the lamp
+  poly(g,[[cx-164,BY-66],[cx-128,BY-50],[cx-133,BY-42],[cx-168,BY-58]]);g.fillStyle="rgba(2,4,8,1)";g.fill();
+  pl(g,cx-164,BY-66,cx-128,BY-50,"rgba(198,216,246,"+(offl?0.1:0.36)+")",1.6);
+  // "09" stencil on the right pauldron, worn
+  g.save();g.globalAlpha=offl?0.14:0.34;g.fillStyle="#c6d2e4";
+  g.font="700 17px ui-monospace,monospace";g.textAlign="center";
+  g.fillText("09",cx+118,BY-42);g.restore();
+  // chipped edges — albedo nicks
+  g.fillStyle="rgba(206,220,242,"+(offl?0.09:0.24)+")";
+  [[cx-172,BY-50],[cx+170,BY-48],[cx-96,BY-61],[cx+95,BY-62]].forEach(function(nk,i){g.fillRect(nk[0],nk[1],3+(i%2),1.6);});
+
+  /* ---- 5 · HEAD: buried, no neck, brow like a firing slit ---- */
+  var hy=BY-58;
+  plate(g,[[cx-44,hy+6],[cx-50,hy-18],[cx-33,hy-30],[cx+33,hy-30],[cx+50,hy-18],[cx+44,hy+6]],sT,sB,ed);
+  pl(g,cx,hy-30,cx,hy-6,"rgba(4,8,14,0.55)",1.4);
+  // the brow — two plates dipped toward the centre, so the unit SCOWLS
+  plate(g,[[cx-42,hy-27],[cx+2,hy-24],[cx-2,hy-10],[cx-36,hy-12]],sM,sB,ed);
+  plate(g,[[cx+42,hy-27],[cx-2,hy-24],[cx+2,hy-10],[cx+36,hy-12]],sM,sB,ed);
+  cavity(g,cx-36,hy-12,72,7,0.6);
+  bolt(g,cx-38,hy-20,2,offl?0.05:0.18);bolt(g,cx+38,hy-20,2,offl?0.05:0.18);
+  var vs={x:cx-32,y:hy-12,w:64,h:10};
+  rr(g,vs.x,vs.y,vs.w,vs.h,3);g.fillStyle="#03060b";g.fill();g.strokeStyle=rc;g.lineWidth=1;g.stroke();
+  if(offl){
+    RB.fillStyle="rgba(150,168,190,0.5)";RB.fillRect(vs.x+4,vs.y+4.4,vs.w-8,1.4);
+    RE.fillStyle="rgba(150,168,190,0.2)";RE.fillRect(vs.x+4,vs.y+4.4,vs.w-8,1.4);}
+  else{
+    var gaze=work?0:Math.round(Math.sin(t*0.55)*5);
+    [{x:cx-15+gaze,col:AM,colH:AMH},{x:cx+15+gaze,col:PK,colH:PKH}].forEach(function(op){ // amber glass eye + pink
+      [RB,RE].forEach(function(c){var eg=c.createRadialGradient(op.x,vs.y+5,0.4,op.x,vs.y+5,7.5);
+        eg.addColorStop(0,"rgba("+op.colH[0]+","+op.colH[1]+","+op.colH[2]+","+(0.85+0.15*pulse)+")");
+        eg.addColorStop(0.5,"rgba("+op.col[0]+","+op.col[1]+","+op.col[2]+","+(0.5*pulse)+")");
+        eg.addColorStop(1,"rgba("+op.col[0]+","+op.col[1]+","+op.col[2]+",0)");
+        c.fillStyle=eg;c.beginPath();c.arc(op.x,vs.y+5,7.5,0,7);c.fill();});
+      [RB,RE].forEach(function(c){c.fillStyle="rgba("+op.colH[0]+","+op.colH[1]+","+op.colH[2]+",0.95)";
+        rr(c,op.x-2.6,vs.y+2.4,5.2,5.2,1.5);c.fill();});});
+  }
+  // the crack that cost the eye
+  g.strokeStyle="rgba(190,205,228,"+(offl?0.08:0.26)+")";g.lineWidth=0.9;
+  g.beginPath();g.moveTo(vs.x+9,vs.y+0.6);g.lineTo(vs.x+16,vs.y+5);g.lineTo(vs.x+13,vs.y+9);g.stroke();
+  // armoured sensor ears — short, armoured, no whips
+  [-1,1].forEach(function(sg){plate(g,[[cx+sg*44,hy-22],[cx+sg*52,hy-20],[cx+sg*52,hy-8],[cx+sg*44,hy-8]],sM,sB,ed);
+    if(!offl){RE.fillStyle=pk(0.5);RE.beginPath();RE.arc(cx+sg*48,hy-14,1.6,0,7);RE.fill();}});
+
+  /* ---- 6 · waist cincture + nozzle cowl ---- */
+  // overlapping armoured leaves, like scale mail — layered, not extruded
+  for(var lf=0;lf<3;lf++){
+    var lw=58-lf*12, ly=BY+36+lf*22;
+    plate(g,[[cx-lw,ly],[cx+lw,ly],[cx+lw+8,ly+20],[cx+6,ly+20],[cx,ly+15],[cx-6,ly+20],[cx-lw-8,ly+20]],lf%2?sM:sT,sB,ed);
+    cavity(g,cx-lw-8,ly+13,(lw+8)*2,6,0.5);}
+  // the cowl: a heavy armoured cone with vector vanes
+  plate(g,[[cx-46,BY+102],[cx+46,BY+102],[cx+24,nozY-4],[cx-24,nozY-4]],sM,sB,ed);
+  [-1,0,1].forEach(function(vn){if(vn===0)return;
+    plate(g,[[cx+vn*30-5,BY+118],[cx+vn*30+5,BY+118],[cx+vn*26+3,nozY-6],[cx+vn*26-7,nozY-6]],sT,sB,ed);});
+  // nozzle bell
+  g.fillStyle="#04070c";g.beginPath();g.ellipse(cx,nozY-2,17,8,0,0,7);g.fill();
+  g.strokeStyle=eH;g.lineWidth=1.2;g.beginPath();g.ellipse(cx,nozY-2,17,8,0,0,7);g.stroke();
+  if(!offl){RB.fillStyle=pkh(0.5+0.3*pulse);RB.beginPath();RB.ellipse(cx,nozY-2,9,4.4,0,0,7);RB.fill();
+    RE.fillStyle=pk(0.6);RE.beginPath();RE.ellipse(cx,nozY-2,9,4.4,0,0,7);RE.fill();}
+  // scorch staining up the cowl — the torch marks its own machine (albedo)
+  var sco=g.createLinearGradient(0,nozY-30,0,nozY-2);
+  sco.addColorStop(0,"rgba(8,5,3,0)");sco.addColorStop(1,"rgba(8,5,3,0.5)");
+  g.fillStyle=sco;poly(g,[[cx-30,BY+118],[cx+30,BY+118],[cx+24,nozY-4],[cx-24,nozY-4]]);g.fill();
+
+  /* the jet's underlight: everything above the nozzle catches pink from
+     below — the one lighting cue that says the torch is REAL. */
+  if(!offl){g.save();g.globalCompositeOperation="lighter";
+    var ul=g.createRadialGradient(cx,nozY-10,4,cx,nozY-10,90);
+    ul.addColorStop(0,pk(0.14*th));ul.addColorStop(1,pk(0));
+    g.fillStyle=ul;g.beginPath();g.arc(cx,nozY-10,90,0,7);g.fill();g.restore();
+    [-128,128].forEach(function(dx){g.save();g.globalCompositeOperation="lighter";
+      var uf=g.createRadialGradient(cx+dx*0.9,BY+120,2,cx+dx*0.9,BY+120,40);
+      uf.addColorStop(0,pk(0.06*th));uf.addColorStop(1,pk(0));
+      g.fillStyle=uf;g.beginPath();g.arc(cx+dx*0.9,BY+120,40,0,7);g.fill();g.restore();});}
+
+  /* ---- 7 · offline: knuckle-rest posture is drawn by BY drop;
+        the beacon catches the left pauldron arris ---- */
+  if(offl){var bp=0.55;
+    pl(g,cx-172,BY-50,cx-160,BY-30,"rgba(255,64,52,"+(0.24*bp)+")",2);
+    pl(g,cx-46,hy-18,cx-40,hy+6,"rgba(255,64,52,"+(0.18*bp)+")",1.6);
+    RE.strokeStyle="rgba(255,64,52,"+(0.12*bp)+")";RE.lineWidth=2.4;
+    RE.beginPath();RE.moveTo(cx-172,BY-50);RE.lineTo(cx-160,BY-30);RE.stroke();}
+
+  /* ---- room light lands on the unit ---- */
+  RB.save();RB.globalCompositeOperation="source-atop";
+  var ktl=offl?"rgba(96,110,136,0.13)":"rgba(255,214,160,0.07)";
+  var ktg=RB.createLinearGradient(0,BY-90,0,nozY+10);
+  ktg.addColorStop(0,ktl);ktg.addColorStop(1,"rgba(0,0,0,0.07)");
+  RB.fillStyle=ktg;RB.fillRect(0,0,W,H);RB.restore();
+
+  /* ---- rim light: pink key, cyan fill ---- */
+  RR.globalCompositeOperation="source-over";RR.drawImage(body,0,0);
+  RR.globalCompositeOperation="destination-out";RR.drawImage(body,-2.2,1.7);RR.drawImage(body,-1.5,-2.4);
+  RR.globalCompositeOperation="source-in";
+  var rl=RR.createLinearGradient(60,0,460,0);
+  rl.addColorStop(0,"rgba(255,114,182,0.95)");rl.addColorStop(0.42,"rgba(200,145,195,0.45)");rl.addColorStop(1,"rgba(95,214,255,1)");
+  RR.fillStyle=rl;RR.fillRect(0,0,W,H);RR.globalCompositeOperation="source-over";
+}
+
+/* ---- scene ---- */
+function drawScene(t,st){
+  var offl=st==="offline";
+  var wall=S.createLinearGradient(0,0,0,H);
+  wall.addColorStop(0,offl?"#07090d":"#0b0e14");wall.addColorStop(0.75,offl?"#05070a":"#090c12");wall.addColorStop(1,"#05070b");
+  S.fillStyle=wall;S.fillRect(0,0,W,H);
+  if(!offl){var cone=S.createLinearGradient(0,40,0,470);
+    cone.addColorStop(0,"rgba(255,214,150,0.10)");cone.addColorStop(1,"rgba(255,214,150,0)");
+    S.fillStyle=cone;S.beginPath();S.moveTo(225,40);S.lineTo(295,40);S.lineTo(410,470);S.lineTo(110,470);S.closePath();S.fill();}
+  else{var bc=S.createRadialGradient(90,120,4,90,120,150);
+    bc.addColorStop(0,"rgba(255,60,50,0.12)");bc.addColorStop(1,"rgba(255,60,50,0)");
+    S.fillStyle=bc;S.fillRect(0,0,W,H);}
+  S.fillStyle=offl?"#07090c":"#0d1118";S.fillRect(0,470,W,H-470);
+  pl(S,0,470,W,470,"rgba(120,140,170,0.14)",1);
+  if(offl){
+    // fists down: two hard contact patches under the gauntlets
+    [-128,128].forEach(function(dx){var sh=S.createRadialGradient(260+dx,474,1,260+dx,474,32);
+      sh.addColorStop(0,"rgba(0,0,0,0.62)");sh.addColorStop(0.6,"rgba(0,0,0,0.3)");sh.addColorStop(1,"rgba(0,0,0,0)");
+      S.fillStyle=sh;S.beginPath();S.ellipse(260+dx,474,32,9,0,0,7);S.fill();});
+    var sh2=S.createRadialGradient(260,472,4,260,472,50);
+    sh2.addColorStop(0,"rgba(0,0,0,0.4)");sh2.addColorStop(1,"rgba(0,0,0,0)");
+    S.fillStyle=sh2;S.beginPath();S.ellipse(260,472,50,11,0,0,7);S.fill();
+  }else{
+    // the scorch the torch leaves, plus the live glow
+    var sc=S.createRadialGradient(260,470,4,260,470,58);
+    sc.addColorStop(0,"rgba(6,4,3,0.85)");sc.addColorStop(0.6,"rgba(8,5,4,0.4)");sc.addColorStop(1,"rgba(8,5,4,0)");
+    S.fillStyle=sc;S.beginPath();S.ellipse(260,470,58,13,0,0,7);S.fill();
+    var th2=0.75+0.25*Math.sin(t*11);
+    S.save();S.globalCompositeOperation="lighter";
+    var tg=S.createRadialGradient(260,470,2,260,470,40);
+    tg.addColorStop(0,"rgba(255,182,214,"+(0.34*th2)+")");tg.addColorStop(0.5,"rgba(255,114,182,"+(0.15*th2)+")");tg.addColorStop(1,"rgba(255,114,182,0)");
+    S.fillStyle=tg;S.beginPath();S.ellipse(260,470,40,10,0,0,7);S.fill();S.restore();
+    var sh3=S.createRadialGradient(260,474,10,260,474,120);
+    sh3.addColorStop(0,"rgba(0,0,0,0)");sh3.addColorStop(0.75,"rgba(0,0,0,0.15)");sh3.addColorStop(1,"rgba(0,0,0,0)");
+    S.fillStyle=sh3;S.beginPath();S.ellipse(260,474,120,15,0,0,7);S.fill();
+  }
+  S.drawImage(body,0,0);
+  S.drawImage(rim,0,0);
+  S.save();S.globalCompositeOperation="lighter";S.drawImage(emis,0,0);S.restore();
+}
+
+function frame(){
+  var t=reduced?T0:(performance.now()/1000);
+  drawUnit(t,STATE);drawScene(t,STATE);
+  if(!reduced)requestAnimationFrame(frame);
+}
+frame();
+</script>
+</body>
+</html>
