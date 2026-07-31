@@ -2623,6 +2623,17 @@ function buildGrok(t,st){
       c.fillStyle=pl2;c.beginPath();c.moveTo(nx2-6,ny);c.lineTo(nx2+6,ny);c.lineTo(bx+11,by2);c.lineTo(bx-11,by2);c.closePath();c.fill();
       c.fillStyle="rgba(255,255,255,"+(0.55*thr)+")";c.fillRect(nx2-2,ny-2,4,14);c.restore();});});}
 
+  /* LOOP 6 — the back trails cables. Doom units don't carry luggage;
+     power looms loop out of the pack into the collar, drawn first so
+     torso and pauldrons overlap them. */
+  [[-1],[1]].forEach(function(k){var s=k[0];
+    [[28,38,BY-48,14,5],[20,30,BY-40,8,3.5]].forEach(function(cb){
+      var x0=cx+s*cb[0], mx2=cx+s*cb[1], my2=cb[2], x1=cx+s*cb[3], y1=BY-32;
+      g.strokeStyle="#05080e";g.lineWidth=cb[4];g.beginPath();
+      g.moveTo(x0,BY-10);g.quadraticCurveTo(mx2,my2,x1,y1);g.stroke();
+      g.strokeStyle=offl?"#2c3440":"#5b6c85";g.lineWidth=1.3;g.beginPath();
+      g.moveTo(x0,BY-10);g.quadraticCurveTo(mx2,my2,x1,y1);g.stroke();});});
+
   // ---- backpack plate + armored thruster pods (military hardware) ----
   plate(g,[[cx-22,BY-28],[cx+22,BY-28],[cx+20,BY+30],[cx-20,BY+30]],sM,sB,ed);
   // heat-sink fins on pack
@@ -2649,6 +2660,14 @@ function buildGrok(t,st){
     var fx=hxp+sgn*3,fy=ky+(offl?42:40);
     // thigh plate — forged mass
     limbSeg(g,hxp,hy0,kx,ky,11,9,sM,sB);
+    /* LOOP 9 — battle three: claw rakes on the right thigh (won the exchange).
+       Paint nicks on leading boot and knee lips. */
+    if(sgn>0){for(var rk=0;rk<3;rk++){var rx=hxp-6+rk*5;
+      pl(g,rx,hy0+4,rx+10,hy0+22,"rgba(4,8,14,0.6)",2);
+      pl(g,rx+0.5,hy0+3,rx+10.5,hy0+21,"rgba(170,192,222,"+(offl?0.12:0.32)+")",0.9);}}
+    // paint nicks on knee leading edge
+    g.fillStyle="rgba(196,206,226,"+(offl?0.08:0.2)+")";
+    g.fillRect(kx-6,ky-6,3,1.5);g.fillRect(kx+3,ky-5,2.5,1.2);
     // knee cap
     plate(g,[[kx-10,ky-7],[kx+10,ky-7],[kx+9,ky+10],[kx-9,ky+10]],sT,sM,ed);
     rivet(g,kx,ky+1,eH);rivet(g,kx-4,ky+4,eH);
@@ -2715,6 +2734,12 @@ function buildGrok(t,st){
   plate(g,[[cx-58,BY-28],[cx-48,BY-30],[cx-46,BY-12],[cx-56,BY-10]],sM,sB,ed); // outer spike
   pl(g,cx-40,BY-30,cx-36,BY-12,rc,1); // ridge
   rivet(g,cx-32,BY-28,eH);rivet(g,cx-44,BY-18,eH);rivet(g,cx-28,BY-16,eH);
+  /* LOOP 8 — battle two: blast scorch answered with a cruder over-plate.
+     Square-cut, three fat bolts, no polish — half-buries the gouge and
+     breaks the crown line. Left shoulder now outweighs the right. */
+  g.fillStyle="rgba(8,6,10,0.55)";g.beginPath();g.ellipse(cx-40,BY-22,14,10,0,0,7);g.fill();
+  plate(g,[[cx-52,BY-30],[cx-30,BY-28],[cx-28,BY-14],[cx-50,BY-16]],"#2a3344","#10161f",ed);
+  rivet(g,cx-48,BY-26,eH);rivet(g,cx-34,BY-24,eH);rivet(g,cx-40,BY-18,eH);
   // right — field replacement, squarer, no chamfer polish
   plate(g,[[cx+20,BY-36],[cx+56,BY-30],[cx+52,BY-6],[cx+16,BY-10]],"#2e384c","#121a26",ed);
   rivet(g,cx+28,BY-30,eH);rivet(g,cx+40,BY-26,eH);rivet(g,cx+36,BY-14,eH);
@@ -2850,22 +2875,23 @@ function buildGrok(t,st){
 
   // room-specific working overlay on the gun hand is skipped — the ray gun IS the tool
 
+  /* LOOP 7 — fat ribbed neck tubes under real tension; thicker collar. */
   // ---- neck + power tubes + war helmet ----
-  // neck bearing
-  plate(g,[[cx-12,BY-36],[cx+12,BY-36],[cx+10,BY-28],[cx-10,BY-28]],sT,sB,ed);
-  rivet(g,cx-6,BY-32,eH);rivet(g,cx+6,BY-32,eH);
-  // power tubes (neck of a fighter)
+  plate(g,[[cx-14,BY-38],[cx+14,BY-38],[cx+12,BY-28],[cx-12,BY-28]],sT,sB,ed);
+  rivet(g,cx-7,BY-33,eH);rivet(g,cx+7,BY-33,eH);
+  // power tubes — FAT, ribbed, under tension (bow out offline)
   [-1,1].forEach(function(sg){
-    var x0=cx+sg*10,y0=BY-30,x1=cx+sg*8,y1=BY-44;
-    g.strokeStyle="#05080e";g.lineWidth=5;g.beginPath();
-    g.moveTo(x0,y0);g.quadraticCurveTo(cx+sg*16,BY-38,x1,y1);g.stroke();
-    g.strokeStyle=offl?"#2c3440":"#5b6c85";g.lineWidth=1.6;g.beginPath();
-    g.moveTo(x0,y0);g.quadraticCurveTo(cx+sg*16,BY-38,x1,y1);g.stroke();
-    // rib rings
-    for(var ri=0;ri<3;ri++){var rt=0.25+ri*0.25;
-      var rx=x0+(x1-x0)*rt+sg*4*(1-Math.abs(rt-0.5)*2);
+    var slack=offl?6:0;
+    var x0=cx+sg*12,y0=BY-30,x1=cx+sg*9,y1=BY-46;
+    var mx=cx+sg*(18+slack), my=BY-38;
+    g.strokeStyle="#05080e";g.lineWidth=7;g.beginPath();
+    g.moveTo(x0,y0);g.quadraticCurveTo(mx,my,x1,y1);g.stroke();
+    g.strokeStyle=offl?"#2c3440":"#6a7d98";g.lineWidth=2;g.beginPath();
+    g.moveTo(x0,y0);g.quadraticCurveTo(mx,my,x1,y1);g.stroke();
+    for(var ri=0;ri<4;ri++){var rt=0.2+ri*0.2;
+      var rx=x0+(x1-x0)*rt+sg*(8+slack)*(1-Math.abs(rt-0.5)*2);
       var ry=y0+(y1-y0)*rt;
-      g.strokeStyle=ed;g.lineWidth=1;g.beginPath();g.arc(rx,ry,2.2,0,7);g.stroke();
+      g.strokeStyle=ed;g.lineWidth=1.2;g.beginPath();g.arc(rx,ry,2.8,0,7);g.stroke();
     }
   });
 
@@ -2916,8 +2942,22 @@ function buildGrok(t,st){
   if(!offl){RB.fillStyle="rgba(255,80,70,0.9)";RB.beginPath();RB.arc(cx+hr+7,HY-hr-14,2.2,0,7);RB.fill();
     RE.fillStyle="rgba(255,80,70,0.8)";RE.beginPath();RE.arc(cx+hr+7,HY-hr-14,2.2,0,7);RE.fill();}
 
-  // helmet shadow on shoulders
+  /* LOOP 10 — light and wear: helmet casts on collar; thruster soot;
+     paint gone from the lips that lead; bolt weep already on pauldrons. */
   cavity(g,cx-42,BY-34,84,18,0.4);
+  // thruster soot on pack underside
+  g.fillStyle="rgba(8,6,12,0.4)";
+  g.fillRect(cx-20,BY+24,40,8);
+  [-1,1].forEach(function(sg){
+    g.fillStyle="rgba(8,6,12,0.35)";g.beginPath();
+    g.ellipse(cx+sg*27,BY+34,10,5,0,0,7);g.fill();
+  });
+  // paint nicks on helmet crown and brow
+  g.fillStyle="rgba(196,206,226,"+(offl?0.08:0.22)+")";
+  g.fillRect(cx-8,HY-hr-6,4,1.5);g.fillRect(cx+6,HY-hr-4,3,1.2);
+  g.fillRect(cx-14,HY-8,3,1.2);g.fillRect(cx+12,HY-7,2.5,1);
+  // chest leading-edge nicks
+  g.fillRect(cx-30,BY-28,3,1.4);g.fillRect(cx+26,BY-26,3,1.2);
 
   RB.setTransform(1,0,0,1,0,0);RE.setTransform(1,0,0,1,0,0);RR.setTransform(1,0,0,1,0,0);
   buildRim(offl?[86,84,94]:[176,124,255]);
