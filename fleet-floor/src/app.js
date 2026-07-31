@@ -2592,9 +2592,9 @@ function buildCodex(t,st){
   return {hand:handR||{x:cx+18,y:BY+42},coreY:coreY,hy:hy2-10,offl:offl,work:work,feet:CFEET};
 }
 
-/* ===================== GROK — thruster-borne shock trooper (purple) =====================
-   Compact war veteran: hard plate, ray gun, dual thrusters. Small body, big threat.
-   Survived every fight by packing heat the big units don't need. */
+/* ===================== GROK — thruster-borne space veteran (purple) =====================
+   Compact war veteran in a SpaceX-lineage flight suit: hard plate, dual
+   thrusters, heat-shield tiles, RCS verniers. Small body, space-hard. */
 function buildGrok(t,st){
   var offl=st==="offline", work=st==="working";
   var GX=[RB,RE,RR];for(var q=0;q<3;q++){var c0=GX[q];c0.setTransform(1,0,0,1,0,0);c0.clearRect(0,0,RW,RH);c0.globalAlpha=1;c0.globalCompositeOperation="source-over";c0.filter="none";}
@@ -2794,121 +2794,75 @@ function buildGrok(t,st){
     pl(g,sx-px*3,sy-py*3,ex-px*3,ey-py*3,"#0a0f18",2.4);
     pl(g,sx-px*3,sy-py*3,ex-px*3,ey-py*3,offl?"#2a323e":"#5a6a82",0.9);
   }
-  // left arm — always free hand / ready
+  /* LOOP 16 — the gun is gone. Silhouette was the read; a floating pistol
+     fought the space-suit identity. Both hands are heavy gauntlets again.
+     Working raises the right for room tools; idle is an A-stance ready;
+     offline both hang. Holster deleted with the weapon. */
+  function gauntlet(gx2,gy,studs){
+    plate(g,[[gx2-9,gy-5],[gx2+9,gy-5],[gx2+10,gy+10],[gx2-10,gy+10]],sT,sB,ed);
+    rivet(g,gx2,gy+1,eH);
+    // wrist clamp band
+    g.strokeStyle=eH;g.lineWidth=1.4;g.beginPath();g.moveTo(gx2-9,gy-2);g.lineTo(gx2+9,gy-2);g.stroke();
+    if(studs)for(var kn=0;kn<3;kn++){g.fillStyle=eH;g.beginPath();g.arc(gx2-5+kn*5,gy+8,1.6,0,7);g.fill();}
+  }
+  // left arm
   (function(){
     var sx=cx-40,sy=BY-16;
-    if(idle){ // gun at hip, left hand near chest
-      var ex=cx-36,ey=BY+6,gx2=cx-22,gy=BY+18;
+    if(idle){
+      var ex=cx-44,ey=BY+4,gx2=cx-38,gy=BY+24;
       limbSeg(g,sx,sy,ex,ey,9,7.5,sM,sB);armRods(sx,sy,ex,ey);
-      // elbow joint
       g.fillStyle=sB;g.beginPath();g.arc(ex,ey,6,0,7);g.fill();g.strokeStyle=ed;g.lineWidth=1;g.beginPath();g.arc(ex,ey,6,0,7);g.stroke();
       if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.5);c.fillRect(ex-2.5,ey-2,5,2.5);});}
       limbSeg(g,ex,ey,gx2,gy,7.5,6.5,sT,sB);
-      // heavy gauntlet with stud knuckles
-      plate(g,[[gx2-9,gy-5],[gx2+9,gy-5],[gx2+10,gy+10],[gx2-10,gy+10]],sT,sB,ed);
-      rivet(g,gx2,gy+1,eH);
-      /* LOOP 15 — stud knuckles + holster strap on the free hip.
-         Even the empty hand is a weapon. */
-      for(var kn=0;kn<3;kn++){g.fillStyle=eH;g.beginPath();g.arc(gx2-5+kn*5,gy+8,1.6,0,7);g.fill();}
-      // holster strap across hip
-      g.strokeStyle="rgba(60,70,90,0.8)";g.lineWidth=2.5;
-      g.beginPath();g.moveTo(cx-28,BY+20);g.lineTo(cx+8,BY+28);g.stroke();
-      plate(g,[[cx+6,BY+24],[cx+18,BY+26],[cx+16,BY+36],[cx+4,BY+34]],sM,sB,ed);
+      gauntlet(gx2,gy,true);
     }else if(work){
       var ex=cx-42,ey=BY+4,gx2=cx-34,gy=BY+28;
       limbSeg(g,sx,sy,ex,ey,9,7.5,sM,sB);armRods(sx,sy,ex,ey);
       g.fillStyle=sB;g.beginPath();g.arc(ex,ey,6,0,7);g.fill();
       limbSeg(g,ex,ey,gx2,gy,7.5,6.5,sT,sB);
-      plate(g,[[gx2-9,gy-5],[gx2+9,gy-5],[gx2+10,gy+10],[gx2-10,gy+10]],sT,sB,ed);
-    }else{ // offline hang
+      gauntlet(gx2,gy,false);
+    }else{
       var ex=cx-44,ey=BY+10,gx2=cx-38,gy=BY+34;
       limbSeg(g,sx,sy,ex,ey,9,7.5,sM,sB);armRods(sx,sy,ex,ey);
       g.fillStyle=sB;g.beginPath();g.arc(ex,ey,6,0,7);g.fill();
       limbSeg(g,ex,ey,gx2,gy,7.5,6.5,sT,sB);
-      plate(g,[[gx2-9,gy-4],[gx2+9,gy-4],[gx2+10,gy+10],[gx2-10,gy+10]],sT,sB,ed);
+      gauntlet(gx2,gy,false);
     }
   })();
-  // right arm — RAY GUN
+  // right arm
   (function(){
     var sx=cx+40,sy=BY-16;
     if(work){
-      // raised, aiming
       var ex=cx+48,ey=BY-18,gx2=cx+42,gy=BY-44;
       limbSeg(g,sx,sy,ex,ey,9,7.5,sM,sB);armRods(sx,sy,ex,ey);
       g.fillStyle=sB;g.beginPath();g.arc(ex,ey,6,0,7);g.fill();
       if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.55);c.fillRect(ex-2.5,ey-2,5,2.5);});}
       limbSeg(g,ex,ey,gx2,gy,7.5,6.5,sT,sB);
-      // wrist clamp
-      plate(g,[[gx2-8,gy-3],[gx2+8,gy-3],[gx2+8,gy+7],[gx2-8,gy+7]],sM,sB,ed);
+      gauntlet(gx2,gy,true);
       handR={x:gx2+2,y:gy-2};
-      /* LOOP 5 — the ray gun earns its name.
-         Bigger receiver, heat-sink fins, muzzle brake, glowing charge coil,
-         underbarrel rail. Small body, big gun — that is the balance. */
-      var hx=gx2+2,hy=gy-2;
-      // receiver
-      plate(g,[[hx-6,hy-8],[hx+26,hy-12],[hx+28,hy+6],[hx-4,hy+10]],"#2a2038","#120e1c","#4a3a5e");
-      // heat-sink fins on top
-      for(var fn=0;fn<4;fn++){var fx=hx+2+fn*5;
-        plate(g,[[fx,hy-14],[fx+3,hy-14],[fx+3,hy-8],[fx,hy-8]],sM,sB,ed);}
-      // barrel + muzzle brake
-      plate(g,[[hx+24,hy-9],[hx+42,hy-10],[hx+42,hy+2],[hx+24,hy+3]],"#1a1428","#0a0812","#3a2a50");
-      plate(g,[[hx+40,hy-12],[hx+46,hy-11],[hx+46,hy+3],[hx+40,hy+2]],sT,sB,ed);
-      // underbarrel rail
-      pl(g,hx+4,hy+8,hx+30,hy+6,ed,2);
-      // stock/grip
-      plate(g,[[hx-4,hy+4],[hx+6,hy+2],[hx+4,hy+16],[hx-6,hy+16]],sM,sB,ed);
-      // charge coil (emissive)
-      g.strokeStyle="#0a0612";g.lineWidth=3;g.beginPath();g.arc(hx+12,hy-2,6.5,0,7);g.stroke();
-      [RB,RE].forEach(function(c){
-        c.strokeStyle=pu(offl?0.1:0.7+0.2*pulse);c.lineWidth=2;
-        c.beginPath();c.arc(hx+12,hy-2,6,0,7);c.stroke();
-      });
-      // muzzle glow + core
-      if(!offl){[RB,RE].forEach(function(c){
-        c.fillStyle=puh(0.95);c.fillRect(hx+42,hy-7,5,7);
-        c.save();c.globalCompositeOperation="lighter";
-        var mg=c.createRadialGradient(hx+48,hy-3,1,hx+48,hy-3,22);
-        mg.addColorStop(0,puh(0.85));mg.addColorStop(0.4,pu(0.45));mg.addColorStop(1,pu(0));
-        c.fillStyle=mg;c.beginPath();c.arc(hx+48,hy-3,22,0,7);c.fill();
-        // forward beam stab
-        if(work){var bg=c.createLinearGradient(hx+48,hy-3,hx+78,hy-6);
-          bg.addColorStop(0,puh(0.5));bg.addColorStop(1,pu(0));
-          c.fillStyle=bg;c.fillRect(hx+48,hy-5,30,4);}
-        c.restore();
-      });}
-      rivet(g,hx+2,hy,eH);rivet(g,hx+20,hy-6,eH);rivet(g,hx+8,hy+10,eH);
     }else if(idle){
-      /* LOOP 12 — combat ready: gun held mid-body, barrel outward, not buried
-         at the hip. Idle means "awake and armed", not "hands in pockets". */
-      var ex=cx+50,ey=BY-2,gx2=cx+48,gy=BY+8;
+      var ex=cx+44,ey=BY+4,gx2=cx+38,gy=BY+24;
       limbSeg(g,sx,sy,ex,ey,9,7.5,sM,sB);armRods(sx,sy,ex,ey);
       g.fillStyle=sB;g.beginPath();g.arc(ex,ey,6,0,7);g.fill();
       if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.45);c.fillRect(ex-2.5,ey-2,5,2.5);});}
       limbSeg(g,ex,ey,gx2,gy,7.5,6.5,sT,sB);
-      plate(g,[[gx2-8,gy-3],[gx2+8,gy-3],[gx2+8,gy+7],[gx2-8,gy+7]],sM,sB,ed);
-      handR={x:gx2+6,y:gy-2};
-      var hx=gx2+6,hy=gy-2;
-      plate(g,[[hx-4,hy-10],[hx+22,hy-8],[hx+22,hy+8],[hx-4,hy+6]],"#2a2038","#120e1c","#4a3a5e");
-      plate(g,[[hx+20,hy-7],[hx+36,hy-6],[hx+36,hy+4],[hx+20,hy+3]],"#1a1428","#0a0812","#3a2a50");
-      plate(g,[[hx+34,hy-9],[hx+40,hy-8],[hx+40,hy+5],[hx+34,hy+4]],sT,sB,ed);
-      for(var fn=0;fn<3;fn++){plate(g,[[hx+2+fn*5,hy-13],[hx+5+fn*5,hy-13],[hx+5+fn*5,hy-8],[hx+2+fn*5,hy-8]],sM,sB,ed);}
-      if(!offl){[RB,RE].forEach(function(c){c.fillStyle=pu(0.55+0.15*pulse);c.fillRect(hx+36,hy-4,4,5);
-        c.strokeStyle=pu(0.5);c.lineWidth=1.5;c.beginPath();c.arc(hx+10,hy-1,5,0,7);c.stroke();});}
-      rivet(g,hx+4,hy,eH);
+      gauntlet(gx2,gy,true);
+      handR={x:gx2,y:gy};
     }else{
-      // offline: gun hangs slack
       var ex=cx+44,ey=BY+12,gx2=cx+38,gy=BY+36;
       limbSeg(g,sx,sy,ex,ey,9,7.5,sM,sB);armRods(sx,sy,ex,ey);
       g.fillStyle=sB;g.beginPath();g.arc(ex,ey,6,0,7);g.fill();
       limbSeg(g,ex,ey,gx2,gy,7.5,6.5,sT,sB);
+      gauntlet(gx2,gy,false);
       handR={x:gx2,y:gy};
-      var hx=gx2,hy=gy;
-      plate(g,[[hx-3,hy-4],[hx+14,hy-2],[hx+14,hy+8],[hx-3,hy+6]],"#221a30","#100c18","#3a2a48");
-      plate(g,[[hx+12,hy-1],[hx+22,hy],[hx+22,hy+5],[hx+12,hy+4]],"#16101e","#08060e","#2a2038");
     }
   })();
-
-  // room-specific working overlay on the gun hand is skipped — the ray gun IS the tool
+  // room-specific tool at the raised hand when working
+  if(work&&handR){var h=handR;
+    if(ROOM==="builder"){plate(g,[[h.x-2,h.y+2],[h.x+10,h.y-3],[h.x+14,h.y+2],[h.x+2,h.y+9]],"#2a3444","#12181f","#3d4c63");}
+    else if(ROOM==="reviewer"){plate(g,[[h.x-3,h.y-9],[h.x+15,h.y-11],[h.x+15,h.y+2],[h.x-3,h.y+4]],"#1a2836","#0c1620","#3a5570");if(!offl){RB.fillStyle="rgba(130,205,255,0.75)";RB.fillRect(h.x+1,h.y-7,10,7);RE.fillStyle="rgba(130,205,255,0.7)";RE.fillRect(h.x+1,h.y-7,10,7);}}
+    else{plate(g,[[h.x-2,h.y-11],[h.x+9,h.y-13],[h.x+12,h.y+4],[h.x+1,h.y+6]],"#241a30","#140e1c","#4a3a5e");if(!offl){RB.fillStyle="rgba(201,139,255,0.75)";RB.fillRect(h.x+2,h.y-9,4,5);RE.fillStyle="rgba(201,139,255,0.7)";RE.fillRect(h.x+2,h.y-9,4,5);}}
+  }
 
   /* LOOP 7 — fat ribbed neck tubes under real tension; thicker collar. */
   // ---- neck + power tubes + war helmet ----
