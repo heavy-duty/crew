@@ -2422,6 +2422,198 @@ t survival-driver-fails-with-the-surfaces surfaces "$r1"
 if grep -qE 'tick_(pre_remove|after)' "$ROOT/drill/install-drill.sh"; then r1=INLINE; else r1=extracted; fi
 t survival-driver-keeps-no-inline-copy extracted "$r1"
 
+# --- drill/install-payload.sh: #365's payload rule, per channel (#421) ----
+# Same shape as the survival block above: the predicate is driven against
+# fixtures rather than a host — a stub installer, stub guards, and installed
+# trees built by hand. No bx() is needed at all here, because the thing under
+# assertion is an ordinary directory: install-drill.sh's installs are
+# host-side, into its own scratch CREW_HOME.
+PHOME="$TMP/payload"
+
+# payload_src <declared roots, space separated> <bound in guard A> <bound in B>
+# A stub source tree: the installer's list and the two offline guards that
+# spell the size bound, in the shape install-payload.sh reads them.
+payload_src() {
+  local roots p; read -ra roots <<<"$1"
+  rm -rf "$PHOME/src"; mkdir -p "$PHOME/src/shared/test"
+  { printf 'PAYLOAD_EXCLUDED_PATHS=(\n'
+    for p in "${roots[@]}"; do [ -z "$p" ] || printf '  %s  # a reason\n' "$p"; done
+    printf ')\n'
+  } >"$PHOME/src/install.sh"
+  # shellcheck disable=SC2016  # `$kb` is the guard's literal text
+  [ "$2" = - ] || printf 'if [ "$kb" -lt %s ]; then\n' "$2" >"$PHOME/src/shared/test/install-lifecycle.sh"
+  [ "$2" = - ] && : >"$PHOME/src/shared/test/install-lifecycle.sh"
+  # shellcheck disable=SC2016  # same
+  [ "$3" = - ] || printf 'if [ "$kb" -lt %s ]; then\n' "$3" >"$PHOME/src/shared/test/artifact.sh"
+  [ "$3" = - ] && : >"$PHOME/src/shared/test/artifact.sh"
+  return 0
+}
+
+# payload_tree <name> <root to plant, or -> <filler KiB> → echoes the path
+payload_tree() {
+  local dir="$PHOME/trees/$1"
+  rm -rf "$dir"; mkdir -p "$dir/cli"
+  [ "$2" = - ] || mkdir -p "$dir/$2"
+  head -c "$(( $3 * 1024 ))" /dev/zero >"$dir/filler"
+  printf '%s\n' "$dir"
+}
+
+# The predicate's own report, captured. A subshell supplies the pass()/fail()
+# the caller owes it, so neither name escapes into the suite around it.
+payload_run() {  # <source tree> <installed tree>
+  ( pass() { printf 'PASS %s\n' "$1"; }
+    fail() { printf 'FAIL %s%s\n' "$1" "${2:+ — $2}"; }
+    # shellcheck source=drill/install-payload.sh
+    . "$ROOT/drill/install-payload.sh"
+    install_payload_assert payload "$1" "$2" )
+}
+payload_verdict() { case "$1" in *FAIL*) printf 'red\n' ;; *) printf 'green\n' ;; esac; }
+
+CLEAN_ROOTS='.git drill shared/test fleet-floor/dev fleet-floor/test'
+
+# A tree that ships none of them, well under the bound.
+#
+# The expectation for the reported size is `du -skL`'s own reading of this
+# tree, never a hard-coded window: du charges directory inodes per filesystem,
+# so the two directories below cost 0 blocks on the tmpfs a box's $TMP usually
+# is and 4 KiB each on a runner's ext4 — 64 KiB here and 72 KiB there, for the
+# same fixture. A band is green on one and red on the other for a reason that
+# is not the predicate's. Equality against du is also the stronger assertion:
+# it pins the line to the measurement rather than to a range a constant could
+# sit in, and payload-two-trees-report-different-sizes below closes the last
+# way a constant could still satisfy it.
+payload_src "$CLEAN_ROOTS" 3072 3072
+payload_dir="$(payload_tree clean - 64)"
+payload_kb="$(du -skL "$payload_dir" | cut -f1)"
+r1="$(payload_run "$PHOME/src" "$payload_dir")"
+t payload-clean-tree-passes green "$(payload_verdict "$r1")"
+case "$r1" in *"is $payload_kb KiB, within the 3072 KiB bound"*) r2=measured ;; *) r2="$r1" ;; esac
+t payload-pass-line-carries-the-measured-size measured "$r2"
+case "$r1" in *"none of the installer's 5 excluded roots"*) r2=counted ;; *) r2="$r1" ;; esac
+t payload-pass-line-counts-the-roots-it-walked counted "$r2"
+
+# MUST FAIL: a tree carrying fleet-floor/dev reds, NAMING that path — and it is
+# not a size finding, so the size assertion beside it still passes. A leg that
+# only redded on the bound would report "over budget" and leave the operator to
+# work out which root came back.
+r1="$(payload_run "$PHOME/src" "$(payload_tree fat-dev fleet-floor/dev 64)")"
+t payload-dev-root-reds red "$(payload_verdict "$r1")"
+case "$r1" in *"still shipped: fleet-floor/dev"*) r2=named ;; *) r2="$r1" ;; esac
+t payload-dev-root-names-the-path named "$r2"
+case "$r1" in *"PASS payload: installed tree is"*) r2=size-still-green ;; *) r2="$r1" ;; esac
+t payload-dev-root-is-not-a-size-finding size-still-green "$r2"
+
+# MUST FAIL: under the bound and still carrying a test root. This is the case a
+# size-only check passes.
+r1="$(payload_run "$PHOME/src" "$(payload_tree small-test shared/test 64)")"
+t payload-test-root-under-budget-reds red "$(payload_verdict "$r1")"
+case "$r1" in *"still shipped: shared/test"*) r2=named ;; *) r2="$r1" ;; esac
+t payload-test-root-under-budget-names-the-path named "$r2"
+
+# …and the mirror: no excluded root anywhere, and fat. The bound is the only
+# thing that catches the next big directory nobody thought to exclude.
+payload_fat_dir="$(payload_tree fat-clean - 4096)"
+payload_fat_kb="$(du -skL "$payload_fat_dir" | cut -f1)"
+r1="$(payload_run "$PHOME/src" "$payload_fat_dir")"
+t payload-over-bound-reds red "$(payload_verdict "$r1")"
+case "$r1" in *"within the 3072 KiB bound — measured $payload_fat_kb KiB"*) r2=says-both ;; *) r2="$r1" ;; esac
+t payload-over-bound-names-bound-and-measurement says-both "$r2"
+# Two trees, two different readings: whatever the filesystem charges for the
+# directories, a 4096 KiB tree cannot measure the same as a 64 KiB one. This is
+# what stops a predicate that printed a constant from satisfying both cases
+# above, which is the force the removed band was carrying.
+if [ "$payload_fat_kb" -gt "$payload_kb" ]; then r2=differ; else r2="$payload_kb vs $payload_fat_kb"; fi
+t payload-two-trees-report-different-sizes differ "$r2"
+
+# MUST FAIL: a fat artifact tree reds where the checkout tree is clean. The
+# channels are asserted separately for exactly this reason — one verdict per
+# installed tree, never one inferred from another.
+r1="$(payload_run "$PHOME/src" "$(payload_tree channel-checkout - 64)")"
+r2="$(payload_run "$PHOME/src" "$(payload_tree channel-artifact fleet-floor/dev 4096)")"
+t payload-per-channel-verdicts-are-independent "green red" \
+  "$(payload_verdict "$r1") $(payload_verdict "$r2")"
+
+# THE MUTATION THAT DELETES ITS OWN CHECK. Reverting #365 takes fleet-floor/dev
+# out of PAYLOAD_EXCLUDED_PATHS, so a walk over only what the installer still
+# names would go green on the very regression this leg exists for. The sentinel
+# is unioned in, so the tree is still walked against it — and the installer
+# having dropped it is a separate finding, not a silence.
+payload_src '.git drill shared/test fleet-floor/test' 3072 3072
+r1="$(payload_run "$PHOME/src" "$(payload_tree reverted fleet-floor/dev 4096)")"
+t payload-reverted-exclusion-still-reds red "$(payload_verdict "$r1")"
+case "$r1" in *"still shipped: fleet-floor/dev"*) r2=named ;; *) r2="$r1" ;; esac
+t payload-reverted-exclusion-still-names-the-root named "$r2"
+# shellcheck source=drill/install-payload.sh
+. "$ROOT/drill/install-payload.sh"
+install_payload_installer_names_sentinel "$PHOME/src" && r1=named || r1=dropped
+t payload-reverted-exclusion-reported-against-the-source dropped "$r1"
+payload_src "$CLEAN_ROOTS" 3072 3072
+install_payload_installer_names_sentinel "$PHOME/src" && r1=named || r1=dropped
+t payload-declared-sentinel-is-reported-named named "$r1"
+
+# The bound is READ, and reading it doubles as a drift check between the two
+# guards that both spell it: disagreement is a defect this drill will not pick
+# a winner for.
+t payload-bound-read-from-the-guards 3072 "$(install_payload_budget_kb "$PHOME/src")"
+payload_src "$CLEAN_ROOTS" 3072 4096
+r1="$(payload_run "$PHOME/src" "$(payload_tree disagree - 64)")"
+t payload-guards-disagreeing-on-the-bound-reds red "$(payload_verdict "$r1")"
+case "$r1" in *"disagree on the size bound"*) r2=says-so ;; *) r2="$r1" ;; esac
+t payload-guards-disagreeing-says-so says-so "$r2"
+payload_src "$CLEAN_ROOTS" - -
+r1="$(payload_run "$PHOME/src" "$(payload_tree nobound - 64)")"
+t payload-no-bound-in-the-guards-reds red "$(payload_verdict "$r1")"
+case "$r1" in *"no installed-tree size bound"*) r2=says-so ;; *) r2="$r1" ;; esac
+t payload-no-bound-says-so says-so "$r2"
+payload_src "$CLEAN_ROOTS" 3072 3072
+rm -f "$PHOME/src/shared/test/artifact.sh"
+r1="$(payload_run "$PHOME/src" "$(payload_tree noguard - 64)")"
+case "$r1" in *"artifact.sh is missing"*) r2=names-the-guard ;; *) r2="$r1" ;; esac
+t payload-missing-guard-names-it names-the-guard "$r2"
+
+# An installer whose list stopped parsing is a red, never an empty walk.
+payload_src '' 3072 3072
+r1="$(payload_run "$PHOME/src" "$(payload_tree noparse - 64)")"
+t payload-unparsable-exclusion-list-reds red "$(payload_verdict "$r1")"
+case "$r1" in *"did not parse"*) r2=says-so ;; *) r2="$r1" ;; esac
+t payload-unparsable-exclusion-list-says-so says-so "$r2"
+# …and a tree that is not there is its own finding, reached only once the two
+# reads above have succeeded — which is why the source is restored first.
+payload_src "$CLEAN_ROOTS" 3072 3072
+r1="$(payload_run "$PHOME/src" "$PHOME/trees/does-not-exist")"
+case "$r1" in *"nothing at"*) r2=says-so ;; *) r2="$r1" ;; esac
+t payload-absent-installed-tree-says-so says-so "$r2"
+
+# The rule the shipped tree actually carries, read through the same predicate
+# the drill uses — so a guard reworded past the read reds here and not on a
+# release night.
+PAYLOAD_SHIPPED_BOUND="$(install_payload_budget_kb "$ROOT")"
+case "$PAYLOAD_SHIPPED_BOUND" in [1-9]*) r1=numeric ;; *) r1="$PAYLOAD_SHIPPED_BOUND" ;; esac
+t payload-shipped-bound-is-readable numeric "$r1"
+install_payload_excluded_roots "$ROOT" | grep -qx 'shared/test' && r1=walked || r1=MISSING
+t payload-shipped-list-names-the-test-root walked "$r1"
+install_payload_installer_names_sentinel "$ROOT" && r1=named || r1=dropped
+t payload-shipped-installer-excludes-the-sentinel named "$r1"
+
+# CRITERION: no size constant is spelled in drill/. Asserted against the bound
+# as read, so it keeps holding after the number moves.
+if grep -rqF "$PAYLOAD_SHIPPED_BOUND" "$ROOT/drill/"; then r1=SPELLED; else r1=read-not-typed; fi
+t payload-drill-spells-no-size-constant read-not-typed "$r1"
+
+# The driver reads the predicate from here, at all three installed trees.
+# shellcheck disable=SC2016  # the driver's literal lines are the patterns
+if grep -qF '. "$ROOT/drill/install-payload.sh"' "$ROOT/drill/install-drill.sh"; then
+  r1=sourced; else r1=MISSING; fi
+t payload-driver-sources-the-shared-predicate sourced "$r1"
+r1="$(grep -c 'install_payload_assert ' "$ROOT/drill/install-drill.sh")"
+t payload-driver-asserts-three-installed-trees 3 "$r1"
+# shellcheck disable=SC2016  # same
+if grep -qF 'versions/$VA' "$ROOT/drill/install-drill.sh" &&
+   grep -qF 'CREW_HOME/current' "$ROOT/drill/install-drill.sh" &&
+   grep -qF 'ARTIFACT_HOME/share/current' "$ROOT/drill/install-drill.sh"; then
+  r1=first-upgrade-artifact; else r1=INCOMPLETE; fi
+t payload-driver-covers-first-upgrade-and-artifact first-upgrade-artifact "$r1"
+
 # --- validate_sha
 validate_sha "0123456789abcdef0123456789abcdef01234567" && r1=ok || r1=bad
 validate_sha "0123456" && r2=ok || r2=bad

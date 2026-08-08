@@ -56,7 +56,8 @@ else
   TREE="$(cd "$TREE" 2>/dev/null && pwd)" ||
     { echo "tree '$TREE' is not a readable directory" >&2; exit 1; }
 fi
-for required in install.sh cli/crew VERSION shared/test/install-lifecycle.sh shared/test/artifact.sh; do
+for required in install.sh cli/crew VERSION shared/test/install-lifecycle.sh shared/test/artifact.sh \
+                dist/make-installer.sh; do
   [ -f "$TREE/$required" ] || { echo "tree is missing $required" >&2; exit 1; }
 done
 
@@ -88,6 +89,8 @@ echo
 bx() { box exec "$BOX_NAME" -- bash -lc "$1" </dev/null; }
 # shellcheck source=drill/install-survival.sh
 . "$ROOT/drill/install-survival.sh"
+# shellcheck source=drill/install-payload.sh
+. "$ROOT/drill/install-payload.sh"
 # The identity this box already carries, read from the same file the
 # installer's own change guard reads. Sourcing is safe here: it happens in a
 # throwaway shell inside the box, not in this one.
@@ -138,6 +141,7 @@ if [ "$DRY_RUN" -eq 1 ]; then
   else
     echo "- WOULD ADOPT \`$BOX_NAME\`'s installed agent and roles from \`~/duty/conf/instance.conf\` (no box host here to read them)"
   fi
+  echo "- WOULD OBSERVE the payload (#365) on three installed trees — the first synthetic version, the second (the upgrade path) and the offline artifact's — each carrying none of \`install.sh\`'s excluded roots, by path, and each within the size bound read from the offline guards"
   echo "- WOULD OBSERVE step 4: \`crew use\` names \`$BOX_NAME\` at the old engine version"
   echo "- WOULD OBSERVE steps 5–6: installed-tree hire stamps a git-less engine; second \`crew up\` skips; no box-side crew repo is consulted"
   echo "- WOULD OBSERVE step 8: \`crew uninstall --all\` refuses and names \`$BOX_NAME\`"
@@ -223,8 +227,48 @@ case "$(PATH="$CREW_BIN:$PATH" command -v crew)" in
   "$CREW_BIN/crew") pass "\`command -v crew\` selects the scratch install when its bin directory is first" ;;
   *) fail "\`command -v crew\` agrees with installer PATH warning" ;;
 esac
+# Read once, against the source: the drill walks every installed tree below
+# against this root whether or not the installer still declares it, so a
+# declaration that quietly lost it is reported here rather than inferred from
+# three identical reds.
+if install_payload_installer_names_sentinel "$TREE"; then
+  pass "payload: the installer still excludes \`$INSTALL_PAYLOAD_SENTINEL_ROOT\`"
+else
+  fail "payload: the installer still excludes \`$INSTALL_PAYLOAD_SENTINEL_ROOT\`" \
+    "\`PAYLOAD_EXCLUDED_PATHS\` no longer names it"
+fi
+
+# THE PAYLOAD (#365), on the tree this host just installed. Asserted at the
+# versioned directory rather than at `current`, because `current` is about to
+# move: this is the FIRST install's tree, and the second one below is the
+# upgrade path an operator's box actually walks (#421).
+install_payload_assert "payload first install" "$TREE" "$CREW_HOME/versions/$VA"
+
 HOME="$DRILL_HOME" CREW_INSTALL_SOURCE="$SB" bash "$TREE/install.sh" >/dev/null 2>&1 ||
   { fail "install second synthetic version"; exit 1; }
+# …and on the upgraded tree, measured at `current` — the path an operator's
+# `crew` resolves through, and the one a `du -sk` without -L would report as a
+# symlink and pass at any size.
+install_payload_assert "payload upgrade" "$TREE" "$CREW_HOME/current"
+
+# The scp-able channel, measured as a channel and not assumed from the two
+# above: `crew-<version>.sh` reimplements no install logic, but it acquires its
+# tree by unpacking rather than by copying a directory, and that is the branch
+# that shipped the whole 52M repository until round 1 of #365. This is the
+# channel #210 publishes for every release — the one an operator scp's to a box
+# with no network — so it is drilled where the release cut can see it.
+ARTIFACT="$WORK/crew-$VB.sh"
+ARTIFACT_HOME="$WORK/artifact-home"
+mkdir -p "$ARTIFACT_HOME"
+if bash "$TREE/dist/make-installer.sh" --name crew --version "$VB" --root "$SB" \
+     --out "$ARTIFACT" >"$WORK/artifact.out" 2>&1 && [ -x "$ARTIFACT" ] &&
+   HOME="$ARTIFACT_HOME" CREW_HOME="$ARTIFACT_HOME/share" CREW_BIN="$ARTIFACT_HOME/bin" \
+     bash "$ARTIFACT" >>"$WORK/artifact.out" 2>&1; then
+  pass "offline artifact \`crew-$VB.sh\` built and installed on this host"
+  install_payload_assert "payload artifact" "$TREE" "$ARTIFACT_HOME/share/current"
+else
+  fail "offline artifact built and installed on this host" "$(tail -3 "$WORK/artifact.out" 2>/dev/null | tr '\n' ' ')"
+fi
 
 CONFIG="$WORK/config"
 "$CREW_BIN/crew" init "$CONFIG" >/dev/null 2>&1 ||
