@@ -320,6 +320,135 @@ t rehearsal-unknown-agent-list listed "$r1"
 # --- rehearsal builder fixtures: tie checks to this run (#179) -----------
 # shellcheck source=drill/rehearsal-fixtures.sh
 source "$ROOT/drill/rehearsal-fixtures.sh"
+# shellcheck source=drill/rehearsal-resume.sh
+source "$ROOT/drill/rehearsal-resume.sh"
+
+# --- rehearsal resume leg: next-tick wake and bounded zero action (#419) ---
+RESUME_HEAD="$(printf 'd%.0s' {1..40})"
+RESUME_REPO=owner/sandbox
+RESUME_PR=19
+RESUME_COMMENT=9919
+
+bx() { printf '7\n'; }
+ok() { printf 'ok   %s\n' "$1"; }
+fail() { printf 'FAIL %s\n' "$1"; }
+resume_threshold_log="$TMP/rehearsal-resume-threshold.log"
+if rehearsal_resume_load_installed_threshold >"$resume_threshold_log" 2>&1; then
+  resume_threshold_rc=0
+else
+  resume_threshold_rc=$?
+fi
+resume_threshold_out="$(cat "$resume_threshold_log")"
+t rehearsal-resume-threshold-load-rc 0 "$resume_threshold_rc"
+t rehearsal-resume-threshold-comes-from-installed-engine 7 "$REHEARSAL_RESUME_THRESHOLD"
+t rehearsal-resume-threshold-load-records-ok 1 \
+  "$(grep -cFx 'ok   resume: installed zero-action threshold resolves' \
+    <<<"$resume_threshold_out")"
+bx() { printf 'not-a-threshold\n'; }
+if rehearsal_resume_load_installed_threshold >/dev/null 2>&1; then
+  resume_threshold_rc=0
+else
+  resume_threshold_rc=$?
+fi
+t rehearsal-resume-invalid-threshold-refused 1 "$resume_threshold_rc"
+unset -f bx ok fail
+
+RESUME_PENDING_LOG="2026-08-08T12:00:00Z $RESUME_REPO: no resume duty"
+if rehearsal_resume_pending_tick_from_log \
+    "$RESUME_REPO" "$RESUME_PR" "$RESUME_PENDING_LOG"; then
+  resume_predicate=unresumed
+else
+  resume_predicate=WRONG
+fi
+t rehearsal-resume-pending-head-unresumed unresumed "$resume_predicate"
+if rehearsal_resume_pending_tick_from_log "$RESUME_REPO" "$RESUME_PR" \
+    "$RESUME_PENDING_LOG
+2026-08-08T12:00:01Z SESSION START kind=resume key=$RESUME_REPO"; then
+  resume_predicate=WRONG
+else
+  resume_predicate=refused
+fi
+t rehearsal-resume-pending-session-mutation-reds refused "$resume_predicate"
+
+RESUME_WAKE_LOG="2026-08-08T12:05:00Z WARN: $RESUME_REPO#$RESUME_PR: green head owed a signal — nothing left to wait for (#384)
+2026-08-08T12:05:00Z $RESUME_REPO#$RESUME_PR: green head owed a signal — resuming this tick instead of the twelfth, dispatch 1 of 7 at $RESUME_HEAD (#384)
+2026-08-08T12:05:01Z SESSION START kind=resume key=$RESUME_REPO timeout=3600s"
+if rehearsal_resume_wake_tick_from_log \
+    "$RESUME_REPO" "$RESUME_PR" "$RESUME_HEAD" "$RESUME_WAKE_LOG"; then
+  resume_predicate=woke
+else
+  resume_predicate=WRONG
+fi
+t rehearsal-resume-green-next-tick-wakes woke "$resume_predicate"
+
+# Required pre-#384 mutation: remove the check-conclusion wake term from the
+# exact duty.log input the sourceable assertion reads. It must red the live
+# assertion by name; no real host is needed to stage this decision boundary.
+RESUME_WAKE_MUTATION_OUT="$({
+  ok() { printf 'ok   %s\n' "$1"; }
+  fail() { printf 'FAIL %s\n' "$1"; }
+  check() { local name="$1"; shift; if "$@"; then ok "$name"; else fail "$name"; fi; }
+  check "resume: first tick after green resumes the parked PR" \
+    rehearsal_resume_wake_tick_from_log "$RESUME_REPO" "$RESUME_PR" \
+      "$RESUME_HEAD" "2026-08-08T12:05:00Z $RESUME_REPO: no resume duty"
+})"
+t rehearsal-resume-pre-384-fingerprint-mutation-reds 1 \
+  "$(grep -cFx 'FAIL resume: first tick after green resumes the parked PR' \
+    <<<"$RESUME_WAKE_MUTATION_OUT")"
+
+RESUME_NEAR_LOG="2026-08-08T12:10:00Z WARN: $RESUME_REPO#$RESUME_PR: comment $RESUME_COMMENT opens with an unrendered marker slot and names head $RESUME_HEAD — not a signal (#133), but the round was answered there
+2026-08-08T12:10:00Z $RESUME_REPO#$RESUME_PR: near-miss resume dispatch 1 of 7 at $RESUME_HEAD
+2026-08-08T12:10:01Z SESSION START kind=resume key=$RESUME_REPO timeout=3600s"
+if rehearsal_resume_near_miss_tick_from_log "$RESUME_REPO" "$RESUME_PR" \
+    "$RESUME_HEAD" "$RESUME_COMMENT" "$RESUME_NEAR_LOG"; then
+  resume_predicate=woke
+else
+  resume_predicate=WRONG
+fi
+t rehearsal-resume-near-miss-names-comment-and-wakes woke "$resume_predicate"
+if rehearsal_resume_near_miss_tick_from_log "$RESUME_REPO" "$RESUME_PR" \
+    "$RESUME_HEAD" "$RESUME_COMMENT" \
+    "${RESUME_NEAR_LOG/comment $RESUME_COMMENT/comment unknown}"; then
+  resume_predicate=WRONG
+else
+  resume_predicate=refused
+fi
+t rehearsal-resume-near-miss-unnamed-comment-mutation-reds refused "$resume_predicate"
+
+RESUME_STOP_LOG="2026-08-08T12:15:00Z no resume duty: $RESUME_REPO#$RESUME_PR near-miss lane suppressed at $RESUME_HEAD after 7 zero-action dispatches — only a push clears it (#314)"
+if rehearsal_resume_suppressed_tick_from_log "$RESUME_REPO" "$RESUME_PR" \
+    "$RESUME_HEAD" 7 "$RESUME_STOP_LOG"; then
+  resume_predicate=stopped
+else
+  resume_predicate=WRONG
+fi
+t rehearsal-resume-zero-action-threshold-stops stopped "$resume_predicate"
+if rehearsal_resume_suppressed_tick_from_log "$RESUME_REPO" "$RESUME_PR" \
+    "$RESUME_HEAD" 7 "$RESUME_STOP_LOG
+2026-08-08T12:15:01Z SESSION START kind=resume key=$RESUME_REPO"; then
+  resume_predicate=WRONG
+else
+  resume_predicate=refused
+fi
+t rehearsal-resume-post-suppression-session-mutation-reds refused "$resume_predicate"
+
+t rehearsal-resume-threshold-not-retyped-in-drill 0 \
+  "$(grep -R -E 'breaker=[0-9]+' "$ROOT/drill" | wc -l | tr -d ' ')"
+# shellcheck disable=SC2016  # match literal builder-block source text
+if sed -n '/elif \[ "$ROLE" = "builder" \]/,/^[[:space:]]*else$/p' \
+    "$ROOT/drill/rehearsal.sh" | grep -Fq '. "$ROOT/drill/rehearsal-resume.sh"'; then
+  resume_wiring=wired
+else
+  resume_wiring=MISSING
+fi
+t rehearsal-resume-helper-sourced-in-builder-block wired "$resume_wiring"
+if grep -Fq -- '--no-resume-drill' "$ROOT/drill/rehearsal-all.sh" \
+    && grep -Fq 'resume  (wake + zero-action stop)' "$ROOT/drill/rehearsal-all.sh"; then
+  resume_wiring=wired
+else
+  resume_wiring=MISSING
+fi
+t rehearsal-resume-all-opt-out-and-summary-wired wired "$resume_wiring"
 
 # --- rehearsal triage fixtures: installed queue labels and cleanup (#417) --
 QUEUE_LABEL_SIX_HOME="$TMP/queue-label-six-home"
@@ -5662,7 +5791,7 @@ t near-miss-not-a-branch-of-the-signal-parser 0 \
 # box at upgrade. The bypass rides BESIDE _stranded_resume_due, never through
 # it: same threshold, same call, same two-column state file, and its tests above
 # run unmodified.
-# shellcheck disable=SC2016  # matching shell source literally
+# shellcheck disable=SC2016,SC2100  # matching shell source literally
 if grep -Fq '_stranded_resume_due "$DUTY_DIR/.resume-unsignalled.$slug" 12' \
      "$SHARED/lib/duty-builder.sh"; then r1=threshold-intact; else r1=DISTURBED; fi
 t near-miss-threshold-call-unchanged threshold-intact "$r1"

@@ -148,6 +148,11 @@ TRIAGE_CLEANUP_ISSUES=""
 cleanup_all() {
   local rc=$?
   if [ "$BOX_TOUCHED" -eq 1 ]; then
+    if declare -F rehearsal_resume_restore_cli >/dev/null 2>&1 \
+        && [ "${REHEARSAL_RESUME_NOOP_SET:-0}" -eq 1 ]; then
+      rehearsal_resume_restore_cli \
+        || echo "WARNING: could not restore the builder CLI after the resume drill; stop the box: box down $BOX_NAME" >&2
+    fi
     if [ -n "$BUILDER_CLEANUP_REPO" ] && [ -n "$BUILDER_CLEANUP_AUTHOR" ]; then
       rehearsal_close_builder_fixture_prs \
         "$BUILDER_CLEANUP_REPO" "$BUILDER_CLEANUP_AUTHOR" || true
@@ -574,6 +579,8 @@ else
     "tail -n +$((DUTY_LOG_LINES + 1)) ~/duty/duty.log | grep -Fq '$SANDBOX: quiet — no mentions, no triage signals, no session launched'"
 
   elif [ "$ROLE" = "builder" ]; then
+  # shellcheck source=drill/rehearsal-resume.sh
+  . "$ROOT/drill/rehearsal-resume.sh"
   # -- builder: an unassigned `ready` issue must become a PR --
   # ready+ASSIGNED is deliberately NOT pickable (an assignee means mid-claim;
   # counting those launched sessions with nothing to do). The fixture must
@@ -693,8 +700,13 @@ else
         skip "builder: settled head status established"
         skip "builder: panel request issued after head settles"
       fi
+      # Pending/red heads deliberately keep the ordinary twelve-tick path: an
+      # hour of wall clock would re-prove unchanged behaviour. This leg covers
+      # the new discriminators — the conclusion wake and bounded bypasses.
+      rehearsal_resume_drill "$SANDBOX" "$bpr"
     else
       rehearsal_report_missing_builder_pr
+      rehearsal_resume_drill "$SANDBOX" ""
     fi
   fi
 

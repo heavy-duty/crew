@@ -53,6 +53,8 @@ INSTALL_DRILL=1
 INSTALL_TREE=""
 INSTALL_REMOTE="${CREW_DRILL_REMOTE:-https://github.com/heavy-duty/crew.git}"
 INSTALL_REF="${CREW_DRILL_REF:-main}"
+RESUME_DRILL=1
+BUILDER_RC=""
 # Roles whose drill actually reached a box, for the app phase.
 DRILLED=""
 
@@ -72,12 +74,13 @@ while [ $# -gt 0 ]; do
     --no-app) APP=0; shift ;;
     --no-config-drill) CONFIG_DRILL=0; shift ;;
     --no-install-drill) INSTALL_DRILL=0; shift ;;
+    --no-resume-drill) RESUME_DRILL=0; shift ;;
     --app-boxes) APP_ARGS+=(--boxes "$2"); shift 2 ;;
     --app-allow-control) APP_ARGS+=(--allow-control); shift ;;
     --app-roster) APP_ARGS+=(--roster "$2"); shift 2 ;;
     --app-shots) APP_ARGS+=(--shots "$2"); shift 2 ;;
     *) echo "usage: drill/rehearsal-all.sh [--agent <name>] [--roles \"triage builder reviewer\"] [--tree <path>] [--remote <url>] [--ref <git-ref>] [--quick]"
-       echo "         [--reuse] [--keep] [--no-app] [--no-config-drill] [--no-install-drill] [--app-boxes \"a b\"] [--app-allow-control]"
+       echo "         [--reuse] [--keep] [--no-app] [--no-config-drill] [--no-install-drill] [--no-resume-drill] [--app-boxes \"a b\"] [--app-allow-control]"
        echo "         [--app-roster <path>] [--app-shots <dir>]"; exit 1 ;;
   esac
 done
@@ -95,8 +98,10 @@ for role in $ROLES; do
   echo "############################################################"
   echo "## $role — box crew-drill-$role"
   echo "############################################################"
-  "$HERE/rehearsal.sh" --role "$role" "${PASSTHRU[@]+"${PASSTHRU[@]}"}"
+  REHEARSAL_RESUME_DRILL="$RESUME_DRILL" \
+    "$HERE/rehearsal.sh" --role "$role" "${PASSTHRU[@]+"${PASSTHRU[@]}"}"
   rc=$?
+  [ "$role" != builder ] || BUILDER_RC="$rc"
   # Roles whose box the drill actually REACHED, for the app phase below. rc=0
   # and rc=2 both mean the box was minted and installed (2 is "phase 2 skipped",
   # not "no box"); rc=1 can be a failure from before the box existed at all.
@@ -121,6 +126,19 @@ for role in $ROLES; do
     *) SUMMARY+=("FAIL       $role"); overall=1 ;;
   esac
 done
+
+if [ "$RESUME_DRILL" -eq 0 ]; then
+  SUMMARY+=("skip       resume  (--no-resume-drill)")
+elif [ -z "$BUILDER_RC" ]; then
+  SUMMARY+=("INCOMPLETE resume  (builder role omitted)")
+  [ "$overall" -eq 1 ] || overall=2
+elif [ "$BUILDER_RC" -eq 0 ]; then
+  SUMMARY+=("ok         resume  (wake + zero-action stop)")
+elif [ "$BUILDER_RC" -eq 2 ]; then
+  SUMMARY+=("INCOMPLETE resume  (builder phase 2 skipped)")
+else
+  SUMMARY+=("FAIL       resume")
+fi
 
 if [ "$INSTALL_DRILL" -eq 1 ]; then
   echo
