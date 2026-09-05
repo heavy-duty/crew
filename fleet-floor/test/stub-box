@@ -502,6 +502,30 @@ emit_probe() {
 }
 
 case "${1:-}" in
+  # The host half of crew's platform declaration (crew#679 Part 2). `crew up`
+  # and the installer read it, so a stub that did not answer made every fleet
+  # this suite mints look like a host with no box on it at all.
+  #
+  # The version is the DECLARED floor, read out of shared/lib/platform.sh
+  # rather than spelled here: this stub stands in for a supported host, so it
+  # must keep standing in for one the day the floor moves, and a second copy of
+  # the number is exactly what that declaration exists to remove.
+  # FLOOR_BOX_VERSION overrides it for a test that wants a below-floor host.
+  --version|-V)
+    _decl="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)/shared/lib/platform.sh"
+    _ver="${FLOOR_BOX_VERSION:-$(sed -n 's/^CREW_PLATFORM_BOX_MIN="\(.*\)"$/\1/p' "$_decl")}"
+    printf 'box %s (/opt/box/versions/%s)\n' "$_ver" "$_ver"
+    ;;
+
+  # The root door — `incus exec <inst> -- bash -l`, a login shell with NO
+  # command payload, so what crew hands it arrives on STDIN. That payload is
+  # the whole of crew's fresh-mint convergence (crew#679 D4), and it is kept
+  # rather than discarded for the same reason every other verb here writes
+  # state: a control whose effect cannot be observed proves nothing.
+  root)
+    cat >"$STATEDIR/$2.root-script"
+    ;;
+
   list)
     printf '['
     first=1

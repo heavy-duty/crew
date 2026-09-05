@@ -58,6 +58,10 @@ warn() { printf 'crew-install: WARNING: %s\n' "$*" >&2; }
 die() { printf 'crew-install: ERROR: %s\n' "$*" >&2; exit 1; }
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/shared/lib/version-skew.sh"
+# The platform declaration and its reporter (#679 D12) — the same file cli/crew
+# sources, so the two surfaces cannot disagree about the floor or the wording.
+# shellcheck disable=SC1091
+source "$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/shared/lib/platform.sh"
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)/shared/lib/install-payload.sh"
 
@@ -454,5 +458,35 @@ case ":$PATH:" in
     log "      export PATH=\"$BINDIR:\$PATH\""
     ;;
 esac
+
+# --- the platform check ----------------------------------------------------
+# The other of D12's two earliest points that know the host (#679). Installing
+# is the first moment crew is on this machine at all, and a floor an operator
+# meets for the first time at `crew down --force` — a verb reached in an
+# incident — is not a prerequisite, it is a surprise.
+#
+# It REPORTS and never refuses (#679 D14): a below-floor host still gets a
+# working install, because every verb that cares keeps its own consequence and
+# most of them do not care.
+#
+# ABOVE the `done` line and not after it. `done` is this installer's terminal
+# statement, and shared/test/artifact.sh asserts it is the last line across all
+# four install channels — a finding printed after it would contradict the word.
+# Findings belong in the body of the run, which is where report_engine_skew's
+# already are.
+#
+# Identical wording to `crew up`'s, because it is the identical call into the
+# identical reporter — the same property report_engine_skew has across this
+# file and `crew use`, and for the same reason.
+#
+# No roster argument, and that is the whole difference between the two callers:
+# `crew up` has already resolved a fleet definition and hands its $ROSTER down,
+# while the installer has none and lets platform_roster_names resolve from
+# CREW_ROSTER / CREW_CONFIG_DIR / XDG — the operator-owned locations, never
+# cli/crew's $PWD and examples/ conveniences. On one host those two resolutions
+# are the same fleet, which is what makes D12's "identical" a real comparison;
+# on a host with no fleet definition yet, which is most first installs, the rig
+# half is silent, exactly as D15 already leaves a host with no boxes.
+report_platform "$new_ver"
 
 log "done ($INSTALLED_FROM, version $new_ver) — try: crew help"

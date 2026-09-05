@@ -142,10 +142,11 @@ into instance.conf (`BOT_ROLES` = base roles for gating,
 
 Each agent runs as a heavy-duty/box guest, which makes deployment layerable:
 
-1. **Box templates carry the agent, roles carry the size** — box already
-   ships `<agent>-box` templates that rig converges (vendor CLI,
-   toolchain); `crew new` layers the role's resources on top at create
-   time, and `crew hire` bakes the engine at a crew pin and arms cron.
+1. **rig's roles carry the agent, crew's roles carry the size** — box
+   mints the guest blank and rig converges it into the `<agent>-box` role
+   (vendor CLI, toolchain); `crew new` layers the role's resources on top
+   at create time, and `crew hire` bakes the engine at a crew pin and arms
+   cron.
 2. **Gold snapshots as the deployment artifact.** Once a box runs a stable
    engine version, `box snapshot` freezes it. Because boxes are creds-free
    by default, the right moment to cut gold is *before* `/login` — the
@@ -216,7 +217,7 @@ composed per box by its `fleet.roster` row (or by explicit
 `--role/--agent` flags at bake time), resolved into
 `conf/instance.conf` by install.sh. `cli/crew` is the CLI: `crew new
 --role builder --agent claude` sizes the box from the role profile, mints
-it from the agent's box template (`<agent>-box`, which rig converges),
+it blank and has rig converge it into the agent's `<agent>-box` role,
 bakes the engine at this checkout's pin, arms cron, and hands the operator
 the interactive-login steps. `crew gold` snapshots a pre-login box as the
 bake cache; `crew status` / `crew upgrade` tend the fleet.

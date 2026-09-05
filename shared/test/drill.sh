@@ -964,4 +964,88 @@ t drill-box-size-missing-conf-is-refused 1 "$missing_rc"
 t drill-box-size-missing-conf-names-the-path 1 \
   "$(grep -c 'no role conf at' <<<"$missing_out" || true)"
 
+# --- the drill mints through the ONE writer (#679 D9) -----------------------
+# The drill carried its own copy of `box new --template "$AGENT-box"`, and box
+# 0.10.0 refuses that spelling — so on a host at the version `crew down --force`
+# requires, phase 0 died at box creation with `exit 1` before a single assertion
+# ran. Gate A could not fail late and be read; it could not START.
+#
+# PINNED IN TWO PLACES, BECAUSE ONE OF THEM CANNOT FAIL ON ITS OWN. This suite
+# stubs the role script wholesale, so nothing here executes rehearsal.sh's mint
+# and a source-text guard is all this file can offer for the call site. What it
+# CAN do is drive the helper that call site now runs — the same function, the
+# same argv, against a stub box — so the sequence itself is asserted
+# behaviourally and the drill's line is asserted to be a call into it. Between
+# them, reintroducing a hand-spelled mint in rehearsal.sh reds here.
+
+# The call site: one call into the writer, and no mint of its own. Comments are
+# stripped first — this file explains the retirement it is subject to, and a
+# guard that could not survive being explained would be rewritten rather than
+# kept, which is the rule the size-literal guard above already states.
+DRILL_CODE="$(grep -vE '^[[:space:]]*#' "$ROOT/drill/rehearsal.sh")"
+t drill-mint-names-no-retired-template 0 \
+  "$(grep -c -- '--template' <<<"$DRILL_CODE" || true)"
+t drill-mint-spells-no-box-new-of-its-own 0 \
+  "$(grep -cE '(^|[^_[:alnum:]])box new' <<<"$DRILL_CODE" || true)"
+# shellcheck disable=SC2016  # match the literal production shell source
+t drill-mint-calls-the-one-writer 1 \
+  "$(grep -c 'box_mint_fresh "\$BOX_NAME" "\$AGENT"' <<<"$DRILL_CODE" || true)"
+# The log line named a template that no longer exists, which is the half a fix
+# to the command alone leaves behind: a green drill narrating a retired object.
+t drill-mint-log-line-names-no-template 0 \
+  "$(grep -c 'minting .*template' <<<"$DRILL_CODE" || true)"
+
+# The helper is read out of $SOURCE_TREE and the drill refuses a source that
+# predates it, rather than falling back to a spelling it would then own a second
+# copy of.
+t drill-mint-helper-is-a-required-input 1 \
+  "$(grep -c 'no mint helper at' <<<"$DRILL_CODE" || true)"
+
+# ONE writer in the whole tree (#679 D9's criterion, read directly): exactly one
+# site invokes the bootstrap. Comments are stripped, and cli/crew's operator
+# recovery line — which PRINTS the command for a human to type rather than
+# running it — is not an invocation and is excluded by the leading-`rig` anchor.
+t drill-bootstrap-has-exactly-one-writer 1 \
+  "$(grep -rn --include='*.sh' --include=crew -hE '^[[:space:]]*rig bootstrap ' \
+       "$ROOT/cli" "$ROOT/shared/lib" "$ROOT/drill" 2>/dev/null | wc -l | tr -d ' ')"
+
+# ...and behaviourally, at the box transport boundary. This is the drill's own
+# mint: the same function phase 0 calls, driven with a stub `box` on PATH.
+MINT_SHIM="$TMP/mint-shim"
+MINT_STATE="$TMP/mint-state"
+mkdir -p "$MINT_SHIM" "$MINT_STATE"
+cat >"$MINT_SHIM/box" <<'EOF'
+#!/usr/bin/env bash
+set -u
+case "${1:-}" in
+  new) shift; printf 'new %s\n' "$*" >>"$MINT_STATE/calls" ;;
+  root) printf 'root %s\n' "$2" >>"$MINT_STATE/calls"; cat >"$MINT_STATE/script-$2" ;;
+  *) exit 2 ;;
+esac
+EOF
+chmod +x "$MINT_SHIM/box"
+mint_out="$(
+  export MINT_STATE PATH="$MINT_SHIM:$PATH"
+  # shellcheck source=shared/lib/box-mint.sh
+  . "$ROOT/shared/lib/box-mint.sh"
+  box_mint_fresh crew-drill-reviewer kimi 4 8GiB 60GiB 2>&1
+)"; mint_rc=$?
+t drill-mint-sequence-exits-zero 0 "$mint_rc"
+# A mint that worked says nothing: the repair advice below is for the box that
+# was created and then not converged, and printing it on the success path would
+# make it noise a reader learns to skip.
+t drill-mint-sequence-is-quiet-when-it-works "" "$mint_out"
+t drill-mint-sequence-is-blank-at-the-roles-size \
+  "new --name crew-drill-reviewer --user kimi --cpu 4 --memory 8GiB --disk 60GiB" \
+  "$(grep '^new ' "$MINT_STATE/calls")"
+t drill-mint-sequence-opens-the-root-door \
+  "root crew-drill-reviewer" "$(grep '^root ' "$MINT_STATE/calls")"
+t drill-mint-sequence-bootstraps-the-agents-role \
+  "rig bootstrap kimi-box" \
+  "$(grep -E '^rig bootstrap ' "$MINT_STATE/script-crew-drill-reviewer" || true)"
+t drill-mint-sequence-emits-no-template 0 \
+  "$(grep -c -- '--template' "$MINT_STATE/calls" || true)"
+t drill-mint-sequence-bootstrap-names-no-user 0 \
+  "$(grep -c -- '--user' "$MINT_STATE/script-crew-drill-reviewer" || true)"
+
 suite_finish

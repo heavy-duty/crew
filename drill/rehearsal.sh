@@ -336,9 +336,30 @@ if [ -z "$BOX_CPU" ] || [ -z "$BOX_MEMORY" ] || [ -z "$BOX_DISK" ]; then
   exit 1
 fi
 if ! box list --json 2>/dev/null | jq -e --arg n "$BOX_NAME" '.[] | select(.name == $n)' >/dev/null; then
-  echo "== minting $BOX_NAME from the $AGENT-box template at the $ROLE role's size ($BOX_CPU cpu / $BOX_MEMORY / $BOX_DISK)"
-  box new --name "$BOX_NAME" --template "$AGENT-box" \
-    --cpu "$BOX_CPU" --memory "$BOX_MEMORY" --disk "$BOX_DISK" || exit 1
+  # THE MINT IS NOT SPELLED HERE (#679 D9). It used to carry its own copy of
+  # `box new --template "$AGENT-box"`, which box 0.10.0 refuses — so on a host
+  # at the version `crew down --force` requires, this drill died at box creation
+  # with `exit 1` before a single assertion ran. Gate A could not fail late and
+  # be read; it could not start. Fixing cli/crew alone would have left that
+  # untouched, and the round that was supposed to prove the fix would have been
+  # the round that could not run.
+  #
+  # From $SOURCE_TREE, for the same reason and by the same rule as the role conf
+  # read directly above: everything in phase 0 is read out of the source
+  # actually being drilled, and a drill that minted its box by the operator's
+  # working tree's sequence while installing a different engine would rehearse a
+  # pairing that exists nowhere. A source that predates the helper is refused
+  # here rather than falling back to a spelling this file would then own a
+  # second copy of.
+  MINT_LIB="$SOURCE_TREE/shared/lib/box-mint.sh"
+  [ -f "$MINT_LIB" ] \
+    || { echo "phase 0: no mint helper at $MINT_LIB — this source predates the" >&2
+         echo "         single-writer mint sequence and the drill will not spell one" >&2
+         echo "         of its own (crew#679 D9)" >&2; exit 1; }
+  # shellcheck disable=SC1090
+  . "$MINT_LIB"
+  echo "== minting $BOX_NAME as the $AGENT tenant at the $ROLE role's size ($BOX_CPU cpu / $BOX_MEMORY / $BOX_DISK), converged by rig as $AGENT-box"
+  box_mint_fresh "$BOX_NAME" "$AGENT" "$BOX_CPU" "$BOX_MEMORY" "$BOX_DISK" || exit 1
 elif [ "$REUSE" -eq 0 ]; then
   # `box info --json` returns an ARRAY and its date field has moved before, so
   # this degrades to "unknown" rather than killing the refusal it is only

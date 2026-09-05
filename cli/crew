@@ -34,6 +34,13 @@ set -euo pipefail
 CREW_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 # shellcheck disable=SC1091
 source "$CREW_ROOT/shared/lib/version-skew.sh"
+# The platform declaration and the ONE writer of the fresh-mint sequence (#679).
+# box-mint.sh sources platform.sh itself, so the two hardcoded 0.10.0 mentions
+# below and the mint read the same declaration whichever order these load in.
+# shellcheck disable=SC1091
+source "$CREW_ROOT/shared/lib/platform.sh"
+# shellcheck disable=SC1091
+source "$CREW_ROOT/shared/lib/box-mint.sh"
 # The detail view renders the report computed inside the box. Source only the
 # renderer's leaf module here: common.sh is the guest engine's entry point and
 # brings host-irrelevant state, while duplicating these rows would let the CLI
@@ -555,9 +562,9 @@ EOF
 THE LIFECYCLE — two verbs around one human step in the middle
 
   create  crew new / crew create-all — infrastructure only. The box is minted
-          from its agent's box template (rig converges the vendor CLI) and
-          sized by the role profile. It has no engine and no cron: it does
-          nothing at all until it is hired.
+          blank at the role profile's size, then rig converges it into its
+          agent's <agent>-box role (the vendor CLI). It has no engine and no
+          cron: it does nothing at all until it is hired.
   login   BY HAND, once per box, ever. 'crew auth' was removed until the
           fleet is proven — vendor logins are flaky and half-automating a
           step you still babysit buys a second thing to debug:
@@ -703,11 +710,14 @@ which shares all of them: the host maintenance lock, the job log at
 $HOST_JOB_LOG, and the exit statuses 0 · 1 · 3 · 4 described there.
 EOF
       ;;
-    down) cat <<'EOF'
+    # UNQUOTED heredoc, and it is the only one in this case block that is: the
+    # floor this paragraph quotes is the declaration's (#679 D11), so it
+    # interpolates. There is no other $ or backtick in the text.
+    down) cat <<EOF
 
 A plain down waits for each held duty lock, announcing every wait with the box
 and lock age. It never escalates. --force performs no drain and calls
-'box down <box> --force'; it requires box 0.10.0 or later.
+'box down <box> --force'; it requires box $CREW_PLATFORM_BOX_MIN or later.
 EOF
       ;;
     gold) cat <<'EOF'
@@ -1506,11 +1516,18 @@ create_box() {
       box new --name "$name" --from "$from" </dev/null
       clone_size_report "$name" "$role" "" \
         "$BOX_CPU" "$BOX_MEMORY" "$BOX_DISK" \
-        "this host's box predates 0.10.0 clone sizing and rejects the flags on a copy, so the clone carries $from's size"
+        "this host's box predates $CREW_PLATFORM_BOX_MIN clone sizing and rejects the flags on a copy, so the clone carries $from's size"
     fi
   else
-    echo "creating $name  (role=$role agent=$agent cpu=$BOX_CPU mem=$BOX_MEMORY disk=$BOX_DISK template=$agent-box)"
-    box new --name "$name" --template "$agent-box" --cpu "$BOX_CPU" --memory "$BOX_MEMORY" --disk "$BOX_DISK" </dev/null
+    # THE FRESH MINT IS NOT SPELLED HERE ANY MORE (#679 D9). It used to be
+    # `box new --template "$agent-box"`, which box 0.10.0 refuses outright
+    # (bin/box:2094-2096) while `crew down --force` has required box 0.10.0 or
+    # later since it landed — so crew could not mint a box on the platform its
+    # own floor requires. The replacement is a blank mint plus a rig bootstrap,
+    # and drill/rehearsal.sh mints too, so the sequence lives in ONE writer that
+    # both call rather than in two copies a human keeps agreeing.
+    echo "creating $name  (role=$role agent=$agent cpu=$BOX_CPU mem=$BOX_MEMORY disk=$BOX_DISK user=$agent rig-role=$agent-box)"
+    box_mint_fresh "$name" "$agent" "$BOX_CPU" "$BOX_MEMORY" "$BOX_DISK"
   fi
 }
 
@@ -2373,10 +2390,30 @@ cmd_new() {
   box_exists "$name" && die "'$name' already exists (crew hire $name to put it on duty)"
 
   create_box "$name" "$agent" "$role" "$from"
+  # WHAT THIS SENTENCE MAY CLAIM IS DECIDED BY WHICH PATH JUST RAN (#679 D2,
+  # and the fence triage widened onto this line on 2026-09-05). It used to read
+  # "vendor CLI converging via the $agent-box template", and that was wrong
+  # three ways at once. There is no box template any more — box 0.10.0 retired
+  # the four agent spellings outright. <agent>-box is RIG's role, not box's
+  # template, which is D2's whole distinction. And box_mint_fresh returns only
+  # AFTER `rig bootstrap` has completed (shared/lib/box-mint.sh), so by the time
+  # this prints, convergence is finished rather than in flight.
+  #
+  # The third error is the one a rewording alone still gets wrong: this same
+  # response prints on the CLONE path, where there was no template, no rig and
+  # no bootstrap at all — the box was copied from a gold snapshot that already
+  # carried whatever it carried. So the sentence is BRANCHED rather than
+  # corrected, and the clone half makes no claim about rig whatsoever.
+  local minted
+  if [ -n "$from" ]; then
+    minted="copied from $from"
+  else
+    minted="vendor CLI converged by rig into the $agent-box role"
+  fi
   cat <<EOF
 
-$name is created — vendor CLI converging via the $agent-box template; no
-engine, no cron: it does nothing until hired. Next, once per box, ever:
+$name is created — $minted.
+No engine, no cron: it does nothing until hired. Next, once per box, ever:
 
   box shell $name        # then, inside the box:
                          #   gh auth login
@@ -2545,6 +2582,25 @@ cmd_up() {
   # no configuration yet, so it keeps working and carries the banner. The
   # converging form creates boxes and arms cron, so it refuses.
   if [ "$dry" -eq 1 ]; then fallback_banner; else require_operator_config "crew up"; fi
+
+  # The platform check, at the earliest point on this verb that knows the host
+  # (#679 D12). `up` is where a fleet is converged, so it is where a floor is
+  # worth stating; the installer states the same finding in the same words at
+  # the other end. It REPORTS and never refuses (#679 D14) — `crew up` on a
+  # below-floor box still converges the fleet, and every call site keeps its own
+  # consequence. Silent when everything is at or above its floor, so this is
+  # invisible on a healthy host.
+  #
+  # Before require_operator_config would put it ahead of a refusal, and after
+  # the roster read would put it behind one — a platform floor an operator
+  # meets only once their configuration is complete is the surprise D12 is
+  # about, one step further in.
+  #
+  # $ROSTER is handed down rather than re-resolved: the rig half reads the
+  # guests, and the guests it may read are the ones crew was asked about, which
+  # is the same scope `cmd_up` itself keeps and the same one `crew upgrade
+  # --all` intersects to. This resolution is the fleet's only one.
+  report_platform "$(crew_version 2>/dev/null || echo unknown)" "$ROSTER"
 
   # `up` takes no --ref, but hire_box now consumes the globals the caller
   # resolves — so it resolves HEAD once here, for the same reason and with the
@@ -3030,7 +3086,12 @@ cmd_down() {
   [ -f "$ROSTER" ] || die "no roster at $ROSTER"
   require_operator_config "crew down"
   if [ "$force" -eq 1 ] && ! box_supports_force_down; then
-    die "crew down --force requires box 0.10.0 or later (this host's box has no down --force)"
+    # The NUMBER comes from the declaration (#679 D11); the DECISION does not
+    # (#679 D14). This still refuses, and it still refuses on the CAPABILITY —
+    # box_supports_force_down probes box's own help, because a version string
+    # is a proxy a fork or a local build gets wrong. What moved into
+    # platform.sh is the figure this sentence quotes, and nothing else.
+    die "crew down --force requires box $CREW_PLATFORM_BOX_MIN or later (this host's box has no down --force)"
   fi
   while read -r name _rest; do
     stop_failed=0

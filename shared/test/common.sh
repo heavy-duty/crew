@@ -6138,6 +6138,13 @@ mkdir -p "$P0VERIFYTREE"/{.ceremony,.github,cli,drill,fleet-floor,shared/test,sh
 # VERIFICATION after transfer, which is downstream of acquisition.
 printf 'BOX_CPU="4"\nBOX_MEMORY="8GiB"\nBOX_DISK="60GiB"\n' \
   >"$P0VERIFYTREE/shared/conf/roles/reviewer.conf"
+# Required input since #679 D9, and the REAL file rather than a stub: phase 0
+# mints through the single-writer helper read out of $SOURCE_TREE, so a
+# synthetic one would prove the drill can source something rather than that it
+# mints the sequence crew ships. box-mint.sh sources platform.sh beside it.
+mkdir -p "$P0VERIFYTREE/shared/lib"
+cp "$ROOT/shared/lib/box-mint.sh" "$ROOT/shared/lib/platform.sh" \
+  "$P0VERIFYTREE/shared/lib/"
 printf 'fixture\n' >"$P0VERIFYTREE/.ceremony/marker"
 printf 'fixture\n' >"$P0VERIFYTREE/.github/marker"
 printf '#!/usr/bin/env bash\nexit 1\n' >"$P0VERIFYTREE/cli/crew"
@@ -6158,6 +6165,7 @@ printf '%s\n' '#!/usr/bin/env bash
 case "$1" in
   list) printf "[]\n" ;;
   new) exit 0 ;;
+  root) cat >/dev/null ;;
   exec)
     shift 5
     HOME="$P0VERIFYHOME" bash -lc "$1" ;;
@@ -9063,6 +9071,7 @@ case "$1" in
   start)
     printf 'mutate:start:%s\n' "$2" >>"$UPCALLS"
     ;;
+  root) cat >/dev/null ;;
   exec)
     name="$2"
     script="${*: -1}"
@@ -9161,6 +9170,7 @@ case "$1" in
     printf '%s\n' "$name" >>"$CA_CALLS"
     [ "$name" != "${FAIL_NAME:-}" ]
     ;;
+  root) cat >/dev/null ;;
   *) exit 2 ;;
 esac
 EOF
