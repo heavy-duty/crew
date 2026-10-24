@@ -17,7 +17,7 @@ from floor.alerts import alert_command_from_config
 from floor.fleet import Fleet
 from floor.ping import PING_INTERVAL_S, log, run
 from floor.registry import snapshot as registry_snapshot
-from floor.roster import CONFIG_DIR, read_roster, require_operator_config
+from floor.roster import CONFIG_DIR, read_roster, require_operator_config, roster_snapshot
 
 # --------------------------------------------------------------------------
 # HTTP
@@ -104,6 +104,12 @@ class Handler(BaseHTTPRequestHandler):
             # visible with no floor restart (#488 D4).
             return self.send_json(200, registry_snapshot(
                 [u["box"] for u in read_roster()]))
+
+        if path == "/api/roster":
+            # Read fresh on every request, as the registries are: what the
+            # editor opens on is the file as it is on disk right now, so a
+            # hand edit between two clicks is picked up with no restart.
+            return self.send_json(200, roster_snapshot())
 
         if path == "/api/logs":
             return self.serve_log(qs)

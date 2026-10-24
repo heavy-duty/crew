@@ -302,7 +302,7 @@ SESSION_BUDGET_ALERT_PCT_DEFAULT=80
 # shared/conf/ and the run_session call sites in shared/lib/duty-*.sh — so a
 # lane added without its name here is a red test rather than a silent hole in
 # `crew status`.
-SESSION_BUDGET_KINDS="attention build ci-red hygiene mention rebase resume review triage"
+SESSION_BUDGET_KINDS="attention build ci-red hygiene mention rebase release resume review triage"
 
 # _session_budget_state KIND — one state file per dispatch lane, beside the
 # terminal breaker's and sanitized the same way, for the same reason: an

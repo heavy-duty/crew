@@ -5,13 +5,14 @@ envelope exists for exactly one caller, the `message` action below.
 """
 
 import os
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from floor import FLOOR_ENVELOPE
 from floor.ping import log, run
 from floor.registry import KINDS, clear_override, set_fleet, set_override
-from floor.roster import box_states, read_roster
+from floor.roster import CONFIG_DIR, CREW_ROOT, box_states, read_roster, roster_set
 
 ACTION_TIMEOUT_S = int(os.environ.get("CREW_FLOOR_ACTION_TIMEOUT", "120"))
 # Fleet-wide controls share the host with evidence and heartbeat fan-outs.
@@ -82,31 +83,37 @@ def floor_message_prompt(operator_text):
 # fed from that snapshot rather than from a second `crontab -l`: the counts
 # and the text being rewritten are then the same crontab, so the delta check
 # below means what it says. It costs one read rather than adding one.
-PAUSE_SH = r"""
-cron="$(crontab -l 2>/dev/null || true)"
-armed="$(printf '%s\n' "$cron" | grep -cE '^[^#].*tick\.sh' || true)"
-[ "$armed" -gt 0 ] || { echo "nothing to pause: no armed tick.sh line"; exit 0; }
-was="$(printf '%s\n' "$cron" | grep -c '^#CREW-FLOOR-PAUSED' || true)"
-printf '%s\n' "$cron" | sed -E 's|^([^#].*tick\.sh.*)$|#CREW-FLOOR-PAUSED \1|' | crontab - \
-  || { echo "pause: crontab write failed" >&2; exit 1; }
-now="$(crontab -l 2>/dev/null | grep -c '^#CREW-FLOOR-PAUSED' || true)"
-[ "$(( now - was ))" -eq "$armed" ] \
-  || { echo "pause: crontab write reported success, $(( now - was )) of $armed lines are commented" >&2; exit 1; }
-echo "paused $armed"
-"""
+# Both scripts are read out of shared/lib/host/pause.sh, the one copy (#284):
+# cli/crew sources that file and the floor extracts the two marked blocks, so
+# `crew pause` and the floor's pause button run byte-identical shell (#759).
+def _host_shell_block(name):
+    path = os.path.join(CREW_ROOT, "shared", "lib", "host", "pause.sh")
+    with open(path, encoding="utf-8") as f:
+        text = f.read()
+    start = text.index("# ---%s---\n" % name) + len("# ---%s---\n" % name)
+    # A leading newline, as the embedded strings had: the stub box logs the
+    # script after `bash -lc `, and the floor suite's needle reads the first
+    # line of RESUME_SH right after that newline.
+    return "\n" + text[start:text.index("# ---END---", start)]
 
-RESUME_SH = r"""
-cron="$(crontab -l 2>/dev/null || true)"
-paused="$(printf '%s\n' "$cron" | grep -c '^#CREW-FLOOR-PAUSED' || true)"
-[ "$paused" -gt 0 ] || { echo "nothing to resume: no paused tick.sh line"; exit 0; }
-was="$(printf '%s\n' "$cron" | grep -cE '^[^#].*tick\.sh' || true)"
-printf '%s\n' "$cron" | sed -E 's|^#CREW-FLOOR-PAUSED ||' | crontab - \
-  || { echo "resume: crontab write failed" >&2; exit 1; }
-now="$(crontab -l 2>/dev/null | grep -cE '^[^#].*tick\.sh' || true)"
-[ "$(( now - was ))" -eq "$paused" ] \
-  || { echo "resume: crontab write reported success, $(( now - was )) of $paused lines are live" >&2; exit 1; }
-echo "resumed $paused"
-"""
+PAUSE_SH = _host_shell_block("PAUSE_SH")
+
+
+def _paused_marker(box, on):
+    """`<config>/store/paused/<box>`: the file `crew pause` writes and `crew
+    tick` reads, so the button and the verb pause the same way."""
+    d = os.path.join(CONFIG_DIR, "store", "paused")
+    path = os.path.join(d, box)
+    if on:
+        os.makedirs(d, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()) + "\n")
+    else:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+RESUME_SH = _host_shell_block("RESUME_SH")
 
 # The operator's message becomes a real session of the box's own vendor CLI,
 # detached so the HTTP request does not hold a model run open, and logged where
@@ -266,7 +273,7 @@ def do_command(fleet, body, actor=""):
     box = str(body.get("box", ""))
 
     roster = {u["box"]: u for u in read_roster()}
-    fleet_wide = {"start-all", "stop-all", "wake-silent", "registry-set"}
+    fleet_wide = {"start-all", "stop-all", "wake-silent", "registry-set", "roster-set"}
     registry = {"registry-set", "registry-override", "registry-inherit"}
 
     if action not in fleet_wide:
@@ -279,6 +286,20 @@ def do_command(fleet, body, actor=""):
     # write needs no box at all, which is why it joins the set above.
     if action in registry:
         return registry_command(action, box, body, actor)
+    if action == "roster-set":
+        # The roster, whole (#764): the registry writers' three
+        # outcomes, with the same codes. A refusal is 400 and nothing moved; a
+        # landed edit without its record is 500 with the result beside it. A
+        # refresh IS asked for here, unlike a registry write: the roster is
+        # exactly what the snapshot enumerates, so the next poll must read it.
+        result, err = roster_set(body.get("members"), actor)
+        if result is None:
+            return 400, {"ok": False, "action": action, "error": err, "refused": True}
+        fleet.request_refresh()
+        if err:
+            return 500, {"ok": False, "action": action, "error": err, "refused": False,
+                         "roster": result, "results": []}
+        return 200, {"ok": True, "action": action, "roster": result, "results": []}
 
     def one(name, argv, timeout=ACTION_TIMEOUT_S, stdin_data=None, step=None):
         rc, out, err = run(argv, timeout, stdin_data)
@@ -354,8 +375,12 @@ def do_command(fleet, body, actor=""):
                                   stdin_data=operator_conf_for(box)))
 
     elif action == "pause":
+        # The host's marker FIRST: it is what keeps the host tick from starting
+        # the box again (#759); the box's own crontab is paused after it.
+        _paused_marker(box, True)
         results.append(in_box(box, PAUSE_SH))
     elif action == "resume":
+        _paused_marker(box, False)
         results.append(in_box(box, RESUME_SH))
     elif action == "restart":
         # Force-then-start recovery WHEN THE BOX IS UNREACHABLE, and only then
@@ -533,6 +558,11 @@ def do_command(fleet, body, actor=""):
             if u["disarmed"] and not u["paused"]:
                 continue
             name = u["box"]
+            # A wake of a PAUSED box is a resume, and the host's pause marker
+            # is part of the pause (#759): left in place, the next host tick
+            # would drain and stop the box this action just woke.
+            if u["paused"]:
+                _paused_marker(name, False)
             if states.get(name) == "stopped":
                 # FIRST, and before the wedge question. Starting a stopped box
                 # is a host operation that works whatever the guest was doing

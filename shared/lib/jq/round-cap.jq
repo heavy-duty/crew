@@ -83,16 +83,15 @@
 # Where that full approval no longer stands at the current head, the PR is at
 # the cap and is named". This program is that criterion and nothing wider.
 #
-# WHAT WOULD RETIRE IT, cited here because the reading is crew's rather than
-# doctrine's: BUILDER.md's `## The round cap` and its `## Handoff` are BOTH
-# unconditional, both antecedents fire on a passing fifth round, and neither
-# carries an exception for the other — "What the cap does not do" enumerates
-# four misreadings without reaching this one. `.ceremony/` is a byte-identical
-# mirror where a hand edit reds CI, so that collision has one legal address:
-# heavy-duty/ceremony discussion #517, filed 2026-08-28 with both rules quoted
-# at crew's pin 0.7.6 and this reading named as the workaround in force. If
-# ceremony rules the other way it is this conjunct that comes back out, and the
-# criterion moves with it.
+# WHERE THE READING STANDS: it was crew's rather than doctrine's at pin 0.7.6
+# — BUILDER.md's `## The round cap` and its `## Handoff` were both
+# unconditional on a passing fifth round, with no exception in either for the
+# other — and that collision was filed as heavy-duty/ceremony discussion #517
+# on 2026-08-28 with this reading named as the workaround in force. Ceremony
+# 0.7.11 rules it the same way: "A fifth round that passes does not cut at
+# its close" — the handoff runs, and a push after the human's return fires
+# the cut before the panel is re-requested (#762). This conjunct is now the
+# doctrine's shape, and the criterion moves only if the doctrine does.
 #
 # An EMPTY panel never closes a round vacuously, the guard addressing.jq and
 # converged.jq both carry against a bare `panel=` line.

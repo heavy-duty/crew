@@ -1,4 +1,4 @@
-# Host maintenance — the one scheduled job, the one deferred, and the ordering rule
+# Host maintenance — the three scheduled jobs, the host's own login, and the ordering rule
 
 Every box carries a five-minute cron line for its own duty tick
 (`shared/crontab.example`). Until now nothing on the **host** side had an
@@ -16,22 +16,60 @@ keeps the reset useful.
 
 | when | job | what it does |
 |---|---|---|
-| daily, 04:10 | `crew restart --all` | drains and cycles every roster box |
+| every 5 min | `crew tick` | reads each board once, starts members for their work, stops idle boxes (#759) |
+| daily, 04:10 | `crew restart --all` | drains and cycles every roster box that is running; a stopped or paused box is left as it is |
+| Sunday, 05:10 | `crew reset --all` | every box back to its `armed` checkpoint, its memory drained first and written back under the duty lock (#761) |
 
 Install it on the box **host** with `crontab -e`, copying
-`shared/host-crontab.example`. There is no installer for this and deliberately
-no second line: the weekly reset is deferred (below) and the real-host drill is
-operator-attended by construction.
+`shared/host-crontab.example`. There is no installer for this; the real-host
+drill is operator-attended by construction and is not scheduled.
+
+**The host needs its own `gh` login.** The tick reads every registered board
+with the host's `gh`, never a box's. Log in once on the host (`gh auth login`,
+as the operator or a read-only identity) before the first tick. A host whose
+`gh` is dead or rate-limited says so on every tick and neither wakes nor
+stops a box: the tick refuses to read blindness as a quiet fleet, so a dead
+credential costs wakes, never a mid-session stop.
 
 The daily cycle is also the fleet's only routine liveness signal.
 `grok-reviewer` ran no session at all between `2026-08-19` and `2026-08-28`,
 and nothing on the board or the floor reported it.
 
-## What is not scheduled, and why — the weekly reset
+## The weekly reset — scheduled again since `0.1.4` (#761)
 
-`crew reset --all` was a second line here, weekly on Sunday at 05:10. It is
-**deferred to `0.1.4`** (@danmt, `2026-09-04`, #678). The verb is unchanged and
-`crew reset` remains available **on demand**; only the schedule changed.
+Three rules the reset keeps since the `0.1.4` review, each the host tick's
+own rule applied to the one verb that could undo it:
+
+- **A paused box is left alone under `--all`**, exactly as the daily
+  restart leaves it: the restored disk's cron is live, and nothing but
+  `crew resume` starts a paused box. `crew reset <box>` by name restores it,
+  writes its memory back, pauses its crontab again and stops it.
+- **The cap holds.** A box restored while `FLEET_MAX_RUNNING` other boxes
+  are running goes back down once its memory is written; the host tick
+  starts it when there is work for it.
+- **The first tick waits for the memory.** `crew reset --cut` leaves
+  `~/duty/.memory-pending` inside the checkpoint, so a box restored from it
+  boots with the marker and `duty.sh` skips every tick (under its own lock)
+  until the host's write-back lifts it in the same locked step that unpacks
+  the archive. The box's own `*/5` cron can therefore never run a session
+  with no ledgers ahead of the write-back, and the write-back never lands
+  over what such a session wrote. The wait is bounded by
+  `MEMORY_PENDING_GRACE_S` (1800 s of uptime): past it the box runs
+  without its memory and says so once in `duty.log`. A write-back that
+  fails is a failed reset (rc 1), said by name in the job log; a store that
+  simply holds nothing for the box (its first reset) lifts the marker and
+  is said as that. Checkpoints cut before `0.1.4` carry no marker: re-cut
+  them once (`crew reset --cut <box>`) to get the guarantee.
+
+`crew reset --all` is the second line, weekly on Sunday at 05:10. #678 had
+deferred it to this window because a restore wiped two things nothing could
+rebuild — `duty.log` and the engine's ledgers. The store (#758) now holds both:
+a reset **drains the box to the store first** (and refuses a box whose drain
+fails), restores the disk, starts the box, and **writes the member's memory
+back** — every state file and ledger the store holds for it — before the first
+tick, so the box makes no refusal it had already made. The paragraphs below
+record what the deferral measured and remain true of the disk; the store is
+what answers them.
 
 The reset restores each roster box to its `armed` checkpoint, which is a
 whole-VM snapshot restore with **no carve-out for `$DUTY_DIR`**. Most of what
@@ -258,3 +296,50 @@ A cut has its own refusals for its own reasons — a box that is stopped, not
 logged in, not hired, or still over `CREW_RESET_CUT_MAX_USED_PCT` of its disk
 after the on-demand reaper has run. `crew help reset` has all of them. Re-cut
 attended, read what it says, and repair what it names before you reset.
+
+## The host tick — `crew tick` (#759)
+
+A board the host cannot read holds every idle stop for that tick — a blind
+tick must not read a dead board as a quiet fleet. A board unreadable for
+`TICK_BLIND_TICKS` ticks running (3) is a repository the host cannot read at
+all — renamed, private to this login, gone — and is set aside instead: said
+on every tick, and no longer holding the fleet up. Fix the registry or the
+host's login; the count clears on the first readable tick.
+
+The host's cron runs `crew tick` every five minutes (`shared/host-crontab.example`).
+A tick reads each registered board once — issues, pull requests, discussions —
+and, for every roster member, compares the board to what that member last saw.
+A member's box is started only when the board moved **and** the move names
+work its roles own (a ready issue nobody holds for a builder, a review request
+for a reviewer, anything at all for triage, an `attention` demand for anyone)
+**and** the store's memory of that member does not already answer it: an item
+its seen-ledgers hold at that timestamp, a lane whose breaker is tripped, a
+lane whose session budget is spent. Each refusal is logged by name
+(`veto <reason>:<why>`), so a wake that is missing is never silent.
+
+At most `FLEET_MAX_RUNNING` boxes run at once; a member with work past the cap
+is `held`, by name, and re-evaluated next tick. A running box that bought no
+session for `IDLE_TICKS_BEFORE_STOP` consecutive ticks is drained to the store
+(`crew drain`) and stopped. A started box is handed its reason in
+`~/duty/.wake-reason` and ticked at once; every `SESSION END` that tick
+writes carries it as `why=`.
+
+A wake launches the box's own `tick.sh` in the background and returns at
+once, so a wake that starts an hour-long build never holds the host's lock
+across the next five-minute boundaries, the daily restart or the weekly
+reset. Before an idle box is stopped its duty lock is probed: a box whose own
+cron started a session since its idle counter was written is busy, and busy
+is never stopped. Triage's coarse "the board moved" reason is set aside once
+the box was woken for it `IDLE_TICKS_BEFORE_STOP` times and bought nothing;
+a precise reason (an attention demand, a ready issue, a review request, a
+due wait or cut) never is. A breaker tripped in the store's copy vetoes a
+lane only while the box runs: a stopped box is started for the work and its
+own gate — the one thing that can clear the breaker — decides.
+
+`crew pause <box>` keeps a member off: the host tick never starts it, a paused
+box that is running is drained and stopped on the next tick and never counts
+toward `FLEET_MAX_RUNNING`, and its own cron is commented while it runs. The
+floor's pause button writes the same host marker, so the button and the verb
+pause the same way. `crew resume <box>` undoes all of it; a box resumed while
+it was stopped gets its cron back live when the tick starts it. `crew tick
+--dry-run` prints every decision and changes nothing.

@@ -44,6 +44,15 @@ APP_ROSTER=""
 CONFIG_DRILL=1
 CONFIG_BOX=""
 CONFIG_ROLE=""
+# The fleet-lifecycle leg (#656) — `crew restart/down/reset --all` over the
+# round's own roster. It runs LAST of the independent phases, after the app
+# passes and immediately before teardown, and the ordering is load-bearing
+# rather than aesthetic: this is the only leg that STOPS boxes, snapshots them
+# and rolls one back, so running it earlier would hand the app phase a fleet
+# that is half down and turn a real comparison into the "NOT CREATED vs
+# offline" non-comparison #494 exists to remove.
+FLEET_DRILL=1
+FLEET_STATUS=""
 # Section A's installer driver runs once, against the first role box this
 # session actually reached. It acquires the same tree/ref as the role drills.
 # That box is also the config phase's box, on purpose — and the two phases only
@@ -109,12 +118,13 @@ while [ $# -gt 0 ]; do
     --no-hygiene-drill) HYGIENE_DRILL=0; shift ;;
     --no-breaker-drill) BREAKER_DRILL=0; shift ;;
     --no-notify-drill) NOTIFY_DRILL=0; shift ;;
+    --no-fleet-drill) FLEET_DRILL=0; shift ;;
     --app-boxes) APP_ARGS+=(--boxes "$2"); shift 2 ;;
     --app-allow-control) APP_ARGS+=(--allow-control); shift ;;
     --app-roster) APP_ROSTER="$2"; shift 2 ;;
     --app-shots) APP_ARGS+=(--shots "$2"); shift 2 ;;
     *) echo "usage: drill/rehearsal-all.sh [--agent <name>] [--roles \"triage builder reviewer\"] [--tree <path>] [--remote <url>] [--ref <git-ref>] [--quick]"
-       echo "         [--reuse] [--keep] [--no-app] [--no-config-drill] [--no-install-drill] [--no-resume-drill] [--no-attention-drill] [--no-attention-audit-drill] [--no-hygiene-drill] [--no-notify-drill] [--no-breaker-drill] [--app-boxes \"a b\"] [--app-allow-control]"
+       echo "         [--reuse] [--keep] [--no-app] [--no-config-drill] [--no-install-drill] [--no-resume-drill] [--no-attention-drill] [--no-attention-audit-drill] [--no-hygiene-drill] [--no-notify-drill] [--no-breaker-drill] [--no-fleet-drill] [--app-boxes \"a b\"] [--app-allow-control]"
        echo "         [--app-roster <path>] [--app-shots <dir>]"; exit 1 ;;
   esac
 done
@@ -182,18 +192,24 @@ fi
 # the leg that writes the lines, not retyped here where the two could drift.
 # shellcheck source=drill/rehearsal-notify.sh
 . "$HERE/rehearsal-notify.sh"
+# Sourced for fleet_worst_verdict alone, on the same reasoning: the fold belongs
+# beside the classifiers the leg writes its verdicts with, not retyped here
+# where the two could drift.
+# shellcheck source=drill/fleet-lifecycle.sh
+. "$HERE/fleet-lifecycle.sh"
 NOTIFY_STATUS="$(mktemp)"
 RESUME_STATUS="$(mktemp)"
 ATTENTION_STATUS="$(mktemp)"
 ATTENTION_AUDIT_STATUS="$(mktemp)"
 APP_AGREEMENT_STATUS="$(mktemp)"
 APP_OUTPUT="$(mktemp)"
+FLEET_STATUS="$(mktemp)"
 # One row per independently runnable leg. The final record is checked against
 # this list before it is printed: adding a leg here without wiring a result is
 # therefore a visible red row, never an absence that looks like coverage.
 declare -a DECLARED_LEGS=(
   hygiene breaker resume attention attention-audit notify
-  installer config app browser app-armed teardown
+  installer config app browser app-armed fleet teardown
 )
 
 leg_is_declared() {
@@ -247,6 +263,7 @@ cleanup_role_hygiene_files() {
   [ -z "${ATTENTION_AUDIT_STATUS:-}" ] || rm -f -- "$ATTENTION_AUDIT_STATUS"
   [ -z "${APP_AGREEMENT_STATUS:-}" ] || rm -f -- "$APP_AGREEMENT_STATUS"
   [ -z "${APP_OUTPUT:-}" ] || rm -f -- "$APP_OUTPUT"
+  [ -z "${FLEET_STATUS:-}" ] || rm -f -- "$FLEET_STATUS"
 }
 trap cleanup_role_hygiene_files EXIT
 
@@ -637,6 +654,70 @@ elif [ "$APP" -eq 1 ]; then
   SUMMARY+=("skip       app-armed  (not requested: no --app-roster; requires an armed member)")
 else
   SUMMARY+=("skip       app-armed  (--no-app)")
+fi
+
+# The fleet-lifecycle leg (#656). LAST of the independent phases, immediately
+# before teardown: it is the only one that stops boxes, cuts snapshots and rolls
+# one back, so anything downstream of it would be reading a fleet this leg had
+# moved. It returns the boxes standing — teardown removes them, and a red round
+# leaves them for the operator to inspect the way every other leg does.
+#
+# The leg's row is its OWN verdict and never this script's rc, for the reason
+# the notify row is: the three verbs return one number for a whole roster, so an
+# rc can say "something was skipped busy" and never which box, and a leg that
+# skipped every busy-box reading because the round drilled one box is not a
+# pass. Same partition as every row above it — `skip` is an omission the
+# OPERATOR asked for, INCOMPLETE is one the round merely discovered.
+if [ "$FLEET_DRILL" -eq 1 ]; then
+  echo
+  echo "############################################################"
+  echo "## fleet lifecycle — restart/down/reset --all over this round's roster"
+  echo "############################################################"
+  if [ -z "${DRILLED// /}" ]; then
+    echo "## (fleet phase: no role reached a box this run — no roster to drive the verbs over)"
+    SUMMARY+=("SKIPPED    fleet  (blocked by role install: no installed drill box)")
+    [ "$overall" -eq 1 ] || overall=2
+  else
+    FLEET_BOXES=""
+    for drilled_role in $DRILLED; do
+      FLEET_BOXES="$FLEET_BOXES crew-drill-$drilled_role"
+    done
+    : >"$FLEET_STATUS"
+    REHEARSAL_FLEET_STATUS="$FLEET_STATUS" \
+      "$HERE/rehearsal-fleet.sh" --boxes "${FLEET_BOXES# }" --agent "$AGENT" \
+        --roles "${DRILLED# }"
+    rc=$?
+    FLEET_VERDICT="$(fleet_worst_verdict "$(cat "$FLEET_STATUS" 2>/dev/null)")" \
+      || FLEET_VERDICT=""
+    FLEET_WHY="${FLEET_VERDICT#* }"
+    FLEET_VERDICT="${FLEET_VERDICT%% *}"
+    # The rc is read FIRST and only here: a leg that fell over is a FAILURE,
+    # and a leg that ran and discovered a blocker is INCOMPLETE. Asking the
+    # verdict channel first would collapse the first into the second — a script
+    # that died before writing anything looks exactly like one that reached no
+    # case — and a round would then report a crashed leg as merely unproven.
+    # This is the ONLY thing the rc is consulted for; every per-box reading
+    # inside the leg comes out of the verbs' output.
+    if [ "$rc" -ne 0 ] || [ "$FLEET_VERDICT" = FAIL ]; then
+      SUMMARY+=("FAIL       fleet  (${FLEET_WHY:-the leg exited $rc})")
+      overall=1
+    elif [ -z "$FLEET_VERDICT" ]; then
+      SUMMARY+=("INCOMPLETE fleet  (the leg reached no case — per-box outcomes UNPROVEN)")
+      [ "$overall" -eq 1 ] || overall=2
+    elif [ "$FLEET_VERDICT" = skip ]; then
+      # A reading the round could not take — a one-box roster has no busy-skip
+      # to exercise, and a round where nothing was refused cannot answer #652's
+      # composition question either way. Not a pass: the mechanism is exactly
+      # what this leg exists to prove, and reporting one it never took is the
+      # invisible regression the INCOMPLETE partition exists for.
+      SUMMARY+=("INCOMPLETE fleet  (leg skipped a reading: $FLEET_WHY)")
+      [ "$overall" -eq 1 ] || overall=2
+    else
+      SUMMARY+=("ok         fleet  (per-box outcomes on restart/down/cut + restore and canary-first upgrade)")
+    fi
+  fi
+else
+  SUMMARY+=("skip       fleet  (--no-fleet-drill)")
 fi
 
 # Validate the declaration/result agreement before teardown decides whether a

@@ -6,6 +6,7 @@ here rather than keeping a copy.
 """
 
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -232,10 +233,23 @@ def ping_box(name):
     return False, ms, (err.strip().splitlines() or ["box exec rc %d" % rc])[-1], {}
 
 
-def probe_box(unit, agent_conf):
-    """One box's evidence, via `box exec`. Never raises — failure is a datum."""
+def probe_box(unit, agent_conf, env=None):
+    """One box's evidence, via `box exec`. Never raises — failure is a datum.
+
+    `env` is a dict of `NAME=value` the script runs under — the host's own
+    environment does not cross `box exec`, so it is exported at the top of
+    the script text itself. The store's full mode (#758) is `PROBE_FULL=1`
+    and `PROBE_LOG_FROM=<n>`; values are restricted to the shape an export
+    can carry unquoted, and anything else is dropped rather than quoted.
+    """
     with open(PROBE) as f:
         script = f.read()
+    if env:
+        exports = " ".join("%s=%s" % (k, v) for k, v in sorted(env.items())
+                           if re.fullmatch(r"[A-Z_][A-Z0-9_]*", str(k))
+                           and re.fullmatch(r"[A-Za-z0-9._:/-]*", str(v)))
+        if exports:
+            script = "export %s\n%s" % (exports, script)
     rc, out, err = run(["box", "exec", unit["box"], "--", "bash", "-lc", script],
                        PROBE_TIMEOUT_S, stdin_data=agent_conf)
     if rc != 0:

@@ -536,7 +536,7 @@ _review_check_evidence_list() {
 # on its next sweep, never a lost or blocked verdict. The engine write is
 # optimistic; the reconciler stays authoritative.
 _mark_addressing() {
-  local repo="$1" num="$2" owner name payload author roster_json eff_panel verdict
+  local repo="$1" num="$2" owner name payload author roster_json eff_panel verdict head sized_panel
   owner="${repo%%/*}"; name="${repo##*/}"
   if ! payload="$(gh api graphql -f query='query($owner:String!,$name:String!,$num:Int!){
     repository(owner:$owner,name:$name){ pullRequest(number:$num){
@@ -556,8 +556,19 @@ _mark_addressing() {
   author="$(printf '%s' "$payload" | jq -r '.data.repository.pullRequest.author.login // ""' 2>/dev/null)"
   roster_json="$(panel_for_repo "$repo" "$WORK_DIR/${repo//\//__}-review" "$author")"
   eff_panel="$(printf '%s' "$roster_json" | jq -c --arg a "$author" '. - [$a]' 2>/dev/null || echo '[]')"
+  # The panel for THIS head is the risk-sized subset (#761): the round closed
+  # when the reviewers the head was asked of have all spoken, and a low-risk
+  # head asked of one reviewer is marked on that one verdict. _panel_effective
+  # is duty-builder.sh's and duty.sh sources that module ahead of every duty;
+  # a harness that loads this file alone reads the whole roster.
+  head="$(printf '%s' "$payload" | jq -r '.data.repository.pullRequest.headRefOid // ""' 2>/dev/null)"
+  sized_panel="$eff_panel"
+  if declare -F _panel_effective >/dev/null 2>&1; then
+    _panel_effective "$repo" "$num" "$head" "$eff_panel"
+    sized_panel="$_PANEL_EFFECTIVE_JSON"
+  fi
   verdict="$(printf '%s' "$payload" \
-    | jq -r --argjson panel "$eff_panel" --arg addressing "$LABEL_ADDRESSING" \
+    | jq -r --argjson panel "$sized_panel" --argjson roster "$eff_panel" --arg addressing "$LABEL_ADDRESSING" \
         -f "$DUTY_DIR/lib/jq/addressing.jq" 2>/dev/null || echo err)"
   case "$verdict" in
     true)
@@ -779,14 +790,18 @@ $key $updated"
       fi
     done
     expected_heads="${expected_heads# }"; ready_prs="${ready_prs# }"
+    local wait_rules
+    wait_rules="$(render_prompt fragment-wait-rules-review.txt BIN="$BIN_DIR" REPO="$SR")"
     prompt="$(render_prompt review.txt ME="$ME" REPO="$SR" PRS="$prs" \
       BIN="$BIN_DIR" DUTY="$DUTY_DIR" REVIEW_WT_PARENT="$TREES_DIR/$slug" \
       MARK_REVIEWING="$MARK_REVIEWING" \
       HEAD_CHECKS="$check_evidence" \
       PARK_RESULTS="${park_evidence:--}" \
+      WAIT_RULES="$wait_rules" \
       ONESHOT_RULES="$(render_prompt fragment-oneshot-rules.txt BIN="$BIN_DIR")")"
     RUN_SESSION_RC=1
     RUN_SESSION_LOG=""
+    SESSION_TASK="$(printf '%s' "$prs" | tr -s ' ' ',')" \
     run_session review "$SR" "$dir" "$TIMEOUT_REVIEW" "$prompt"
     review_cleanup_mutation_copies "$TREES_DIR/$slug" "$SR"
     # Commit exactly the PRs named in this repo's prompt, and only when the

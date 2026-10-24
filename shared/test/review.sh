@@ -80,7 +80,7 @@ REVS_ADDR='[{"author":{"login":"rev-a"},"state":"CHANGES_REQUESTED","commit":{"o
 # The ceremony#136 mixed round: one approval staled by a push (rev-a at an OLD
 # head), the other panelist yet to review at all. NOT closed — still awaiting.
 REVS_MIXED_OPEN='[{"author":{"login":"rev-a"},"state":"APPROVED","commit":{"oid":"'$OLDH'"}}]'
-addr() { jq -r --argjson panel "$PANEL" --arg addressing state:addressing -f "$AJQ"; }
+addr() { jq -r --argjson panel "${1:-$PANEL}" --argjson roster "${2:-${1:-$PANEL}}" --arg addressing state:addressing -f "$AJQ"; }
 
 # The core: a landed non-approving verdict with the whole panel opinionated at
 # the head → state:addressing. This is the exact inverse of converged-true.
@@ -99,9 +99,14 @@ t addressing-already-set-false false "$(mk_pr "$H" MERGEABLE '["state:addressing
 # A live panel request means the round is still open — do not stamp addressing
 # over a head that was just (re-)requested; the reconciler would flip it back.
 t addressing-live-request-false false "$(mk_pr "$H" MERGEABLE '[]' '["rev-a"]' "$REVS_ADDR" | addr)"
+# The panel sized for the head is rev-b alone; a request still open to rev-a
+# — the roster's, outside the subset — is a round still open (#763 review).
+REVS_ONE_B='[{"author":{"login":"rev-b"},"state":"CHANGES_REQUESTED","commit":{"oid":"'$H'"}}]'
+t addressing-a-sized-panel-closes-on-its-own-verdicts true "$(mk_pr "$H" MERGEABLE '[]' '[]' "$REVS_ONE_B" | addr '["rev-b"]' '["rev-a","rev-b"]')"
+t addressing-a-request-open-outside-the-sized-panel-is-still-open false "$(mk_pr "$H" MERGEABLE '[]' '["rev-a"]' "$REVS_ONE_B" | addr '["rev-b"]' '["rev-a","rev-b"]')"
 # An empty panel never closes a round vacuously (mirror of converged-empty-panel).
 t addressing-empty-panel-false false \
-  "$(mk_pr "$H" MERGEABLE '[]' '[]' '[]' | jq -r --argjson panel '[]' --arg addressing state:addressing -f "$AJQ")"
+  "$(mk_pr "$H" MERGEABLE '[]' '[]' '[]' | jq -r --argjson panel '[]' --argjson roster '[]' --arg addressing state:addressing -f "$AJQ")"
 # Mergeability is irrelevant to addressing: a conflicting PR can still owe a fix.
 t addressing-conflicting-still-addresses true "$(mk_pr "$H" CONFLICTING '[]' '[]' "$REVS_ADDR" | addr)"
 # The predicate keys approvals/reviews on the head, same as converged.jq — a
@@ -1175,6 +1180,7 @@ gh_identity() { printf 'fixture-bot\n'; }
 check_vendor_credential() { :; }
 converge_git_identity() { return 0; }
 has_role() { [ "$1" = reviewer ]; }
+idle_ticks_account() { :; }
 RWCOMMON
 cat >"$RW_TICK_DUTY/lib/duty-review.sh" <<'RWREVIEW'
 reclaim_detached_review_worktrees() { printf 'RECLAIM\n' >>"$RW_TICK_CALLS"; }

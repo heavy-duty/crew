@@ -1401,11 +1401,12 @@ const eq = (name, want, got) => ok(name, String(want) === String(got), `expected
       }
     } else {
       const woff = await page.evaluate(() =>
-        ['g-start', 'g-stop', 'g-wake', 'g-reg', 'a-pause', 'a-restart', 'c-send']
+        ['g-start', 'g-stop', 'g-wake', 'g-reg', 'g-roster', 'a-pause', 'a-restart', 'c-send']
           .filter((id) => document.getElementById(id).classList.contains('woff')).length);
       // Seven since #488: the registry editor writes host files, so it belongs
-      // in the lockout with every other control that does something.
-      eq('demo: all 7 controls disabled', 7, woff);
+      // in the lockout with every other control that does something. Eight
+      // with the roster editor, for the same reason.
+      eq('demo: all 8 controls disabled', 8, woff);
       eq('demo: message box disabled', true, await page.locator('#c-in').isDisabled());
       await shot('05-demo-disabled');
     }

@@ -11,7 +11,10 @@ this file mints a console verb that does not exist. Say "the CLI".
 
 import json
 import os
+import re
 import sys
+import threading
+import time
 
 from floor import AGENTS_DIR, CREW_ROOT
 
@@ -155,7 +158,9 @@ from floor.ping import log, run  # noqa: E402
 
 
 def read_roster():
-    """<name> <agent> <role> [<from>] — the same reader crew's bash uses."""
+    """<name> <agent> <role> [<from>] — the same reader the CLI's bash uses.
+    `from` is the fourth column (the gold box/snapshot a `crew new` mints
+    from), carried so an edit from the console never drops it."""
     out = []
     try:
         with open(ROSTER) as f:
@@ -165,10 +170,180 @@ def read_roster():
                     continue
                 parts = line.split()
                 if len(parts) >= 3:
-                    out.append({"box": parts[0], "agent": parts[1], "room": parts[2]})
+                    out.append({"box": parts[0], "agent": parts[1], "room": parts[2],
+                                "from": parts[3] if len(parts) > 3 else ""})
     except OSError as e:
         log("cannot read roster: %s" % e)
     return out
+
+
+# --------------------------------------------------------------------------
+# the roster as a layer the console can edit (#764)
+# --------------------------------------------------------------------------
+#
+# fleet.roster IS the fleet, and it was the one piece of the definition the
+# console showed and could not change: adding a reviewer, retiring a box or
+# changing a role was a shell on the operator's machine. It is edited here
+# the way the watch registries are (#488): the whole file, validated before
+# anything moves, written atomically with its header comments kept, and
+# journalled so a change to who is on the fleet is attributable after it.
+#
+# Saving writes the DEFINITION and nothing else. A new line becomes a box
+# when the operator runs `crew up` (it creates, starts and hires every roster
+# box; the login is the operator's, by hand), and a removed line's box is
+# left alone — the console stops watching it, nothing is ever deleted. The
+# collector reads the roster on every poll, so the edit is live at the next.
+
+# incus's instance-name alphabet: letters, digits and hyphens, a letter first,
+# 63 at most. A `from` is `<box>/<snapshot>` or a bare `<box>`.
+RE_BOX = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
+RE_FROM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(/[A-Za-z0-9][A-Za-z0-9._-]{0,99})?$")
+ROSTER_JOURNAL = os.path.join(CONFIG_DIR, ".roster-journal.log")
+_ROSTER_LOCK = threading.Lock()
+
+
+def profile_names(kind):
+    """The `agents` or `roles` a roster line may name: the shipped profiles
+    plus the operator's own (which win by name, as agent_conf_path says)."""
+    dirs = [AGENTS_DIR if kind == "agents" else ROLES_DIR]
+    if CONFIG_IS_OPERATOR:
+        dirs.append(os.path.join(CONFIG_DIR, kind))
+    names = set()
+    for d in dirs:
+        try:
+            for f in os.listdir(d):
+                if f.endswith(".conf"):
+                    names.add(f[:-len(".conf")])
+        except OSError:
+            pass
+    return sorted(names)
+
+
+def roster_snapshot():
+    """What the console's roster editor opens on: the file as it is on disk
+    right now, the names a line may use, and where a save lands."""
+    return {"path": ROSTER, "config_dir": CONFIG_DIR, "operator": CONFIG_IS_OPERATOR,
+            "agents": profile_names("agents"), "roles": profile_names("roles"),
+            "members": read_roster()}
+
+
+def _roster_validate(members):
+    """(clean, error) — every line checked before anything moves, each
+    refusal naming the line and what is wrong with it."""
+    if not isinstance(members, list):
+        return None, "members must be a list"
+    agents, roles = set(profile_names("agents")), set(profile_names("roles"))
+    clean, seen = [], set()
+    for i, m in enumerate(members):
+        if not isinstance(m, dict):
+            return None, "member %d is not an object" % (i + 1)
+        box = str(m.get("box", "") or "").strip()
+        agent = str(m.get("agent", "") or "").strip()
+        rr = m.get("roles", m.get("room", ""))
+        if isinstance(rr, str):
+            rr = rr.split(",")
+        rr = [str(r).strip() for r in (rr or []) if str(r).strip()]
+        frm = str(m.get("from", "") or "").strip()
+        if not RE_BOX.match(box):
+            return None, ("box name %r is refused: lowercase letters, digits and hyphens, "
+                          "a letter first, 63 at most (incus's own rule)" % box)
+        if box in seen:
+            return None, "box %s is named twice" % box
+        seen.add(box)
+        if agent not in agents:
+            return None, "box %s: unknown agent %r (profiles: %s)" % (box, agent, ", ".join(sorted(agents)) or "none")
+        if not rr:
+            return None, "box %s names no role" % box
+        for r in rr:
+            if r not in roles:
+                return None, "box %s: unknown role %r (profiles: %s)" % (box, r, ", ".join(sorted(roles)) or "none")
+        if frm and not RE_FROM.match(frm):
+            return None, "box %s: from %r is not <box>/<snapshot>" % (box, frm)
+        clean.append({"box": box, "agent": agent, "room": ",".join(rr), "from": frm})
+    if not clean:
+        return None, ("a roster names at least one member — remove boxes one at a time; "
+                      "an empty fleet is a definition to retire by hand")
+    return clean, ""
+
+
+def roster_set(members, actor=""):
+    """Rewrite fleet.roster. Returns (result, error) with the registry writers'
+    three outcomes: `(result, "")` landed and recorded; `(None, error)` refused
+    with the file untouched; `(result, error)` landed but not recorded."""
+    if not CONFIG_IS_OPERATOR:
+        return None, ("the shipped example roster is not edited from the console: "
+                      "scaffold your own fleet definition (crew init) and serve that")
+    clean, err = _roster_validate(members)
+    if err:
+        return None, err
+    with _ROSTER_LOCK:
+        before = {u["box"]: u for u in read_roster()}
+        # The file's own header — every comment and blank line ahead of the
+        # first member — is kept word for word: it is the operator's prose
+        # about their fleet, and the format's own explanation in a scaffold.
+        header = []
+        try:
+            with open(ROSTER, encoding="utf-8") as f:
+                for line in f:
+                    s = line.strip()
+                    if s and not s.startswith("#"):
+                        break
+                    header.append(line.rstrip("\n"))
+        except OSError:
+            header = []
+        while header and not header[-1].strip():
+            header.pop()
+        wb = max([len(m["box"]) for m in clean] + [12])
+        wa = max([len(m["agent"]) for m in clean] + [6])
+        lines = ["%-*s %-*s %s%s" % (wb, m["box"], wa, m["agent"], m["room"],
+                                     ("  " + m["from"]) if m["from"] else "")
+                 for m in clean]
+        body = "\n".join(header + lines) + "\n"
+        # The record is a precondition of the write (#488 D5): a roster that
+        # could change with nothing durable saying who changed it is refused.
+        try:
+            with open(ROSTER_JOURNAL, "a", encoding="utf-8"):
+                pass
+        except OSError as e:
+            return None, ("the write was refused because it could not be recorded: the "
+                          "roster journal %s cannot be appended to (%s). Nothing was written."
+                          % (ROSTER_JOURNAL, e))
+        tmp = ROSTER + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(body)
+            os.replace(tmp, ROSTER)
+        except OSError as e:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            return None, ("the write was refused: %s could not be replaced (%s). Nothing was written."
+                          % (ROSTER, e))
+        after = {m["box"]: m for m in clean}
+        added = [b for b in after if b not in before]
+        removed = [b for b in before if b not in after]
+        changed = [b for b in after if b in before
+                   and (before[b]["agent"], before[b]["room"], before[b].get("from", ""))
+                   != (after[b]["agent"], after[b]["room"], after[b]["from"])]
+        line = "%s roster set actor=%s members=%s added=%s removed=%s changed=%s\n" % (
+            time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            actor or "-",
+            ",".join("%s:%s:%s%s" % (m["box"], m["agent"], m["room"], ("@" + m["from"]) if m["from"] else "")
+                     for m in clean),
+            ",".join(added) or "-", ",".join(removed) or "-", ",".join(changed) or "-")
+        recorded, jerr = True, ""
+        try:
+            with open(ROSTER_JOURNAL, "a", encoding="utf-8") as f:
+                f.write(line)
+        except OSError as e:
+            recorded, jerr = False, ("the edit LANDED and could not be recorded: the roster journal "
+                                     "%s could not be appended to (%s). %s has changed on disk and no "
+                                     "durable record of it exists — reconcile the journal by hand."
+                                     % (ROSTER_JOURNAL, e, ROSTER))
+        log(line.strip())
+        return {"path": ROSTER, "members": clean, "added": added, "removed": removed,
+                "changed": changed, "recorded": recorded}, jerr
 
 
 def box_states(strict=False):

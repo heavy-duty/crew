@@ -54,6 +54,36 @@ date +%s >"$DUTY_DIR/.duty.lock.since"
 # shellcheck source=../lib/common.sh disable=SC1091
 source "$DUTY_DIR/lib/common.sh"
 load_conf
+# A box restored from its weekly checkpoint boots with `.memory-pending` (the
+# host's `reset --cut` leaves it in the snapshot): its memory — the ledgers,
+# the breakers, the counters — is the host's to write back, and a tick that
+# ran first would re-buy every refusal the box had already made and then be
+# written over (#761, #763 review). So the tick waits, under its own lock,
+# for up to MEMORY_PENDING_GRACE_S of uptime; the host lifts the marker in
+# the same locked step that unpacks the memory. Past the grace the host did
+# not come, and the box runs without it, saying so once.
+if [ -e "$DUTY_DIR/.memory-pending" ]; then
+  _mp_up="$(cut -d. -f1 /proc/uptime 2>/dev/null || echo 0)"
+  case "$_mp_up" in ''|*[!0-9]*) _mp_up=0 ;; esac
+  if [ "$_mp_up" -lt "${MEMORY_PENDING_GRACE_S:-1800}" ]; then
+    log "duty tick skipped: the host has not written this box's memory back yet (up ${_mp_up}s; waits ${MEMORY_PENDING_GRACE_S:-1800}s)"
+    exit 0
+  fi
+  warn "memory restore did not arrive within ${MEMORY_PENDING_GRACE_S:-1800}s of boot; this box runs without its ledgers from here"
+  rm -f "$DUTY_DIR/.memory-pending"
+fi
+# The wake's reason (#759): the host writes $DUTY_DIR/.wake-reason before it
+# ticks a box it started, and every SESSION END this tick carries it as
+# `why=`; the box's own cron finds nothing and ticks as `cron`. Consumed, so a
+# reason never outlives the tick it bought.
+WAKE_REASON="$(head -c 200 "$DUTY_DIR/.wake-reason" 2>/dev/null | tr -d '\r\n' || true)"
+rm -f "$DUTY_DIR/.wake-reason"
+[ -n "$WAKE_REASON" ] || WAKE_REASON=cron
+export WAKE_REASON
+rm -f "$DUTY_DIR/.tick-acted"
+# idle_ticks_account (shared/lib/common/session.sh, beside the .tick-acted
+# stamp it reads) is called on every exit path below, right after the
+# `duty run end` line.
 mkdir -p "$WORK_DIR" "$TREES_DIR" "$LOG_DIR"
 # shellcheck source=../lib/duty-review.sh disable=SC1091
 source "$DUTY_DIR/lib/duty-review.sh"
@@ -135,9 +165,14 @@ ME="$(gh_identity)"
 # asking the vendor. The boot gate above still pays for one real bot_cli_probe
 # per boot, which is where certainty is worth a round-trip.
 check_vendor_credential
+# The member's login, for the host's wake decision (#759): the host reads it
+# from the store, the store pulls it from this file, and nothing on the host
+# has to hold a box's token to know whose work a pull request is.
+[ -z "$ME" ] || printf '%s\n' "$ME" >"$DUTY_DIR/.identity"
 if [ -z "$ME" ]; then
   warn "cannot resolve own login (gh auth dead?) — nothing to do this tick"
   log "duty run end"
+  idle_ticks_account
   exit 0
 fi
 
@@ -161,6 +196,7 @@ if ! converge_git_identity "$ME"; then
     credential)
       note_auth_failure gh "$GIT_IDENTITY_FAILURE_EVIDENCE"
       log "duty run end"
+      idle_ticks_account
       exit 0
       ;;
   esac
@@ -172,6 +208,7 @@ if ! converge_git_identity "$ME"; then
     echo "$boot_id" >"$DUTY_DIR/.identity-alerted"
   fi
   log "duty run end"
+  idle_ticks_account
   exit 0
 fi
 
@@ -214,6 +251,16 @@ if has_role triage; then
   fi
 fi
 
+# The release cut (#762): triage-only, every tick, decided in shell against
+# the main clone and the board; a session is bought only for a head that is
+# green, quiet, fragment-bearing and not yet cut, and it stops at the pull
+# request. Nothing to do when RELEASE_TRACKS is empty, which is what ships.
+if has_role triage; then
+  # shellcheck source=../lib/duty-release.sh disable=SC1091
+  source "$DUTY_DIR/lib/duty-release.sh"
+  duty_release
+fi
+
 # The reaper: EVERY role, self-scheduling on its own stamp file, inside this
 # tick's lock (#457). Not under `has_role triage` and not beside the hygiene
 # clock above: a builder box accretes at least as fast as the triage box the
@@ -232,3 +279,4 @@ if [ $((reaper_now - reaper_last)) -ge "$REAPER_INTERVAL_SECONDS" ]; then
 fi
 
 log "duty run end"
+idle_ticks_account

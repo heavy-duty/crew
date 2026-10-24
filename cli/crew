@@ -47,6 +47,12 @@ source "$CREW_ROOT/shared/lib/box-mint.sh"
 # and floor drift (#484).
 # shellcheck disable=SC1091
 source "$CREW_ROOT/shared/lib/common/tick-health.sh"
+# The host tick's decision and the pause shell (#759, #284): the decision is a
+# library so the suite drives it with fixtures; cli/crew only acts on it.
+# shellcheck source=shared/lib/host/wake.sh
+source "$CREW_ROOT/shared/lib/host/wake.sh"
+# shellcheck source=shared/lib/host/pause.sh
+source "$CREW_ROOT/shared/lib/host/pause.sh"
 ROLES_DIR="$CREW_ROOT/shared/conf/roles"
 AGENTS_DIR="$CREW_ROOT/shared/conf/agents"
 
@@ -465,13 +471,18 @@ version() { echo "crew $(crew_version 2>/dev/null || echo unknown) ($CREW_ROOT)"
 CMDS=(
   "new^<roster-name> | --role <r> --agent <a> [--name <n>] [--from <box>[/<snap>]]^Create one box — infrastructure only; it does nothing until hired^cmd_new"
   "create-all^^Create every roster box that does not exist yet^cmd_create_all"
-  "hire^<box> [--role <r> --agent <a>] [--ref <version-or-git-ref>] [--force] [--allow-offroster]^Put a box on duty: engine installed, cron armed. Idempotent^cmd_hire"
+  "hire^<box> [--role <r> --agent <a>] [--ref <version-or-git-ref>] [--pool <p>] [--force] [--allow-offroster]^Put a box on duty: engine installed, cron armed. Idempotent^cmd_hire"
   "hire-all^[--ref <version-or-git-ref>]^Hire every created roster box; skips those already at this version^cmd_hire_all"
   "up^[--dry-run]^Converge the fleet: create missing, start stopped, hire, report^cmd_up"
   "restart^<box>... | --all [--force-after <hours>]^Drain and cycle selected boxes; busy boxes are skipped^cmd_restart"
   "down^[--force]^Drain and stop every roster box; --force skips the drain^cmd_down"
   "reset^[--cut] <box>... | --all [--force-after <hours>]^Restore boxes to their 'armed' checkpoint; --cut takes that checkpoint^cmd_reset"
   "status^[<box>]^Engine version and duty evidence, per box^cmd_status"
+  "tick^[--dry-run]^The host tick: read each board once, start a box only for work its member owns, stop an idle one^cmd_tick"
+  "pause^<box>^Keep a box off: the host tick never starts it, and its own cron is commented until resume^cmd_pause"
+  "resume^<box>^Undo pause: the host tick may start it again, and its cron is restored^cmd_resume"
+  "usage^[--since 24h|7d] [--by member|pool|kind]^Sessions, minutes and cost over a window, from the host's store alone^cmd_usage"
+  "drain^<box>^Pull a box's evidence and memory into the host's store: a full probe, ingested^cmd_drain"
   "versions^^List installed host versions and mark the current and running trees^cmd_versions"
   "use^<version>^Switch the default host version; report box engines left behind^cmd_use"
   "uninstall^[<version>] [--all] [--force]^Remove one host version or the whole console, with fleet guards^cmd_uninstall"
@@ -783,9 +794,12 @@ cut is skipped on a held lock however old, because the on-demand reaper takes
 that same lock and a checkpoint of a box that could not be reclaimed becomes
 the floor every later reset returns to.
 
-SCHEDULED AND ON-DEMAND USE. The host schedule fires 'crew restart' daily.
-'crew reset' is run on demand. Both verbs carry what a caller with no terminal
-and nobody watching needs.
+SCHEDULED AND ON-DEMAND USE. The host schedule fires 'crew restart' daily,
+'crew tick' every five minutes, and 'crew reset --all' every Sunday at 05:10 —
+the weekly reset returned with the store (#761): a reset drains the box to the
+store first and writes its memory back after. Every verb can also be run on
+demand. Both verbs carry what a caller with no terminal and nobody watching
+needs.
 
 They take one HOST MAINTENANCE LOCK between them, non-blocking, on every
 invocation, so the two verbs can never overlap. The later one names the holder,
@@ -853,6 +867,27 @@ an INCOMPLETE one names the bootstrap recovery rather than 'crew hire', and
 'crew hire' refuses it. Every other column here is derived through the
 engine, which does not exist until hire — so before hiring, this is the only
 column that can carry the failure.
+EOF
+      ;;
+    usage) cat <<'EOF'
+
+Reads the host's store (<config-dir>/store/fleet.sqlite) and asks no box:
+the figures are whatever the floor's collector and 'crew drain' have pulled,
+so a box that is off still counts. --since takes <n>h or <n>d (default 24h);
+--by groups per member (box), per credential pool or per session kind.
+Cost is tokens times shared/conf/model-prices.conf, parsed and never
+sourced; a session whose model is unpriced counts as unpriced, never as $0.
+EOF
+      ;;
+    drain) cat <<'EOF'
+
+One full probe of the box — every state file under ~/duty and the whole
+duty.log — landed in the host's store in one transaction. Idempotent: what
+a cadence pull already landed is refused by the store's keys. Run it before
+a box is stopped, so the box's last session, held claim and ledgers are
+reportable while it is off ('crew status' and the floor then read the store
+and say so). A box that does not answer records a failed pull and leaves
+every stored row where it was.
 EOF
       ;;
     profiles) cat <<'EOF'
@@ -2247,8 +2282,26 @@ foreign_actor_check() {
 # hired the moment its registry is a sandbox — which is the state
 # drill/rehearsal.sh leaves it in while it runs. `crew upgrade --all` already
 # draws this same line for the same reason (#37).
+#
+# The registry half asks whether the box's registry SHARES NOTHING with the
+# production list, not whether it DIFFERS from it (#328). The two were one
+# predicate while a narrowed registry could only be a sandbox; #488 made a
+# per-box selection a SUBSET of the fleet-wide list, so an off-roster box can
+# be narrowed and still name production repositories — and `!=` read that as
+# "narrowed" and armed it against the repositories it kept, #51's finding at
+# reduced size. Disjointness is the predicate that survives both: a drill
+# box's sandbox shares nothing with production and hires; a selection that
+# keeps one production repository is refused over that repository, by name.
+#
+# An EMPTY registry shares nothing with anything and hires, which is what the
+# `!=` did for a box selected down to nothing against a non-empty list. The
+# one state that moves with it is a fleet whose production list is ITSELF
+# empty (a `crew init` whose repos.txt was never filled): equality refused that
+# box over a production registry it then printed as nothing, and disjointness
+# lets it through — there is no production repository for a second agent to
+# race for.
 hire_guard() {
-  local name="$1" allow="$2" reg prod names
+  local name="$1" allow="$2" reg prod names shared
   prod="$(production_registry)"
   reg="$(box_registry "$name")"
   if [ -z "$reg" ]; then
@@ -2273,16 +2326,31 @@ hire_guard() {
   fi
   names="$(roster_names)"
   if grep -qx -- "$name" <<<"$names"; then return 0; fi
-  if [ "$reg" != "$prod" ]; then return 0; fi
+  shared="$(registry_overlap "$reg" "$prod")"
+  if [ -z "$shared" ]; then return 0; fi
   if [ "$allow" -eq 1 ]; then
-    echo "  NOTE: $name is off-roster and carries the PRODUCTION registry — arming anyway (--allow-offroster)"
+    echo "  NOTE: $name is off-roster and names PRODUCTION repositories ($(printf '%s' "$shared" | tr '\n' ' ')) — arming anyway (--allow-offroster)"
     return 0
   fi
-  die "$name is not in $ROSTER, and hiring it would arm it against the PRODUCTION registry:
-    $(printf '%s' "$prod" | tr '\n' ' ')
+  die "$name is not in $ROSTER, and hiring it would arm it against the PRODUCTION registry — it shares with the fleet's:
+    $(printf '%s' "$shared" | tr '\n' ' ')
   That makes it a second production agent racing the fleet for the same work (#51).
-  Narrow its registry first (for a drill box, drill/rehearsal.sh does exactly that),
+  A registry that merely narrows production is still production: point it at one that
+  shares NOTHING with the fleet's (for a drill box, drill/rehearsal.sh does exactly that),
   add it to the roster, or pass --allow-offroster if arming production is what you mean."
+}
+
+# registry_overlap REG PROD — the entries two registries share, one per line,
+# in REG's order; empty when they are disjoint. Each side is one entry per
+# line as `registry_entries` emits them. awk rather than `comm`, for the same
+# reason `resolved_registry` gives: `comm` needs both sides sorted and says so
+# on stderr when they are not, and this must not depend on which caller
+# remembered to sort. A side that is the empty string arrives as one empty
+# line, which names no repository and is never counted.
+registry_overlap() { # REG PROD — the registry's rows that name a production repository
+  # GitHub names are case-insensitive, so `Heavy-Duty/Crew` is `heavy-duty/crew`.
+  awk 'NR==FNR { if ($0 != "") prod[tolower($0)] = 1; next } (tolower($0) in prod)' \
+    <(printf '%s\n' "$2") <(printf '%s\n' "$1")
 }
 
 # convergence_guard NAME AGENT FORCE — refuse to arm a box whose tenant role
@@ -2328,7 +2396,8 @@ convergence_guard() {
 hire_box() {
   local name="$1" agent="$2" role="$3" ref="$4" force="$5" allow="${6:-0}"
   local want have have_version identity_args registry_arg
-  identity_args="$(install_identity_args "$name" "$agent" "$role")"
+  # shellcheck disable=SC2016  # the single quotes are the install line's own, read by the box's shell
+  identity_args="$(install_identity_args "$name" "$agent" "$role")${pool:+ --pool '$pool'}"
   registry_arg="$(registry_install_arg)"
   # The engine is resolved ONCE by the calling verb, at parse time, not here
   # per box. Resolving inside this loop meant a malformed --ref was validated
@@ -2496,7 +2565,7 @@ cmd_hire() {
   need_box
   local name="${1:-}"; shift || true
   case "$name" in ""|--*) usage_error "usage: $(synopsis_of hire)" ;; esac
-  local role="" agent="" ref="HEAD" force=0 allow=0 explicit_profile=0 line=""
+  local role="" agent="" ref="HEAD" force=0 allow=0 explicit_profile=0 line="" pool=""
   local roster_agent="" roster_role=""
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -2508,9 +2577,11 @@ cmd_hire() {
       # and overloading it would let a routine re-bake wave the registry check
       # through as a side effect (#51).
       --allow-offroster) allow=1; shift ;;
+      --pool)  need_value "$@"; pool="$2"; shift 2 ;;
       *) usage_error "unknown argument '$1'" ;;
     esac
   done
+  case "$pool" in *[!A-Za-z0-9._:-]*) usage_error "--pool must be a safe token (letters, digits, . _ : -)" ;; esac
   resolve_engine "$ref"
   require_operator_config "crew hire"
   box_exists "$name" || die "no box named '$name' — crew new $name first"
@@ -2619,6 +2690,9 @@ cmd_up() {
   # no configuration yet, so it keeps working and carries the banner. The
   # converging form creates boxes and arms cron, so it refuses.
   if [ "$dry" -eq 1 ]; then fallback_banner; else require_operator_config "crew up"; fi
+  # The fleet's store exists from the first converge (#758): created here if
+  # absent, never on a dry run, and never a reason for `up` to stop.
+  [ "$dry" -eq 1 ] || store_init
 
   # The platform check, at the earliest point on this verb that knows the host
   # (#679 D12). `up` is where a fleet is converged, so it is where a floor is
@@ -2865,7 +2939,7 @@ cycle_box() {
 }
 
 # --- the host maintenance job (#590) ----------------------------------------
-# `crew restart` is host-scheduled and `crew reset` is run on demand; everything
+# `crew restart`, `crew tick` and `crew reset --all` are host-scheduled; everything
 # below is what a caller with no terminal and nobody watching needs.
 #
 # THE EVIDENCE CONTRACT IS tick.sh's, ADOPTED RATHER THAN REINVENTED. That file
@@ -3036,7 +3110,7 @@ cmd_restart() {
   need_box
   [ -f "$ROSTER" ] || die "no roster at $ROSTER"
   require_operator_config "crew restart"
-  if [ "$all" -eq 1 ]; then mapfile -t restart_targets < <(roster_names); else restart_targets=("${named[@]}"); fi
+  if [ "$all" -eq 1 ]; then mapfile -t restart_targets < <(roster_names); RESTART_ALL=1; else restart_targets=("${named[@]}"); RESTART_ALL=0; fi
   # The `+"${…[@]}"` guard, not a bare expansion: an --all over a roster whose
   # rows are all comments yields an EMPTY array, and that run must still reach
   # the log rather than dying on `set -u` before it can say it had nothing to
@@ -3066,6 +3140,17 @@ restart_run() { # FORCE_SECONDS FORCE_HOURS TARGET...
       continue
     fi
     initial_state="$(box_state "$name")"
+    # Under --all the daily cycle is a cycle: a box the host tick stopped
+    # stays stopped (the tick starts it when there is work), and a paused box
+    # is left exactly as paused — neither is started with its cron live.
+    if [ "${RESTART_ALL:-0}" -eq 1 ] && [ -e "$CONFIG_DIR/store/paused/$name" ]; then
+      echo "  $name: paused — left alone"
+      continue
+    fi
+    if [ "${RESTART_ALL:-0}" -eq 1 ] && [ "$initial_state" = stopped ]; then
+      echo "  $name: stopped — left to the host tick, which starts it when there is work"
+      continue
+    fi
     if [ "$initial_state" = stopped ]; then
       echo "  $name: already stopped; starting"
     else
@@ -3554,7 +3639,17 @@ cut_box() { # NAME
       fi
       replaced=1 ;;
   esac
+  # THE CHECKPOINT CARRIES `.memory-pending` (#763 review). A box restored
+  # from it boots with the marker, and duty.sh holds every tick under its own
+  # lock until the host writes the memory back (reset_restore_memory removes
+  # the marker in the same locked step) — so the box's `*/5` cron can never
+  # win the lock first and run a session with no ledgers, and the write-back
+  # never lands over what such a session wrote. Touched into the LIVE box for
+  # exactly the snapshot's duration, and removed on every path out of it.
+  bxn "$name" 'mkdir -p ~/duty && touch ~/duty/.memory-pending' >/dev/null 2>&1 \
+    || echo "  $name: NOTE — .memory-pending could not be written; a box restored from this checkpoint ticks before its memory is back (shared/docs/host-maintenance.md)"
   if ! box snapshot "$name" "$RESET_LABEL" </dev/null >/dev/null; then
+    bxn "$name" 'rm -f ~/duty/.memory-pending' >/dev/null 2>&1 || true
     # Said loudly, and said ACCURATELY. When the delete above landed, this box
     # is left with no checkpoint at all — exactly the state D4 refuses on weeks
     # later with nobody knowing why — and when it did not, the old one is still
@@ -3567,6 +3662,8 @@ cut_box() { # NAME
     fi
     return 1
   fi
+  bxn "$name" 'rm -f ~/duty/.memory-pending' >/dev/null 2>&1 \
+    || echo "  $name: NOTE — .memory-pending is still set on the live box; remove it with: box exec $name -- rm -f duty/.memory-pending"
   if ! checkpoint_record "$name" "$ver"; then
     echo "  $name: FAILED — $RESET_LABEL was cut but its version could not be recorded at $(checkpoint_file "$name"); re-cut once the path is writable"
     return 1
@@ -3580,7 +3677,7 @@ cut_box() { # NAME
 # reason: a stop that does not take must never be followed by anything, and
 # here "anything" includes rolling a running box's disk out from under it.
 restore_box() { # NAME
-  local name="$1" recorded stale live state
+  local name="$1" recorded stale live state why pstate
   case "$(has_reset_checkpoint "$name"; echo $?)" in
     2)
       echo "  $name: REFUSED — could not read its snapshot labels; a reset is not performed on an unverified box"
@@ -3640,6 +3737,14 @@ restore_box() { # NAME
   fi
   state="$(box_state "$name")"
   if [ "$state" != stopped ]; then
+    # Its memory goes to the store before the disk goes back to the checkpoint
+    # (#761): the ledgers, the breaker, duty.log — everything a restore wipes
+    # — are what the box gets back below, and what the floor shows meanwhile.
+    local drain_out
+    if ! drain_out="$(cmd_drain "$name" 2>&1)"; then
+      echo "  $name: REFUSED — drain failed ($(printf '%s' "$drain_out" | tail -1)); a box whose evidence the store does not hold is not reset"
+      return 1
+    fi
     if ! box down "$name" </dev/null; then
       echo "  $name: FAILED — stop command failed; nothing restored"
       return 1
@@ -3664,7 +3769,106 @@ restore_box() { # NAME
     echo "  $name: FAILED — restored and started, but its guest stayed unreachable after $RESTART_READY_ATTEMPTS probes; inspect with: box shell $name"
     return 1
   fi
-  echo "  $name: restored to $RESET_LABEL (crew@$recorded) and started"
+  if ! reset_restore_memory "$name"; then
+    echo "  $name: FAILED — restored to $RESET_LABEL and started, but its memory did not come back from the store (above); its ticks run without it once the box's own grace passes (MEMORY_PENDING_GRACE_S)"
+    return 1
+  fi
+  # THE PAUSE AND THE CAP ARE KEPT (#763 review). The restored disk's cron is
+  # live, and the box had to be up for its memory to be written — but a
+  # paused box is the host's to keep down, and a box past FLEET_MAX_RUNNING
+  # is the host tick's to start when there is work. Both go back down here,
+  # the paused one with its crontab paused again first; a duty that already
+  # holds the lock is never cut short — the host tick stops it once idle.
+  why="$(reset_settle_why "$name")"
+  if [ -z "$why" ]; then
+    echo "  $name: restored to $RESET_LABEL (crew@$recorded) and started"
+    return 0
+  fi
+  read -r pstate _ <<<"$(drain_probe "$name")"
+  if [ "$pstate" != idle ]; then
+    echo "  $name: restored to $RESET_LABEL (crew@$recorded) and started; it is ${why%%:*}, but a duty already holds its lock ($pstate) — the host tick stops it once idle"
+    return 0
+  fi
+  [ "$why" != paused ] || bxn "$name" "$(host_pause_sh)" >/dev/null 2>&1 || true
+  if ! box down "$name" </dev/null; then
+    echo "  $name: restored to $RESET_LABEL (crew@$recorded) and started, but the stop its ${why%%:*} state asks for FAILED — the host tick will"
+    return 1
+  fi
+  case "$why" in
+    paused) echo "  $name: restored to $RESET_LABEL (crew@$recorded), its memory written back, and stopped again — it is paused" ;;
+    *) echo "  $name: restored to $RESET_LABEL (crew@$recorded), its memory written back, and stopped again — ${why#held:} of $FLEET_MAX_RUNNING boxes running; the host tick starts it when there is work" ;;
+  esac
+}
+
+# reset_settle_why NAME — why a freshly restored box goes back down: `paused`
+# (the host's marker stands), `held:<n>` (n other unpaused roster boxes run,
+# the cap is full), or nothing (it stays up).
+reset_settle_why() {
+  local name="$1" other running=0
+  if [ -e "$(tick_paused_file "$name")" ]; then echo paused; return 0; fi
+  while read -r other _; do
+    if [ -z "$other" ] || [ "$other" = "$name" ]; then continue; fi
+    [ ! -e "$(tick_paused_file "$other")" ] || continue
+    [ "$(box_state "$other")" != running ] || running=$((running + 1))
+  done <<<"$(read_roster)"
+  [ "$running" -lt "${FLEET_MAX_RUNNING:-2}" ] || echo "held:$running"
+  return 0
+}
+
+# reset_restore_memory NAME — the member's memory back onto the restored
+# disk (#761): every state file and ledger the store holds for the box,
+# written under ~/duty before its first tick, so the box makes no refusal it
+# had already made and the weekly reset costs the fleet nothing it knows.
+# box_memory_of NAME — the BOX_MEMORY the box's role conf declares, for the
+# status line that sets it beside the observed peak.
+box_memory_of() {
+  local _agent role _rest
+  read -r _agent role _rest <<<"$(roster_line "$1")"
+  [ -n "$role" ] || { printf 'unknown'; return 0; }
+  sed -n 's/^BOX_MEMORY="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$CREW_ROOT/shared/conf/roles/${role%%,*}.conf" 2>/dev/null | head -1 | grep . || printf 'unknown'
+}
+
+reset_restore_memory() {
+  local name="$1" dir f base count=0 out
+  dir="$(mktemp -d)"
+  # A store that cannot be read is a FAILURE, not "no memory": the box has
+  # ledgers in there and would run without them. A store that holds nothing
+  # for the box (first reset, never drained) is the honest nothing, and the
+  # box's `.memory-pending` is lifted so its ticks run.
+  if ! out="$(store_py export --box "$name" --dir "$dir" 2>&1)"; then
+    echo "  $name: memory restore FAILED — the store could not be read ($(printf '%s' "$out" | tail -1)); the box ticks without its ledgers once its grace passes"
+    rm -rf "$dir"; return 1
+  fi
+  for f in "$dir"/.* "$dir"/*; do
+    [ -f "$f" ] || continue
+    base="${f##*/}"
+    case "$base" in duty.log|.duty.lock*|.identity|.idle-ticks) rm -f "$f"; continue ;; esac
+    count=$((count + 1))
+  done
+  if [ "$count" -eq 0 ]; then
+    echo "  $name: the store holds no memory file to restore (first reset, or never drained)"
+    rm -rf "$dir"
+    bxn "$name" 'rm -f ~/duty/.memory-pending' >/dev/null 2>&1 \
+      || echo "  $name: NOTE — .memory-pending could not be lifted; the box ticks once its grace passes"
+    return 0
+  fi
+  # One archive, shipped through bxput (the stdin-shipping exec site the
+  # floor's suite knows), unpacked UNDER THE DUTY LOCK: a tick that lands
+  # while the memory is being written finds the lock held and skips, so the
+  # first duty that runs reads the whole memory and never half of it. A
+  # failure is said, by name: a box without its ledgers is not quietly fine.
+  tar -C "$dir" -cf "$dir.tar" . || { echo "  $name: memory restore FAILED — the archive could not be built"; rm -rf "$dir" "$dir.tar"; return 1; }
+  if ! bxput "$name" "$dir.tar" "duty/.memory-restore.tar" 2>/dev/null; then
+    echo "  $name: memory restore FAILED — the archive did not reach the box; its first tick runs without its ledgers"
+    rm -rf "$dir" "$dir.tar"; return 1
+  fi
+  out="$(bxn "$name" 'cd ~/duty && flock .duty.lock -c "tar -xf .memory-restore.tar && rm -f .memory-restore.tar .memory-pending" && echo restored' 2>&1 | tr -d '\r' | tail -1)"
+  rm -rf "$dir" "$dir.tar"
+  if [ "$out" != restored ]; then
+    echo "  $name: memory restore FAILED — the archive did not unpack under the duty lock (${out:-no answer}); its first tick runs without its ledgers"
+    return 1
+  fi
+  echo "  $name: memory restored from the store under the duty lock — $count file(s)"
 }
 
 cmd_reset() {
@@ -3717,7 +3921,7 @@ cmd_reset() {
   # --all is the ROSTER, not every box on the host — `crew upgrade --all`'s
   # rule, for its stated reason (#37): a disarmed box carrying a real identity
   # must not be rolled back by routine maintenance.
-  if [ "$all" -eq 1 ]; then mapfile -t reset_targets < <(roster_names); else reset_targets=("${named[@]}"); fi
+  if [ "$all" -eq 1 ]; then mapfile -t reset_targets < <(roster_names); RESET_ALL=1; else reset_targets=("${named[@]}"); RESET_ALL=0; fi
   host_job reset reset_run "$cut" "$force_seconds" "$force_hours" \
     ${reset_targets[@]+"${reset_targets[@]}"}
 }
@@ -3745,10 +3949,19 @@ reset_run() { # CUT FORCE_SECONDS FORCE_HOURS TARGET...
     printf ' %s' "${reset_targets[@]}"
     printf '\n'
   fi
+  # FLEET_MAX_RUNNING, for the cap a restored box is put back under.
+  tick_conf_knobs
   for name in "${reset_targets[@]}"; do
     if ! box_exists "$name"; then
       echo "  $name: not present — reset FAILED"
       failed=$((failed + 1)); failed_names="${failed_names}${failed_names:+, }$name"
+      continue
+    fi
+    # Under --all the weekly cycle leaves a paused box exactly as paused — the
+    # daily restart's rule (#759): nothing starts a paused box but `crew
+    # resume`, and a reset by name is the operator asking for this one.
+    if [ "${RESET_ALL:-0}" -eq 1 ] && [ -e "$(tick_paused_file "$name")" ]; then
+      echo "  $name: paused — left alone"
       continue
     fi
     # A STOPPED BOX REFUSES THE CUT AND NOT THE RESTORE, because only the cut
@@ -3799,6 +4012,402 @@ reset_run() { # CUT FORCE_SECONDS FORCE_HOURS TARGET...
 # per row, with auth problems FLAGGED (an unauthenticated member fails
 # loudly in its own duty.log every tick; this is the host-side view of the
 # same fact). With a box name: the detailed view.
+# --- the host's store (#758) -------------------------------------------------
+#
+# fleet-floor/server/floor/store.py holds the schema and every reader; these
+# are the CLI's doors to it. Nothing here asks a box anything: `crew drain`
+# is the one verb that does, through bxn, and what it pulls is landed by the
+# same ingest the floor's collector runs on every poll.
+store_file() { printf '%s\n' "${CREW_FLOOR_STORE:-$CONFIG_DIR/store/fleet.sqlite}"; }
+store_py() {
+  CREW_CONFIG_DIR="$CONFIG_DIR" python3 "$CREW_ROOT/fleet-floor/server/floor/store.py" "$@"
+}
+# store_init — create the store if absent. Reports and never refuses: a host
+# without python3 converges its fleet exactly as before, with no store.
+store_init() {
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "up: no python3 on this host — the fleet store is not created" >&2
+    return 0
+  fi
+  store_py init >/dev/null 2>&1 \
+    || echo "up: WARNING — could not create the fleet store at $(store_file)" >&2
+  return 0
+}
+# stored_note NAME [--brief] — the store's reading of a box, labelled
+# `stored` on every line, or nothing. Never creates the store (`crew up`
+# does) and never asks the box: this is what `crew status` prints for a box
+# that did not answer, so the operator reads the last pull rather than a dash.
+stored_note() {
+  local name="$1"; shift
+  [ -f "$(store_file)" ] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  store_py status --box "$name" "$@" 2>/dev/null || true
+}
+
+cmd_usage() {
+  local since="24h" by="member"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --since) need_value "$@"; since="$2"; shift 2 ;;
+      --by)    need_value "$@"; by="$2";    shift 2 ;;
+      -h|--help) show_help usage; return 0 ;;
+      *) usage_error "crew usage: unknown option '$1' (usage: $(synopsis_of usage))" ;;
+    esac
+  done
+  [[ "$since" =~ ^[0-9]+[hd]$ ]] || usage_error "crew usage: --since takes <n>h or <n>d, e.g. 24h or 7d"
+  case "$by" in member|pool|kind) ;; *) usage_error "crew usage: --by must be member, pool or kind" ;; esac
+  command -v python3 >/dev/null 2>&1 \
+    || die "python3 is required for 'crew usage' (stdlib only, nothing to install)"
+  # The store alone, deliberately: no `need_box`, no exec. A fleet that is
+  # entirely off still has a bill.
+  [ -f "$(store_file)" ] \
+    || die "no store at $(store_file) yet — 'crew up' creates it; the floor's collector and 'crew drain' fill it"
+  echo "usage — from the host's store, no box asked ($(store_file))"
+  store_py usage --since "$since" --by "$by"
+}
+
+cmd_drain() {
+  max_args drain 1 "$@"
+  need_box
+  local b="${1:-}"
+  [ -n "$b" ] || usage_error "usage: $(synopsis_of drain)"
+  # A write to the host: the same refusal every mutating verb makes under the
+  # shipped examples (#216).
+  require_operator_config "crew drain"
+  command -v python3 >/dev/null 2>&1 \
+    || die "python3 is required for 'crew drain' (stdlib only, nothing to install)"
+  box_exists "$b" || die "no box named '$b' — 'crew status' lists the roster"
+  local agent role _from record rc=0
+  read -r agent role _from <<<"$(roster_line "$b")"
+  # Full mode from line 1: a drain is the WHOLE file, not the tail. It runs
+  # before a stop, and what a cadence pull already landed is refused by the
+  # store's keys rather than skipped by this verb — the one case where
+  # reading twice is cheaper than being wrong about where the last read ended.
+  # Through bxn, so the exec is the one call site it has always been; the
+  # agent profile probe.sh accepts on stdin is not needed to read files.
+  record="$(bxn "$b" "export PROBE_FULL=1 PROBE_LOG_FROM=1
+$(cat "$CREW_ROOT/fleet-floor/server/probe.sh")" 2>/dev/null | tr -d '\r')" || rc=$?
+  if [ "$rc" -ne 0 ] || [ -z "$record" ]; then
+    store_py fail --box "$b" --note "drain: box did not answer" >/dev/null 2>&1 || true
+    die "drain: $b did not answer — nothing pulled; the store keeps what it had"
+  fi
+  local -a ident=()
+  [ -z "$agent" ] || ident+=(--agent "$agent")
+  [ -z "$role" ]  || ident+=(--roles "$role")
+  printf '%s\n' "$record" | store_py ingest --box "$b" "${ident[@]}"
+}
+
+# --- The host tick (#759) -----------------------------------------------------
+#
+# One board read per repository per tick, on this host; a box is started only
+# when the board moved since its member last saw it AND the move names work
+# the member's roles own AND the store's memory of the member (its ledgers,
+# breakers and budgets) does not already answer it; a running box that bought
+# no session for IDLE_TICKS_BEFORE_STOP ticks is drained to the store and
+# stopped; at most FLEET_MAX_RUNNING boxes run at once and the rest are held,
+# visibly. The decision is shared/lib/host/wake.sh; this is the acting half.
+#
+# What a tick logs is the whole product: every start names its why= (the
+# same token the box's SESSION END lines will carry), every hold names the
+# cap, every veto names its reason, every stop names the idle count. A tick
+# that is silent is a tick that found nothing — and says so, once.
+TICK_DIGEST_DIR() { printf '%s/store/wake' "$CONFIG_DIR"; }
+tick_digest_file() { # MEMBER REPO
+  printf '%s/%s.%s.digest' "$(TICK_DIGEST_DIR)" "$1" "$(printf '%s' "$2" | tr '/' '_')"
+}
+tick_paused_file() { printf '%s/store/paused/%s' "$CONFIG_DIR" "$1"; }
+# tick_unreadable_count REPO INC — consecutive ticks REPO's board was
+# unreadable: INC=1 counts one more and prints the count, INC=0 clears it.
+tick_unreadable_count() {
+  local f n=0
+  f="$(TICK_DIGEST_DIR)/$(printf '%s' "$1" | tr '/' '_').unreadable"
+  if [ "$2" -eq 0 ]; then rm -f "$f"; echo 0; return 0; fi
+  n="$(cat "$f" 2>/dev/null || echo 0)"; case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  n=$((n + 1)); printf '%s\n' "$n" >"$f"; echo "$n"
+}
+
+# tick_conf_knobs — the fleet's own knobs, read the way the engine layers
+# them (defaults, then fleet.conf over them), in THIS shell: these four are
+# host-side numbers and nothing else from those files is read here.
+tick_conf_knobs() {
+  local line
+  for line in FLEET_MAX_RUNNING IDLE_TICKS_BEFORE_STOP HOST_TICK_READY_S BUDGET_WINDOW TICK_BLIND_TICKS; do
+    eval "$line=\"\$(tick_conf_value $line)\""
+  done
+  : "${FLEET_MAX_RUNNING:=2}" "${IDLE_TICKS_BEFORE_STOP:=3}" "${HOST_TICK_READY_S:=180}" "${BUDGET_WINDOW:=86400}" "${TICK_BLIND_TICKS:=3}"
+}
+tick_conf_value() { # KEY — the last assignment wins, fleet.conf after defaults
+  { sed -n "s/^$1=//p" "$CREW_ROOT/shared/conf/fleet.defaults.conf"
+    [ ! -f "$CONFIG_DIR/fleet.conf" ] || sed -n "s/^$1=//p" "$CONFIG_DIR/fleet.conf"
+  } | tail -1 | tr -d '"' | tr -d "'"
+}
+
+# tick_veto MEMBER ROLES REASONS — wake_veto under the member's own role
+# ceilings, in a subshell so the role confs' many variables never reach this
+# process (BOX_CPU and friends mean something else here).
+tick_veto() {
+  local member="$1" roles="$2" reasons="$3" state="${4:-}" role files
+  files="$CREW_ROOT/shared/conf/fleet.defaults.conf"
+  [ ! -f "$CONFIG_DIR/fleet.conf" ] || files="$files $CONFIG_DIR/fleet.conf"
+  for role in $roles; do
+    [ ! -f "$CREW_ROOT/shared/conf/roles/$role.conf" ] || files="$files $CREW_ROOT/shared/conf/roles/$role.conf"
+  done
+  (
+    # Only the BUDGET_* lines, in file order so fleet.conf and the role confs
+    # win over the defaults: the confs carry many more names (BOX_CPU, the
+    # timeouts) that mean something else in this process.
+    # shellcheck disable=SC2086  # $files is a word list by construction
+    eval "$(cat $files | sed -n '/^BUDGET_[A-Z_]*=[0-9]*$/p')"
+    wake_veto "$member" "$reasons" "$state"
+  )
+}
+
+# tick_box_ready NAME SECONDS — wait for a started box's guest to answer.
+tick_box_ready() {
+  local name="$1" budget="$2" waited=0
+  while [ "$waited" -lt "$budget" ]; do
+    bxn "$name" true >/dev/null 2>&1 && return 0
+    sleep 5; waited=$((waited + 5))
+  done
+  return 1
+}
+
+# tick_wake NAME WHY — hand the box its reason and tick it now rather than
+# waiting for its own cron: the first session this wake buys carries why=.
+tick_wake() {
+  local name="$1" why="$2"
+  # Fire and forget: the box's tick runs under ITS lock in the background, so
+  # a wake that starts an hour-long build never holds the host lock — every
+  # later host tick, the daily restart and the weekly reset run on time.
+  bxn "$name" "mkdir -p ~/duty && printf '%s\n' '$why' > ~/duty/.wake-reason && (nohup setsid ~/duty/bin/tick.sh >/dev/null 2>&1 </dev/null &)" >/dev/null 2>&1 \
+    || echo "  $name: woke, but the tick could not be launched (its own cron will)"
+}
+
+tick_run() { # DRY_RUN
+  local dry="$1" repo rows prev name _agent roles _rest login reasons surviving why state idle line miss
+  local running=0 started=0 stopped=0 held=0 woke=0 vetoed=0 quiet=0 blind=0 pstate
+  local -A ROWS=() DIGEST=()
+  mkdir -p "$(TICK_DIGEST_DIR)" "$CONFIG_DIR/store/paused"
+  store_py init >/dev/null 2>&1 || true
+  tick_conf_knobs
+  # The host reads the boards with ITS OWN gh login. Without one every board is
+  # unreadable, and a tick that cannot see the board neither wakes nor stops:
+  # stopping on blindness would read a dead credential as a quiet fleet.
+  if ! gh auth status >/dev/null 2>&1; then
+    echo "  gh is not logged in on this host — no board can be read, so this tick wakes nothing and stops nothing (shared/docs/host-maintenance.md: the host's own login)"
+    blind=1
+  fi
+  # 1. One read per repository, for the whole fleet.
+  while IFS= read -r repo; do
+    [ -n "$repo" ] || continue
+    [ "$blind" -eq 0 ] || break
+    if ! rows="$(wake_board_rows "$repo")"; then
+      # Blind for a tick or two is a hiccup; blind for TICK_BLIND_TICKS running
+      # is a repository the host cannot read (renamed, private to this login,
+      # gone), and holding every idle box up for it would keep the fleet fully
+      # up until somebody noticed. Past that count the repository is said and
+      # set aside, and the rest of the fleet converges on the boards it can see.
+      miss="$(tick_unreadable_count "$repo" 1)"
+      if [ "$miss" -ge "${TICK_BLIND_TICKS:-3}" ]; then
+        echo "  $repo: board unreadable for $miss ticks — not holding the fleet for it (a renamed or inaccessible repository: fix the registry, or the host's login)"
+      else
+        echo "  $repo: board unreadable this tick — no change assumed, and no box is stopped on a tick that could not see the board"
+        blind=1
+      fi
+      continue
+    fi
+    tick_unreadable_count "$repo" 0 >/dev/null
+    ROWS[$repo]="$rows"
+    DIGEST[$repo]="$(printf '%s\n' "$rows" | wake_digest)"
+  done <<<"$(production_registry)"
+  # 2. Who is running now. Paused boxes are stopped below and never count.
+  while read -r name _rest; do
+    [ -n "$name" ] || continue
+    [ ! -e "$(tick_paused_file "$name")" ] || continue
+    [ "$(box_state "$name")" = running ] && running=$((running + 1))
+  done <<<"$(read_roster)"
+  # 3. Each member, against the boards that moved since it last looked.
+  while read -r name _agent roles _rest; do
+    [ -n "$name" ] || continue
+    roles="${roles//,/ }"
+    if [ -e "$(tick_paused_file "$name")" ]; then
+      # A pause HOLDS: a paused box that is running is drained and stopped,
+      # off the cap, and nothing starts it until `crew resume`.
+      if [ "$(box_state "$name")" = running ]; then
+        read -r pstate _ <<<"$(drain_probe "$name")"
+        if [ "$pstate" != idle ]; then
+          echo "  $name: paused — a duty holds its lock ($pstate); stopped once it is idle"
+        elif [ "$dry" -eq 1 ]; then
+          echo "  $name: paused — would be drained and stopped"
+        elif ! ( cmd_drain "$name" ) >/dev/null 2>&1; then
+          echo "  $name: paused — drain failed; not stopping a box whose evidence the store does not hold"
+        elif box down "$name" </dev/null; then
+          echo "  $name: paused — drained and stopped"; stopped=$((stopped + 1))
+        else
+          echo "  $name: paused — stop FAILED"
+        fi
+      else
+        echo "  $name: paused — left alone"
+      fi
+      continue
+    fi
+    login="$(store_py state --box "$name" --name .identity 2>/dev/null | head -1 | tr -d '\r')"
+    reasons=""
+    for repo in "${!ROWS[@]}"; do
+      prev="$(cat "$(tick_digest_file "$name" "$repo")" 2>/dev/null || true)"
+      [ "${DIGEST[$repo]}" != "$prev" ] || continue
+      reasons="$reasons$(wake_reasons "$roles" "$login" "$repo" "${ROWS[$repo]}")"$'\n'
+    done
+    reasons="$reasons$(wake_wait_reasons "$name")"$'\n'
+    reasons="$reasons$(wake_release_reasons "$name")"$'\n'
+    reasons="$(printf '%s' "$reasons" | sed '/^$/d')"
+    surviving="$(tick_veto "$name" "$roles" "$reasons" "$(box_state "$name")")"
+    while IFS= read -r line; do
+      case "$line" in veto:*) echo "  $name: veto ${line#veto:}"; vetoed=$((vetoed + 1)) ;; esac
+    done <<<"$surviving"
+    why="$(wake_why "$surviving")"
+    state="$(box_state "$name")"
+    idle=0
+    if [ "$state" = running ]; then
+      idle="$(bxn "$name" 'cat ~/duty/.idle-ticks 2>/dev/null' 2>/dev/null | tr -d '\r' | head -1)"
+    else
+      # The count the box carried when it was drained and stopped: a box
+      # stopped for idleness is not started again for the same coarse reason
+      # (it would be stopped again two ticks later — a boot every ten minutes
+      # on an active board). A session resets the count; a precise reason
+      # never reads it.
+      idle="$(store_py state --box "$name" --name .idle-ticks 2>/dev/null | head -1 | tr -d '\r')"
+    fi
+    case "$idle" in ''|*[!0-9]*) idle=0 ;; esac
+    # Triage's coarse `board#` reason fires on any movement at all. A triage
+    # box that was woken for it IDLE_TICKS_BEFORE_STOP times and bought no
+    # session each time has answered: the movement is not its work. The
+    # precise reasons (an attention demand, a ready issue, a review request,
+    # a due wait or cut) are never set aside this way.
+    if [ -n "$why" ] && [ "$idle" -ge "$IDLE_TICKS_BEFORE_STOP" ] \
+       && [ -z "$(printf '%s\n' "$surviving" | grep -v '^veto:' | grep -v '^board#' | awk 'NF')" ]; then
+      echo "  $name: the board moved, but $idle idle ticks bought nothing for triage — not woken for it again"
+      why=""
+    fi
+    if [ -n "$why" ]; then
+      case "$state" in
+        running)
+          echo "  $name: woke (running) why=$why"
+          [ "$dry" -eq 1 ] || tick_wake "$name" "$why"
+          woke=$((woke + 1)) ;;
+        stopped)
+          if [ "$running" -ge "$FLEET_MAX_RUNNING" ]; then
+            echo "  $name: held — $running of $FLEET_MAX_RUNNING boxes running; why=$why"
+            held=$((held + 1))
+            continue   # no digest recorded: the next tick re-evaluates
+          fi
+          echo "  $name: starting why=$why"
+          # Counted the moment it is up: a box whose guest is slow to answer is
+          # running, and a later member must not start past the cap on it.
+          running=$((running + 1)); started=$((started + 1))
+          if [ "$dry" -eq 0 ]; then
+            if ! box start "$name" </dev/null; then echo "  $name: start FAILED"; continue; fi
+            if ! tick_box_ready "$name" "$HOST_TICK_READY_S"; then
+              echo "  $name: started, but its guest did not answer within ${HOST_TICK_READY_S}s — next tick"
+              continue
+            fi
+            # A crontab a pause left commented, on a box resumed while it was
+            # stopped, comes back live here; "nothing to resume" is the
+            # ordinary answer and costs nothing.
+            bxn "$name" "$(host_resume_sh)" >/dev/null 2>&1 || true
+            tick_wake "$name" "$why"
+          fi ;;
+        *) echo "  $name: state '$state' — left alone; why=$why"; continue ;;
+      esac
+    else
+      if [ "$state" = running ]; then
+        if [ "$idle" -ge "$IDLE_TICKS_BEFORE_STOP" ]; then
+          if [ "$blind" -eq 1 ]; then
+            echo "  $name: idle $idle ticks, but a board was unreadable this tick — not stopped on a blind tick"
+            continue
+          fi
+          # The counter says the DUTY bought nothing; the lock says whether a
+          # session is running right now — one the box's own cron started
+          # since the counter was written. Busy is never stopped.
+          read -r pstate _ <<<"$(drain_probe "$name")"
+          if [ "$pstate" != idle ]; then
+            echo "  $name: idle $idle ticks, but a duty holds its lock ($pstate) — not stopped mid-session"
+            continue
+          fi
+          echo "  $name: stopping after $idle idle ticks (drained to the store first)"
+          if [ "$dry" -eq 0 ]; then
+            # In a subshell: a drain that dies (`die`) ends the drain, never
+            # the tick for every member after this one.
+            if ! ( cmd_drain "$name" ) >/dev/null 2>&1; then
+              echo "  $name: drain failed — not stopping a box whose evidence the store does not hold"
+              continue
+            fi
+            box down "$name" </dev/null || { echo "  $name: stop FAILED"; continue; }
+          fi
+          running=$((running - 1)); stopped=$((stopped + 1))
+        else
+          echo "  $name: idle $idle/$IDLE_TICKS_BEFORE_STOP"
+        fi
+      else
+        quiet=$((quiet + 1))
+      fi
+    fi
+    # The member has seen these boards: woken, idle, or nothing for it.
+    [ "$dry" -eq 1 ] || for repo in "${!ROWS[@]}"; do printf '%s\n' "${DIGEST[$repo]}" >"$(tick_digest_file "$name" "$repo")"; done
+  done <<<"$(read_roster)"
+  echo "tick: started $started, woke $woke, held $held, stopped $stopped, vetoed $vetoed, nothing-for $quiet; running $running of $FLEET_MAX_RUNNING"
+  return 0
+}
+
+cmd_tick() {
+  local dry=0
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dry-run) dry=1; shift ;;
+      *) usage_error "unknown argument '$1' (usage: $(synopsis_of tick))" ;;
+    esac
+  done
+  need_box
+  [ -f "$ROSTER" ] || die "no roster at $ROSTER"
+  require_operator_config "crew tick"
+  command -v python3 >/dev/null 2>&1 || die "python3 is required for 'crew tick' (the store)"
+  host_job tick tick_run "$dry"
+}
+
+# --- pause / resume (#284, #759) ---------------------------------------------
+# A paused member is one the host tick never starts, and whose own cron is
+# commented while it runs: one marker on the host, one on the box, and the
+# shell that edits the crontab is the file the floor's button runs too.
+cmd_pause() {
+  max_args pause 1 "$@"
+  local b="${1:-}"; [ -n "$b" ] || usage_error "usage: $(synopsis_of pause)"
+  need_box
+  require_operator_config "crew pause"
+  box_exists "$b" || die "no box named '$b' — 'crew status' lists the roster"
+  mkdir -p "$CONFIG_DIR/store/paused"
+  date -u '+%Y-%m-%dT%H:%M:%SZ' >"$(tick_paused_file "$b")"
+  if [ "$(box_state "$b")" = running ]; then
+    bxn "$b" "$(host_pause_sh)" || echo "  $b: paused on the host; the box's crontab did not take the pause (it is off the host tick regardless)"
+  else
+    echo "  $b: paused on the host (box not running — only the host tick could start it, and it will not)"
+  fi
+  echo "  $b: the host tick will not start it until 'crew resume $b'. An in-flight duty finishes; only future ticks are prevented."
+}
+
+cmd_resume() {
+  max_args resume 1 "$@"
+  local b="${1:-}"; [ -n "$b" ] || usage_error "usage: $(synopsis_of resume)"
+  need_box
+  require_operator_config "crew resume"
+  box_exists "$b" || die "no box named '$b' — 'crew status' lists the roster"
+  rm -f "$(tick_paused_file "$b")"
+  if [ "$(box_state "$b")" = running ]; then
+    bxn "$b" "$(host_resume_sh)" || echo "  $b: resumed on the host; the box's crontab did not take the resume"
+  else
+    echo "  $b: resumed on the host (box not running; the host tick may start it again)"
+  fi
+}
+
 cmd_status() {
   max_args status 1 "$@"
   need_box
@@ -3830,6 +4439,15 @@ cmd_status() {
       '')     echo "engine: unknown — the box did not answer" ;;
       *)      echo "engine: $engine" ;;
     esac
+    # Observed peak memory (#761): the figure a role's BOX_MEMORY is sized by,
+    # from the store's sessions, beside what the box was minted with.
+    local peak_row
+    # A read never creates the store (cli-store pins it): no file, no line.
+    if [ -f "$(store_file)" ] && peak_row="$(store_py peaks --box "$b" --since 7d 2>/dev/null | head -1)" && [ -n "$peak_row" ]; then
+      read -r _ peak_kib peak_n <<<"$peak_row"
+      case "$peak_kib" in -|'') echo "peak memory: no session reported one in 7d" ;;
+        *) echo "peak memory: $((peak_kib / 1024)) MiB over $peak_n session(s) in 7d (store) — minted with $(box_memory_of "$b")" ;; esac
+    fi
     case "$state" in
       current)
         echo "integrity: current — every engine file is what ${recorded:-this install} shipped" ;;
@@ -4015,6 +4633,9 @@ cmd_status() {
     fi
     if [ -z "$state" ] && [ "$rconv" = unknown ]; then
       echo "  (unreachable)"
+      # The store's reading for the box that did not answer (#758): labelled
+      # `stored` on every line, read off the host, never off the box.
+      stored_note "$b" | sed 's/^/  /'
     elif [ "$state" = absent ]; then
       # No engine, so a missing duty log is not the news — the absent engine
       # is. Factual and not prescriptive: `crew hire` is the action, but
@@ -4070,7 +4691,7 @@ cmd_status() {
   local supp_age supp_kind supp_key supp_subject log_timestamped session_active lock_age
   local session_kind session_ceiling lock_ceiling lock_bound
   local report estate erecorded edisplay
-  local rreport conv convnote
+  local rreport conv convnote stored_brief
   while read -r name agent role _from; do
     if ! box_exists "$name"; then
       # shellcheck disable=SC2059
@@ -4080,10 +4701,14 @@ cmd_status() {
     state="$(box_state "$name")"
     if [ "$state" = "stopped" ]; then
       # shellcheck disable=SC2059
-      printf "$fmt" "$name" stopped "$host" - - - - "crew up starts it"
+      printf "$fmt" "$name" stopped "$host" - - - - "crew up starts it$(stored_brief="$(stored_note "$name" --brief)"; printf '%s' "${stored_brief:+ · $stored_brief}")"
       continue
     fi
     report="$(engine_report "$name")"
+    # A box that answered nothing gets the store's reading beside whatever
+    # the row concludes (#758): the last pull, labelled as such.
+    stored_brief=""
+    [ -n "$report" ] || stored_brief="$(stored_note "$name" --brief)"
     hired="$(report_field stamp "$report")"
     estate="$(report_field state "$report")"
     erecorded="$(report_field recorded "$report")"
@@ -4314,6 +4939,7 @@ cmd_status() {
     # (cmd_upgrade's loop, hire_box's force_arg) — the short form takes the
     # test's exit status, and here the common case is the empty one.
     if [ -n "$convnote" ]; then note="$convnote"; fi
+    if [ -n "$stored_brief" ]; then note="${note:+$note · }$stored_brief"; fi
     # The wire vocabulary is lowercase; MODIFIED shouts for the same reason
     # MISSING does — it is the one row an operator must not skim past, and the
     # note names the version it diverged from so the column stays one word.

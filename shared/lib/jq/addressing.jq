@@ -31,7 +31,7 @@
 # would optimistically write state:addressing over a head that was just
 # re-requested, and the reconciler would flip it straight back.
 | (($pr.reviewRequests.nodes | map(.requestedReviewer.login // empty)
-    | map(select(. as $l | ($panel | index($l)) != null)) | length) == 0) as $no_panel_reqs
+    | map(select(. as $l | ($roster | index($l)) != null)) | length) == 0) as $no_panel_reqs
 | ($pr.latestOpinionatedReviews.nodes
    | map(select(.commit.oid == $pr.headRefOid) | .author.login)) as $head_reviewers
 | ($pr.latestOpinionatedReviews.nodes

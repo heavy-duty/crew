@@ -1,0 +1,2 @@
+HANDOFF NOTES — read these FIRST, before the repository: they are the `## Worklog` and `## Round log` of each pull request below as of this dispatch, the record of what was done, what was verified and what is next. Bring the `## Worklog` current before you end: it is what the next session (yours, resumed, or a fresh one) reads first, and the engine keeps a copy beside the store.
+{{HANDOFF}}

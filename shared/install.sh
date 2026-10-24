@@ -78,12 +78,13 @@ source "$OPERATOR_CONF"
 #  roster    --box NAME → fleet.roster (standing fleet).
 #  keep      existing conf/instance.conf (re-install/upgrade on a box whose
 #            name is not in the roster).
-AGENT_ARG="" ROLE_ARG="" BOX_ARG="" ARM_CRON=0 CONVERGE_REGISTRIES=0 FORCE=0
+AGENT_ARG="" ROLE_ARG="" BOX_ARG="" POOL_ARG="" ARM_CRON=0 CONVERGE_REGISTRIES=0 FORCE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --agent) AGENT_ARG="$2"; shift 2 ;;
     --role)  ROLE_ARG="$2";  shift 2 ;;
     --box)   BOX_ARG="$2";   shift 2 ;;
+    --pool)  POOL_ARG="$2";  shift 2 ;;
     --converge-registries) CONVERGE_REGISTRIES=1; shift ;;
     --arm-cron) ARM_CRON=1; shift ;;
     --force) FORCE=1; shift ;;
@@ -135,6 +136,7 @@ if [ -f "$DUTY_DIR/conf/instance.conf" ]; then
   PRIOR_EXISTS=1
   PRIOR_AGENT="$(sed -n 's/^BOT_AGENT=//p' "$DUTY_DIR/conf/instance.conf" | head -1 | tr -d '"'\''\r')"
   PRIOR_ROLES="$(sed -n 's/^BOT_ROLES=//p' "$DUTY_DIR/conf/instance.conf" | head -1 | tr -d '"'\''\r')"
+  PRIOR_POOL="$(sed -n 's/^SESSION_CREDENTIAL_POOL=//p' "$DUTY_DIR/conf/instance.conf" | head -1 | tr -d '"'\''\r')"
 fi
 
 if [ -n "$AGENT_ARG" ] || [ -n "$ROLE_ARG" ]; then
@@ -350,6 +352,15 @@ tmp="$(mktemp "$DUTY_DIR/conf/.install.XXXXXX")"
   echo "# shellcheck shell=bash disable=SC2034"
   echo "BOT_AGENT=$BOT_AGENT"
   echo "BOT_ROLES=\"$BOT_ROLE_LIST\""
+  # The credential pool this member spends from (#761): several members hired
+  # on one vendor subscription share a pool, and `crew usage --by pool` reads
+  # the quota where it is spent. Set by `crew hire --pool`; kept across a
+  # re-install that names none.
+  if [ -n "$POOL_ARG" ]; then
+    echo "SESSION_CREDENTIAL_POOL=\"$POOL_ARG\""
+  elif [ -n "${PRIOR_POOL:-}" ]; then
+    echo "SESSION_CREDENTIAL_POOL=\"$PRIOR_POOL\""
+  fi
 } >"$tmp"
 mv "$tmp" "$DUTY_DIR/conf/instance.conf"
 # Remove the pre-profile fused config so nothing can source it stale.

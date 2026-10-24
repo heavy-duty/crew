@@ -58,10 +58,26 @@ def is_green:
 # Pending is not red. Gating a fix round on a check that has not finished would
 # stall every round behind a queued runner (#45 is about a FAILED check, which
 # is the author's own signal — a running one is nobody's yet).
+#
+# A CONCLUDED CHECK IS NOT PENDING, WHATEVER ITS STATUS SAYS (#634). GitHub can
+# leave a finished CheckRun carrying `status: IN_PROGRESS` beside a set
+# `conclusion`; the run never revises itself, so a status-only reading graded
+# that head pending for as long as it existed, and the engine held the panel
+# request at a head it would never regrade (ceremony#593: 10h17m unrequested on
+# a green PR). The conclusion is the verdict and the status only says whether
+# one has been reached, so a set conclusion wins over a running status. The
+# guard is on the conclusion's presence, not on `is_green`, so a running status
+# beside a non-green conclusion falls through to `is_blocking` — pending never
+# masks red. `check_state`'s order (red, then pending, then green) is NOT the
+# place for this: testing green first would also grade a head green while a
+# second check was genuinely still running, which is #45's gate defeated. A
+# running run reaches here as `conclusion: null` or, from `gh`, as `""`; both
+# read as not yet concluded.
 def is_pending:
-  (.status // "") as $st | (.state // "") as $s
-  | ((["QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "REQUESTED"] | index($st)) != null)
-    or ((["PENDING", "EXPECTED"] | index($s)) != null);
+  (.conclusion // "") as $c | (.status // "") as $st | (.state // "") as $s
+  | ($c == "")
+    and (((["QUEUED", "IN_PROGRESS", "WAITING", "PENDING", "REQUESTED"] | index($st)) != null)
+      or ((["PENDING", "EXPECTED"] | index($s)) != null));
 
 # Neither passing nor still running: the head is not green, whatever the reason.
 def is_blocking: (is_green or is_pending) | not;

@@ -312,3 +312,83 @@ emit sessionlogs "${sesslogs[*]:sessfrom}"
 echo "::logstart"
 tail -n 600 "$DUTY_DIR/duty.log" 2>/dev/null | tr -d '\r'
 echo "::logend"
+
+# --- full mode: the state files and the whole (or partial) duty.log (#758) ---
+#
+# OPT-IN, by `PROBE_FULL=1` in the environment the script runs under, and
+# everything above this line is byte-identical whether or not it is set: the
+# cadence record the floor has always read is unchanged, and this block only
+# APPENDS sections after it. The host's store (fleet-floor/server/floor/store.py)
+# is the only reader; it asks for full mode on every collector poll and on
+# `crew drain`, so a box stopped between polls loses nothing it had written.
+#
+# One delimited `::filestart <name>` … `::fileend` section per state file the
+# engine keeps under $DUTY_DIR — the seen/suppressed ledgers, the resume and
+# terminal breakers, the budget counters, the decline markers, the limit-event
+# spool, the auth-fail markers, the hygiene/reaper/review stamps and the lock
+# stamp — carried VERBATIM, the way the limit spool already crosses: the host
+# decides what each means, the box reports what it has. `::statefiles` names
+# every file found first, so a file the box no longer has (a breaker that
+# cleared) is a fact the host can act on rather than an absence it cannot see.
+#
+# duty.log crosses in its own section, from line `PROBE_LOG_FROM` (default 1,
+# the whole file) so a cadence pull ships only what is new since the last one.
+# `::logfrom` and `::logtotal` say which slice this is, and a `from` past the
+# file's end — the file was rotated (tick.sh moves it aside at 5 MB) and is
+# shorter than the host last saw — restarts from line 1, which the host reads
+# as "re-ingest from the top". The `::logstart` tail above is NOT replaced by
+# this: the floor's live record still reads the newest 600 lines exactly as
+# before, and the store reads this section.
+#
+# A file whose last line has no newline gets one, so `::fileend` never lands
+# on the same line as the file's last byte.
+if [ "${PROBE_FULL:-0}" = 1 ]; then
+  probe_file() { # NAME PATH
+    echo "::filestart $1"
+    tr -d '\r' <"$2" 2>/dev/null || :
+    if [ -s "$2" ] && [ "$(tail -c1 "$2" 2>/dev/null | wc -l)" -eq 0 ]; then echo; fi
+    echo "::fileend"
+  }
+  statefiles=""
+  for sf in "$DUTY_DIR"/.seen-* "$DUTY_DIR"/.suppressed-* \
+            "$DUTY_DIR"/.builder-suppressed.* "$DUTY_DIR"/.declined-build.* \
+            "$DUTY_DIR"/.session-terminal.* "$DUTY_DIR"/.session-budget.* \
+            "$DUTY_DIR"/.resume-* "$DUTY_DIR"/.limit-events \
+            "$DUTY_DIR"/.limit-events.dropped "$DUTY_DIR"/.auth-fail.* \
+            "$DUTY_DIR"/.hygiene-last "$DUTY_DIR"/.reaper-last \
+            "$DUTY_DIR"/.review-owed "$DUTY_DIR"/.duty.lock.since \
+            "$DUTY_DIR"/.identity "$DUTY_DIR"/.idle-ticks \
+            "$DUTY_DIR"/.handoff-* "$DUTY_DIR"/.wait-* "$DUTY_DIR"/.session-continue.* \
+            "$DUTY_DIR"/.release-* "$DUTY_DIR"/.panel-sized-*; do
+    [ -f "$sf" ] || continue
+    statefiles="$statefiles ${sf##*/}"
+  done
+  emit statefiles "${statefiles# }"
+  for name in $statefiles; do
+    probe_file "$name" "$DUTY_DIR/$name"
+  done
+  log_from="${PROBE_LOG_FROM:-1}"
+  case "$log_from" in ''|*[!0-9]*|0) log_from=1 ;; esac
+  log_total="$(awk 'END { print NR }' "$DUTY_DIR/duty.log" 2>/dev/null || echo 0)"
+  case "$log_total" in ''|*[!0-9]*) log_total=0 ;; esac
+  [ "$log_from" -le $((log_total + 1)) ] || log_from=1
+  emit logfrom "$log_from"
+  emit logtotal "$log_total"
+  echo "::filestart duty.log"
+  if [ -r "$DUTY_DIR/duty.log" ]; then
+    tail -n +"$log_from" "$DUTY_DIR/duty.log" | tr -d '\r'
+    if [ -s "$DUTY_DIR/duty.log" ] && [ "$log_from" -le "$log_total" ] \
+       && [ "$(tail -c1 "$DUTY_DIR/duty.log" 2>/dev/null | wc -l)" -eq 0 ]; then echo; fi
+  fi
+  echo "::fileend"
+  # The rotated log, whole, ONCE per rotation: the lines written between the
+  # last pull and the rotation live there, SESSION END rows included. Its
+  # size+mtime is the mark; the host says which mark it already holds
+  # (PROBE_LOG1_SEEN) and the file crosses again only when the mark moved —
+  # never up to 5 MB on every poll until the next rotation.
+  if [ -r "$DUTY_DIR/duty.log.1" ]; then
+    log1_mark="$(stat -c '%s.%Y' "$DUTY_DIR/duty.log.1" 2>/dev/null || echo 0.0)"
+    emit log1mark "$log1_mark"
+    [ "$log1_mark" = "${PROBE_LOG1_SEEN:-}" ] || probe_file duty.log.1 "$DUTY_DIR/duty.log.1"
+  fi
+fi

@@ -11,6 +11,10 @@
 # creates missing, starts stopped, hires, and reports who still awaits
 # auth. Nothing is ever deleted: off-roster boxes are reported, left alone.
 #
+# The floor edits this file too (its Roster button, #764): add, remove or
+# re-role a line from the console, then `crew up` on the host makes the
+# boxes of it. Every comment above the first member is kept on a save.
+#
 # This is the TARGET environment — the current dual-role claude and codex
 # boxes split into single-role members. Each line still needs its own
 # GitHub identity at login time (one box per identity), plus a decision on

@@ -220,13 +220,35 @@ no build step, no dependencies.
 |---|---|---|
 | `/` | GET | the page |
 | `/api/fleet` | GET | latest telemetry snapshot |
-| `/api/command` | POST | `message`, `pause`, `resume`, `restart`, `power-on/off`, `force-stop`, `start-all`, `stop-all`, `wake-silent` |
+| `/api/roster` | GET | the fleet's definition as it is on disk: members, the agent and role profiles a line may name, the path (#764) |
+| `/api/command` | POST | `message`, `pause`, `resume`, `restart`, `power-on/off`, `force-stop`, `start-all`, `stop-all`, `wake-silent`, `registry-set`, `registry-override`, `registry-inherit`, `roster-set` |
 | `/api/logs` | GET | tail `duty.log` or one session log |
 | `/healthz` | GET | liveness |
 
 **Two things the page still cannot do.** "Open box terminal" copies `box shell
 <name>` for you — a browser cannot attach a shell. And a box that is not running
 cannot be messaged; the request is refused rather than queued.
+
+### The roster is editable (#764)
+
+`fleet.roster` is the fleet — one line per box: name, agent, role(s), and the
+gold box/snapshot it is minted from — and **Roster** (beside **Registries**)
+edits it the way the registries are edited: an overlay painted from the file
+as it is on disk right now, one row per box (add, remove, save), each row's
+standing read off the poll (hired, not created, new). A save is validated
+whole before anything moves — box names in incus's alphabet, agents and roles
+that exist as profiles, no duplicates, `from` as `<box>/<snapshot>` — refused
+with the line and the reason, written atomically with the file's header
+comments kept, and journalled in `.roster-journal.log` (who, the state the
+write applied, the deltas). It is refused under the shipped examples fallback,
+as every writer is.
+
+Saving writes the definition and nothing else. A new line becomes a box when
+the operator runs `crew up` on the host (it creates, starts and hires every
+roster box; the login is the operator's, by hand). A removed line's box is
+left alone: the console stops watching it and the host tick stops waking it,
+and nothing is ever deleted. The collector reads the roster on every poll, so
+the edit is live at the next one.
 
 ## Tests
 

@@ -441,6 +441,25 @@ reset_case
 capture restart --all
 t lifecycle-all-restarts-roster 2 "$(grep -c '^start ' "$STATE/calls")"
 t lifecycle-all-leaves-offroster 0 "$(grep -c 'offroster' "$STATE/calls" || true)"
+# Under --all the daily cycle is a cycle (#763 review): a box the host tick
+# stopped stays stopped, and a paused box is left exactly as paused — neither
+# is started with its cron live; a named restart still starts a stopped box.
+reset_case
+printf 'stopped\n' >"$STATE/state-alpha"
+capture restart --all
+t lifecycle-all-leaves-a-stopped-box-to-the-tick 1 "$(grep -c 'alpha: stopped — left to the host tick' <<<"$OUT")"
+t lifecycle-all-does-not-start-a-stopped-box 0 "$(grep -c '^start alpha$' "$STATE/calls" || true)"
+t lifecycle-all-still-cycles-the-running-box 1 "$(grep -c '^start beta$' "$STATE/calls")"
+reset_case
+printf 'stopped\n' >"$STATE/state-alpha"
+capture restart alpha
+t lifecycle-a-named-restart-starts-a-stopped-box 1 "$(grep -c '^start alpha$' "$STATE/calls")"
+reset_case
+mkdir -p "$CONF/store/paused"; : >"$CONF/store/paused/alpha"
+capture restart --all
+t lifecycle-all-leaves-a-paused-box-alone 1 "$(grep -c 'alpha: paused — left alone' <<<"$OUT")"
+t lifecycle-all-neither-stops-nor-starts-a-paused-box 0 "$(grep -cE '^(down|start) alpha$' "$STATE/calls" || true)"
+rm -f "$CONF/store/paused/alpha"
 
 reset_case
 printf 'busy:65\nidle:0\n' >"$STATE/probe-alpha"
@@ -507,8 +526,13 @@ unset LIFE_DOWN_FAIL
 HOST_CRONTAB="$ROOT/shared/host-crontab.example"
 host_cron_lines="$(grep -vE '^[[:space:]]*(#|$)' "$HOST_CRONTAB" || true)"
 t hostcron-example-exists yes "$([ -f "$HOST_CRONTAB" ] && echo yes || echo no)"
-t hostcron-schedules-the-daily-restart-alone 1 \
+# Three job lines since 0.1.4: the daily restart, the host tick (#759) and
+# the weekly reset (#761), which #678 deferred until the store could hold
+# what a restore wipes.
+t hostcron-schedules-three-job-lines 3 \
   "$(printf '%s\n' "$host_cron_lines" | grep -c '[^[:space:]]' || true)"
+t hostcron-ticks-every-five-minutes 1 \
+  "$(printf '%s\n' "$host_cron_lines" | grep -cE '^\*/5 \* \* \* \* .*crew tick$' || true)"
 t hostcron-no-flock-in-any-line 0 \
   "$(printf '%s\n' "$host_cron_lines" | grep -c 'flock' || true)"
 t hostcron-no-redirect-in-any-line 0 \
@@ -575,8 +599,10 @@ cron_entry="^[[:blank:]]*(${cron_five}|${cron_at}[[:blank:]]+).*crew[[:blank:]]+
 # an `^[0-9]+ [0-9]+` pattern let it through while the assertion's NAME claimed
 # otherwise (@claude-bot-andresmgsl, #683). The count above would have caught
 # it; a guard that leans on a neighbour is one edit from catching nothing.
-t hostcron-schedules-no-reset-job-line 0 \
+t hostcron-schedules-the-weekly-reset 1 \
   "$(printf '%s\n' "$host_cron_lines" | grep -cE "$cron_entry" || true)"
+t hostcron-the-weekly-reset-is-on-sunday 1 \
+  "$(printf '%s\n' "$host_cron_lines" | grep -cE '^[0-9]+ [0-9]+ \* \* 0 .*crew reset --all$' || true)"
 # AND IT MUST NOT BE REINSTATABLE BY UNCOMMENTING. This is the one assertion
 # here that reads the whole file rather than the job lines, because a
 # commented-out job line is invisible to every assertion above it and a
@@ -596,7 +622,7 @@ t hostcron-schedules-no-reset-job-line 0 \
 # group only repeats where what follows a marker run is whitespace and more
 # markers, so a comment that merely NAMES the verb is untouched.
 t hostcron-has-no-commented-out-reset-job-line 0 \
-  "$(sed -E 's/^([[:space:]]*#+)+[[:space:]]*//' "$HOST_CRONTAB" \
+  "$(grep -E '^[[:space:]]*#' "$HOST_CRONTAB" | sed -E 's/^([[:space:]]*#+)+[[:space:]]*//' \
      | grep -cE "$cron_entry" || true)"
 # #688 — the operator-facing reset help and the shipped schedule are two
 # readers of one fact. Compare them instead of pinning either answer: #694 can
@@ -767,8 +793,11 @@ t hostjob-reset-help-preserves-every-invocation-lock-guarantee preserved "$r1"
 # citation would satisfy a substring read (@claude-bot-andresmgsl, #683).
 t hostcron-deferral-names-its-issue yes \
   "$(grep -qE '#678([^0-9]|$)' "$HOST_CRONTAB" && echo yes || echo no)"
-t hostcron-deferral-names-what-returns-it yes \
-  "$(grep -qE '#328([^0-9]|$)' "$HOST_CRONTAB" && echo yes || echo no)"
+# The reset is back (#761): what the header owes now is the host's own gh
+# login and the three jobs, in place of the deferral's return condition.
+t hostcron-names-the-hosts-own-gh-login yes \
+  "$(grep -qE 'HOST NEEDS ITS OWN .gh. LOGIN' "$HOST_CRONTAB" && echo yes || echo no)"
+t hostcron-schedules-three-jobs 3 "$(grep -cE '^[0-9*/]+ [0-9*/]+ [0-9*/]+ [0-9*/]+ [0-9*/]+ ' "$HOST_CRONTAB")"
 # #589's refusal must never be handed a way past it: --force on a scheduled
 # reset is the silent fleet-wide downgrade the interlock exists to prevent,
 # and it would arrive as a one-word edit. The guard outlives the line it was

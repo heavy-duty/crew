@@ -6,74 +6,47 @@
 # written, and a skipped tick that wrote nothing made a wedged bot
 # indistinguishable from a healthy quiet one.
 #
-# ONE job is scheduled. That is a deliberate subtraction and not an omission;
-# the block below the line is where it is argued, and it is where a reader
-# who came here to add a second line should start.
+# THREE jobs are scheduled since 0.1.4: the host tick every five minutes, the
+# daily restart, the weekly reset. Install with `crontab -e` on the box HOST
+# (not in a box). $HOME is expanded by cron; the path is the link `install.sh`
+# maintains.
 #
-# Install with `crontab -e` on the box HOST (not in a box). $HOME is expanded
-# by cron; the path is the link `install.sh` maintains.
-#
-# Daily — drain and cycle every roster box. A busy box is SKIPPED by name and
-# never forced; the run exits 3 when any box was skipped, and nothing is lost.
-# It is also the fleet's only routine liveness signal: grok-reviewer ran no
-# session at all between 2026-08-19 and 2026-08-28, and nothing on the board
-# or on the floor reported it.
-10 4 * * * $HOME/.local/bin/crew restart --all
-#
-# THE WEEKLY `crew reset --all` IS DEFERRED TO 0.1.4, AND IT IS NOT LEFT HERE
-# COMMENTED OUT ON PURPOSE. A commented job line is an invitation to reinstate
-# a defect by uncommenting, in the one file nobody diffs. If you want it back,
-# read #328 first and bring it back with the flow that makes it safe.
-#
-# Why it is not scheduled (#678). The reset restores every roster box to its
-# `armed` checkpoint, and that is a whole-VM snapshot restore with no carve-out
-# for $DUTY_DIR. Most of what lives there survives being lost — the .seen-*
-# ledgers are cost-only and self-healing, mentions are made idempotent
-# GitHub-side, and declines are re-read from the board. Two things are not:
-#
-#   duty.log is the fleet's only record of its own sessions. It carries every
-#   SESSION END line and #469's tier, token and cost fields, and it lives
-#   inside the wiped directory — so a weekly restore leaves the fleet holding
-#   at most seven days of its own history, in the very window that ships
-#   telemetry into that file.
-#
-#   The resume breaker is cleared with no push. #314's invariant, written
-#   after the #311 flood, is that ONLY A PUSH CLEARS IT; a restore clears it
-#   anyway, so every correctly-suppressed lane re-arms each Sunday and buys
-#   itself three more dispatches before it re-suppresses.
-#
-# Neither side of that is wrong alone: the schedule is right about disk and
-# liveness, the breaker is right about floods. What nobody had written down is
-# that one of them is a durability assumption the other violates.
-#
-# What returns it: #328, the collector, moves that evidence off-box. Once it
-# is durable a restore costs nothing that matters, and the weekly line comes
-# back as part of that flow rather than as an edit here. The reasoning for why
-# the two verbs differ at all — price and period, @danmt 2026-08-29 — is kept
-# in shared/docs/host-maintenance.md, because that argument is what this
-# deferral gets reversed from.
-#
-# `crew reset` ITSELF IS UNCHANGED and remains available on demand: the verb,
-# its version interlock, its refusals, the host lock and the job log are all
-# exactly as #590 shipped them. It is still the right thing to run by hand
-# after a `crew upgrade`, and still what reclaims a box that has really
-# filled. Only the schedule changed.
-#
-# What the deferral costs until 0.1.4, said here because it is real and
-# currently unowned: the weekly reset had become the fleet's de-facto garbage
-# collector. The daily restart clears /tmp and week-old guest state; the reset
-# is what returned a box to a known size. NOT the detached review worktrees,
-# though — #606 closed 2026-09-02 and the duty tick reclaims those itself now.
-# What no tick reclaims is a kept-* preserved dirty tree and a build worktree
-# the engine declined to force. The runbook has the reading to take, and it is
-# a measurement rather than a deadline.
+# THE HOST NEEDS ITS OWN `gh` LOGIN. The tick reads every registered board
+# with the host's gh, not a box's: `gh auth login` once, as the operator (or a
+# read-only identity), before the first tick. A host whose gh is dead says so
+# on every tick and neither wakes nor stops a box — blindness is never read as
+# a quiet fleet. shared/docs/host-maintenance.md has the reading.
 #
 # Read the evidence in the host job log, not in cron mail:
 #   ~/.local/state/crew/host-maintenance.log
 # Every run writes a start line and an end line there, including a run that
 # did nothing and a run that was skipped by the lock — so silence in that log
 # at a boundary means exactly one thing: cron itself is dead.
-#
-# There is no second line. The weekly reset is deferred, above; the real-host
-# drill is operator-attended by construction and is deliberately not scheduled
-# here either.
+
+# The host tick (#759): one board read per repository, boxes started only for
+# work their member owns and stopped when idle, under FLEET_MAX_RUNNING. Five
+# minutes, the engine's own cadence; the box's cron keeps ticking while it is
+# up, and this line is what brings a stopped box back. A wake launches the
+# box's tick in the background and returns, so one long session never holds
+# this host's lock across the next boundaries.
+*/5 * * * * $HOME/.local/bin/crew tick
+
+# Daily — drain and cycle every roster box that is RUNNING. A busy box is
+# SKIPPED by name and never forced; a box the host tick stopped stays stopped
+# (the tick starts it when there is work), and a paused box is left paused.
+# The run exits 3 when any box was skipped, and nothing is lost. It is also
+# the fleet's routine liveness signal: grok-reviewer ran no session at all
+# between 2026-08-19 and 2026-08-28, and nothing on the board or on the floor
+# reported it.
+10 4 * * * $HOME/.local/bin/crew restart --all
+
+# The weekly reset (#761): every roster box back to its `armed` checkpoint,
+# Sunday 05:10, its memory drained to the store first and written back onto
+# the restored disk under the duty lock, so the first duty that runs reads the
+# whole of it. What #678 deferred the reset for — duty.log and the ledgers
+# lost with the disk — the store now holds; shared/docs/host-maintenance.md
+# keeps that history and the ordering rule.
+10 5 * * 0 $HOME/.local/bin/crew reset --all
+
+# The real-host drill is operator-attended by construction and is
+# deliberately not scheduled here.

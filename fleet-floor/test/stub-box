@@ -499,6 +499,31 @@ emit_probe() {
   echo '::logstart'
   duty_log_of "$sc"
   echo '::logend'
+  # --- full mode (#758): what probe.sh appends after its cadence record ---
+  # The state files every hired stub box carries, verbatim in their own
+  # sections, then duty.log as a slice from `PROBE_LOG_FROM` — exactly the
+  # order and the delimiters probe.sh emits, so the store reads the stub the
+  # way it reads a box. The ledger and the breaker are fixture data: the
+  # store test asserts a round trip, not their truth, and boxside.sh runs the
+  # real probe.sh over real files for that.
+  if [ "${3:-0}" = 1 ]; then
+    local _lines _total _from="${4:-1}"
+    case "$sc" in
+      nothired|unconverged|premanifest) printf '::statefiles \n' ;;
+      *)
+        printf '::statefiles .seen-build .session-terminal.review\n'
+        printf '::filestart .seen-build\nheavy-duty/crew#601 2026-07-26T09:00:00Z\nheavy-duty/crew#602 2026-07-26T10:00:00Z\n::fileend\n'
+        printf '::filestart .session-terminal.review\n2\ttripped\t11\tno\t0\t0\n::fileend\n'
+        ;;
+    esac
+    _lines="$(duty_log_of "$sc")"
+    _total="$(printf '%s\n' "$_lines" | awk 'END { print NR }')"
+    [ "$_from" -le $((_total + 1)) ] || _from=1
+    printf '::logfrom %s\n::logtotal %s\n' "$_from" "$_total"
+    echo '::filestart duty.log'
+    printf '%s\n' "$_lines" | tail -n +"$_from"
+    echo '::fileend'
+  fi
 }
 
 case "${1:-}" in
@@ -659,7 +684,14 @@ case "${1:-}" in
         # against the stub's arithmetic. boxside.sh now runs the real script
         # and asserts the conversion; this stays an age so the two agree.
         echo "l $(lockheld_ping_of "$sc")" ;;
-      *'echo "::logstart"'*)                    emit_probe "$name" "$sc" ;;
+      *'echo "::logstart"'*)
+        # Full mode (#758) is a line the collector exports at the TOP of the
+        # script; the stub reads the mode and the slice off that line, the way
+        # a real guest reads them off its environment.
+        _full=0; _from=1
+        case "$script" in *'PROBE_FULL=1'*) _full=1 ;; esac
+        _from="$(printf '%s\n' "$script" | sed -n '1s/.*PROBE_LOG_FROM=\([0-9][0-9]*\).*/\1/p')"
+        emit_probe "$name" "$sc" "$_full" "${_from:-1}" ;;
       # ABOVE the two CREW-FLOOR-PAUSED cases below, by this block's own
       # ordering rule. Since #189 crew's auth_from_flow counts the PAUSED
       # crontab lines as well as the live ones, so its script now contains the

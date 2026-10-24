@@ -261,6 +261,35 @@ anchor. It drilled a different lineage, and reading it would red a window it
 has nothing to say about — while a candidate the final *does* descend from is
 exactly the one whose record cannot be allowed to vanish.
 
+## Which legs run where — the offline contract and the host's round
+
+Two kinds of leg, and the split is the whole reason a pull request's CI is
+short (crew#756):
+
+- **Offline, on every pull request**, through `ci-shell`'s matrix: the
+  drill's contract tests — `shared/test/drill.sh` (orchestration, source
+  acquisition, the record's shape, every row's grading through the real
+  `wait_for`), `shared/test/install-drill.sh` (the installer's dry run and
+  interlock) and `shared/test/drill-teardown.sh` (the refusal set and
+  idempotence). They need no box, no credential and no network, and a
+  harness change that misgrades a row is caught here before it costs a
+  round on a host.
+- **On the host, on a candidate**: `drill/rehearsal-all.sh --ref X.Y.Z-rcN`,
+  the real-host round the ladder above gates a promotion on — boxes minted
+  through Incus, sandbox repositories, sessions bought from the vendor. It is
+  run by the operator against a published tag and its readings are appended
+  to that candidate's record. It does not run on pull requests, and nothing
+  in CI pretends to be it.
+- **The floor's browser walk** (`ci-floor.yml`) sits between: on every pull
+  request that moves `fleet-floor/`, weekly on `main`, and by hand on a
+  candidate — `gh workflow run ci-floor.yml --ref X.Y.Z-rcN` — with the run
+  named in the candidate's record. The floor's no-browser half runs in
+  `ci-shell`'s matrix on every engine change, because `cli.sh` lives there.
+
+Every row the host's round grades with a budget takes it from the box's own
+installed `TIMEOUT_<KIND>` through `wait_for_lane` (crew#750); a literal
+budget on a graded row is a defect `shared/test/drill.sh` pins against.
+
 ## Adapting the drill to the window
 
 **A release window's drill is adapted to what that window shipped, and the

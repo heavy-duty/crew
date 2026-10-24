@@ -15,8 +15,10 @@
 # Architectural spine (dan-claude-bot): this module only ever WAKES a
 # session — it never edits a label itself. A parser bug becomes a false lead
 # the session rejects, not a wrong board write. Every signal is fail-safe:
-# (e)'s unknown blocker counts as still-open, and the hourly hygiene sweep
-# is the unconditional backstop for anything detection misses.
+# (e)'s unknown blocker counts as still-open — a cross-repo one included,
+# since it parses keyed by its whole token and no local state map resolves
+# it (#632) — and the hourly hygiene sweep is the unconditional backstop for
+# anything detection misses.
 #
 # Every board read is isolated per signal per repo: one transient API failure
 # degrades to a logged skip, never an aborted tick (the old duty.sh died
@@ -26,22 +28,23 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2016  # single-quoted GraphQL/jq programs with $vars are intended
 
+# The selector is lib/jq/discussions.jq (#757 D8): a thread wakes triage when
+# its last word is not triage's own, or when triage's own last word carries a
+# `returns on <date>` that has arrived. Bodies and timestamps are fetched for
+# that; the old query read logins only and could not see a promise at all.
 _triage_discussion_items() {  # _triage_discussion_items REPO OWNER NAME
   local repo="$1" owner="$2" name="$3"
-  TR_ME="$ME" TR_R="$repo" gh api graphql -f owner="$owner" -f name="$name" -f query='
+  TR_ME="$ME" TR_R="$repo" TR_TODAY="$(date -u +%Y-%m-%d)" \
+    gh api graphql -f owner="$owner" -f name="$name" -f query='
     query($owner:String!,$name:String!){
       repository(owner:$owner,name:$name){
         discussions(first:50,states:OPEN){
           nodes{ number updatedAt
-            comments(first:50){ nodes{ author{ login }
-              replies(first:20){ nodes{ author{ login } } } } } }
+            comments(last:50){ nodes{ author{ login } body createdAt
+              replies(last:20){ nodes{ author{ login } body createdAt } } } } }
         }
       }
-    }' --jq '[.data.repository.discussions.nodes[]
-              | select( [ .comments.nodes[] | .author.login,
-                          .replies.nodes[].author.login ]
-                        | index(env.TR_ME) | not )
-              | "\(env.TR_R)#\(.number) \(.updatedAt)"] | .[]'
+    }' --jq "$(cat "$DUTY_DIR/lib/jq/discussions.jq")"
 }
 
 _triage_unblockable_items() {  # _triage_unblockable_items REPO BLOCKED_JSON NUMSTATES
@@ -62,8 +65,10 @@ _triage_graph_edges() {  # _triage_graph_edges REPO ISSUES_JSON
     # Keep byte-identical with lib/jq/blockers.jq: signal (e) and signal (f)
     # deliberately recognize the same declaration grammar.
     def blockers:
-      [ match("[Bb]locked by([^.]*)"; "g").captures[0].string ] | join(" ")
-      | [ scan("(?:^|[^A-Za-z0-9/])#([0-9]+)") | .[0] ];
+      def mask: if test("\\([^()]*\\)") then gsub("\\((?<p>[^()]*)\\)"; "[" + (.p | gsub("[.;](?=\\s|$)"; ",")) + "]") | mask else . end; mask
+      | gsub("\\((?<p>[^()\\n]*)(?=\\n|$)"; "[" + (.p | gsub("[.;](?=[ \\t])"; ",")) + "]")
+      | [ match("(?<![`\"])[Bb]locked by((?:[^.;]|[.;](?=[A-Za-z0-9]))*)"; "g").captures[0].string ] | join(" ")
+      | [ scan("(?:^|[^A-Za-z0-9_/.-])((?:[A-Za-z0-9_.-]+/)?[A-Za-z0-9_.-]+#[0-9]+|#([0-9]+))") | .[1] // .[0] ];
     [ .[] as $issue
       | (($issue.body // "") | blockers[]) as $predecessor
       | {edge:"\($repo)#\($issue.number)#\($predecessor)", predecessor:$predecessor} ]
@@ -339,7 +344,10 @@ duty_triage() {
   mapfile -t repos < <(read_repo_list "$REPOS_FILE")
 
   # (d) unread mentions — one notifications snapshot and one session for the
-  # whole tick. The session remains first, so every per-repo board poll below
+  # whole tick. A discussion's `author` and `comment` notifications count too
+  # (#757 D8): a human answering a thread triage opened arrives as `author`,
+  # not `mention`, and was dropped — five of ten non-mention rows on
+  # 2026-09-03 were exactly that shape. The session remains first, so every per-repo board poll below
   # observes changes made while answering a mention (#253).
   all_mentions='[]'
   repo_json="$(printf '%s\n' "${repos[@]}" | awk 'NF' | jq -R . | jq -cs .)"
@@ -349,7 +357,9 @@ duty_triage() {
      all_mentions="$(printf '%s\n' "$notification_pages" | jq -c -s --argjson repos "$repo_json" '
        (add // [])
        | [ .[]
-           | select((.reason == "mention" or .reason == "team_mention")
+           | select((.reason == "mention" or .reason == "team_mention"
+                     or ((.subject.type // "") == "Discussion"
+                         and (.reason == "author" or .reason == "comment")))
                     and (.repository.full_name as $repo | $repos | index($repo)))
            | {repo: .repository.full_name, thread: .id,
               subject: .subject.url, updated: .updated_at} ]
@@ -457,20 +467,18 @@ _triage_repo() {
 
   # (b) queue-unlabeled strays: the board invariant, quoted from LABELS.md, is
   # that every open issue "is either needs-triage, epic, or carries exactly one
-  # of ready / claimed / blocked / post-merge" — SIX labels. This enumeration
-  # said five until #358, dropping post-merge, and the paraphrase is what made
-  # that survivable-looking: the moment triage did its job and moved a merged
-  # issue post-merge, it converted that issue into a permanent violation of the
-  # engine's own invariant, which no session could ever clear because
-  # post-merge is the correct terminal state. The detector asks exactly one
+  # of ready / claimed / blocked" — FIVE labels, read from the conf so the set
+  # here and LABELS.md's sentence are asserted equal by the suite. It was six
+  # with `post-merge` from #358 until ceremony 0.7.11 retired that row: after-
+  # close work is now a successor issue minted at the split, so a merged issue
+  # closes and needs no terminal queue state. The detector asks exactly one
   # question — does this issue carry a queue label — and the composition rules
-  # (post-merge never composes with blocked or attention, an assigned
-  # post-merge issue is flagged) are the sweep's, not this signal's.
+  # are the sweep's, not this signal's.
   if ! stray_items="$(printf '%s' "$issue_json" \
       | jq -r --arg repo "$R" --arg r "$LABEL_READY" --arg c "$LABEL_CLAIMED" --arg b "$LABEL_BLOCKED" \
-           --arg p "$LABEL_POST_MERGE" --arg e "$LABEL_EPIC" --arg n "$LABEL_NEEDS_TRIAGE" \
+           --arg e "$LABEL_EPIC" --arg n "$LABEL_NEEDS_TRIAGE" \
         '.[] | select( ([.labels[].name]
-            | map(. == $r or . == $c or . == $b or . == $p or . == $e or . == $n) | any) | not )
+            | map(. == $r or . == $c or . == $b or . == $e or . == $n) | any) | not )
           | "\($repo)#\(.number) \(.updatedAt)"' 2>/dev/null)"; then
     warn "$R: stray parse failed"
     stray_items=""
@@ -522,7 +530,9 @@ _triage_repo() {
   # (e) blocked issues whose named blockers all landed. The parser is
   # deliberately narrow (see lib/jq/blockers.jq — corpus-tested); issue and
   # PR numbering is shared, so the state map needs both lists. Fail-safe by
-  # construction: an unknown number counts as still-open.
+  # construction: an unknown number counts as still-open, and so does a
+  # cross-repo reference, which is keyed by its whole token (owner/repo#N)
+  # and therefore never resolves against this map (#632).
   local blocked_json numstates graph_edges='[]' graph_items=""
   local unblockable_items="" fresh_unblockable=""
   blocked_json="$(jq -c --arg b "$LABEL_BLOCKED" \
@@ -633,10 +643,10 @@ _triage_repo() {
       fi
       if ! post_stray="$(printf '%s' "$post_board_json" \
           | jq -r --arg repo "$R" --arg r "$LABEL_READY" --arg c "$LABEL_CLAIMED" \
-              --arg b "$LABEL_BLOCKED" --arg p "$LABEL_POST_MERGE" \
+              --arg b "$LABEL_BLOCKED" \
               --arg e "$LABEL_EPIC" --arg n "$LABEL_NEEDS_TRIAGE" \
             '.[] | select( ([.labels[].name]
-                | map(. == $r or . == $c or . == $b or . == $p or . == $e or . == $n) | any) | not )
+                | map(. == $r or . == $c or . == $b or . == $e or . == $n) | any) | not )
               | "\($repo)#\(.number) \(.updatedAt)"' 2>/dev/null)"; then
         warn "$R: post-session stray parse failed"
         post_stray=""

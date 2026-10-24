@@ -33,7 +33,13 @@
       - any-glob-to-any-file: ["install.sh", "shared/install.sh", "dist/**"]
 "scope:ci":
   - changed-files:
-      - any-glob-to-any-file: [".github/workflows/ci-shell.yml", ".github/workflows/ci-floor.yml", ".github/workflows/ci-rerun.yml"]
+      - any-glob-to-any-file:
+          - ".github/workflows/ci-shell.yml"
+          - ".github/workflows/ci-floor.yml"
+          - ".github/workflows/ci-rerun.yml"
+          # The plan, the suite runner, the path map and the pinned shellcheck
+          # fetch ci-shell runs (#756): the loop's own tooling, owned here.
+          - ".github/ci/**"
 "scope:fleet-floor":
   - changed-files:
       - any-glob-to-any-file: ["fleet-floor/**"]

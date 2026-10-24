@@ -25,3 +25,5 @@ For a command that should finish now, never poll on a pattern the polling shell 
 Then submit the verdict: approve or request changes, never a bare comment. Review checkout discipline: `{{REVIEW_WT_PARENT}}` is only the parent that holds review worktrees; it is not a checkout, and no repository command runs there. For each PR, save the parked clone as `review_repo="$(pwd)"`, set `review_checkout="{{REVIEW_WT_PARENT}}/review-<N>"`, fetch the PR head (`git fetch origin pull/<N>/head`), and check it out DETACHED at that exact path (`git worktree add --detach "$review_checkout" <head-sha>`). Run the whole review from the checkout (`cd "$review_checkout"`) so repo-wide globs and `git ls-files` see only that head, never sibling worktrees or mutation fixtures. After the verdict, return to the parked clone and remove the checkout (`cd "$review_repo" && git worktree remove "$review_checkout"`) — never review on a named branch checkout in this clone; it stays parked on the default branch, always clean.
 
 {{ONESHOT_RULES}}
+
+{{WAIT_RULES}}

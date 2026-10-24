@@ -1,0 +1,60 @@
+# .github/ci/suites.map — which suites a changed path needs (#756).
+#
+# One rule per line: <pattern><TAB><suites>. The pattern is a bash [[ == ]]
+# pattern matched against the repository-relative path (`*` matches `/`), and
+# <suites> is a comma-separated list of suite ids as `run-suite.sh` names them,
+# or the word `full` (run everything) or `none` (this path needs no suite).
+# The FIRST rule whose pattern matches decides, so a specific rule sits above
+# its catch-all; a path matching NO rule runs everything — the map can under-reach only by naming a path, never by
+# forgetting one. Suite ids that are test files map by name in plan.sh and
+# are not listed here: shared/test/<id>.sh → <id>, shared/test/common/<x>.sh →
+# common/<x>; a test file with no suite id runs everything.
+#
+# The full matrix also runs on every push to main and weekly (ci-shell.yml),
+# which is what bounds a wrong rule here to one week.
+shared/test/lib.sh	full
+shared/test/run.sh	full
+.github/ci/*	full
+.github/workflows/ci-shell.yml	full
+.github/workflows/ci-floor.yml	full
+.ceremony/*	full
+shared/lib/common.sh	full
+shared/lib/duty-attention.sh	full
+shared/lib/common/logging.sh	common,common/logging
+shared/lib/common/operating-limits.sh	common,common/operating-limits,vitals
+shared/lib/common/conf.sh	common,common/conf,conf
+shared/lib/common/checkout.sh	common,common/checkout,builder,review
+shared/lib/common/session.sh	common,common/session,common/detached-run,builder,review,triage
+shared/lib/common/detached-run.sh	common,common/detached-run,review
+shared/lib/common/breaker.sh	common,common/breaker,builder,review,triage
+shared/lib/common/ledger.sh	common,common/ledger,builder,review,triage
+shared/lib/common/identity.sh	common,common/identity,boot-gate
+shared/lib/common/tick-health.sh	common,common/tick-health,boot-gate,cli-lifecycle,cli-reset,cli-store
+shared/lib/common/*	full
+shared/lib/duty-triage.sh	triage,hygiene
+shared/lib/duty-builder.sh	builder
+shared/lib/duty-review.sh	review
+shared/lib/duty-hygiene.sh	hygiene,triage
+shared/lib/duty-reaper.sh	reaper
+shared/lib/duty-release.sh	release,builder
+shared/lib/jq/*	builder,review,triage
+shared/lib/box-mint.sh	cli-lifecycle,cli-reset,common
+shared/lib/install-payload.sh	install-lifecycle,artifact,install-drill
+shared/lib/platform.sh	common,cli-lifecycle,cli-reset,cli-store,host-tick,boot-gate
+shared/lib/version-skew.sh	common,cli-lifecycle,boot-gate
+shared/bin/*	full
+shared/prompts/*	builder,review,triage,hygiene,release
+shared/conf/*	conf,model-prices,common/conf,boot-gate,vitals
+shared/host-crontab.example	cli-lifecycle,cli-reset,host-tick
+shared/docs/*	none
+shared/README.md	none
+shared/test/README.md	none
+shared/lib/host/*	host-tick,cli-lifecycle
+fleet-floor/server/probe.sh	floor-no-browser,cli-store,host-tick,release
+cli/crew	cli-lifecycle,cli-reset,cli-store,host-tick,common,floor-no-browser
+drill/*	drill,install-drill,drill-teardown
+install.sh	install-lifecycle,artifact,install-drill
+shared/install.sh	install-lifecycle,artifact,install-drill,boot-gate
+dist/*	artifact,install-lifecycle
+fleet-floor/*	floor-no-browser
+examples/*	conf,cli-lifecycle,cli-reset

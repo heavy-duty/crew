@@ -592,7 +592,7 @@ t orphan-parity-resolves-indirect-observed-source indirect \
 # Dropping both reconstructed peers proves neither model token is copied into
 # the comparison as a list maintained beside the emitters.
 orph_mutant model-fields-missing \
-  's/ model=unknown models=- pool=unknown/ pool=unknown/'
+  's/ model=unknown models=- why=- pool=unknown/ why=- pool=unknown/'
 ORPH_M13="$TMP/ledger-mutant-model-fields-missing.sh"
 t orphan-parity-reads-indirect-model-fields $'model\nmodels' \
   "$(session_end_missing "$SHARED/lib/common/session.sh" "$ORPH_M13")"

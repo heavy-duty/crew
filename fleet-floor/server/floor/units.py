@@ -13,6 +13,13 @@ from floor.ping import STUCK_AFTER_S, probe_box
 # duty.log -> telemetry  (#38)
 # --------------------------------------------------------------------------
 
+# THESE PATTERNS STAY with the store in place (#758). The store holds the
+# box's duty.log LINES (floor/store.py, `duty_log`), not a second opinion
+# about them: a unit served from the store for a box that does not answer is
+# derived by running these same functions over the stored lines, and the live
+# path keeps parsing the probe exactly as before. One parser, two sources —
+# retiring the regexes would have meant a second parser in SQL that could
+# disagree with this one about what a line says.
 TS = r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)"
 # The `timeout=` group is what STUCK is measured against (#610): the session
 # states its own ceiling on the record, so the floor never keeps a second copy
@@ -109,10 +116,27 @@ def parse_ts(s):
 
 
 def parse_probe(text):
-    """Split the probe's `::key value` record from its delimited log section."""
+    """Split the probe's `::key value` record from its delimited sections.
+
+    Four section kinds. The log, limit and tick-health sections are the
+    cadence record every poll reads. `::filestart <name>` … `::fileend` is
+    the full-mode record (#758, `PROBE_FULL=1`): one section per state file
+    and one for duty.log, collected under `meta["file-sections"]` by name and
+    never read as keys — a ledger line or a log line that happens to begin
+    with `::` is data. `meta["open-section"]` names a section that was never
+    closed, which is what a record cut off mid-file looks like; the store
+    refuses such a record rather than landing half a box.
+    """
     meta, loglines, limitlines, healthlines = {}, [], [], []
+    files, open_file = {}, None
     in_log, in_limits, in_health = False, False, False
     for line in text.splitlines():
+        if open_file is not None:
+            if line == "::fileend":
+                open_file = None
+            else:
+                files[open_file].append(line)
+            continue
         if line == "::limitstart":
             in_limits = True
             continue
@@ -137,11 +161,19 @@ def parse_probe(text):
             loglines.append(line)
         elif in_health:
             healthlines.append(line)
+        elif line.startswith("::filestart "):
+            open_file = line[len("::filestart "):].strip()
+            files.setdefault(open_file, [])
         elif line.startswith("::"):
             k, _, v = line[2:].partition(" ")
             meta[k] = v.strip()
     meta["limit-events"] = limitlines
     meta["tick-health"] = healthlines
+    meta["file-sections"] = files
+    meta["open-section"] = (open_file if open_file is not None
+                            else "log" if in_log
+                            else "limits" if in_limits
+                            else "tick-health" if in_health else None)
     return meta, loglines
 
 
@@ -674,6 +706,12 @@ def unit_defaults():
         "limit_dropped": None,
         "authfail": [], "ping": None,
         "note": "", "agent_actual": "",
+        # WHERE the record came from (#758): "live" once a probe answered,
+        # "stored" when the box did not answer and the host's store had a
+        # reading, "" when neither. A stored unit also carries `stored_at`
+        # (the last ok pull) and `cost_24h`; a live one carries neither, so
+        # a reader cannot mistake an old reading for a fresh one.
+        "source": "",
         # The box vitals record (#483), or None where the log carries none —
         # a box on an engine older than the probe, and every box for the first
         # tick after it lands. None and not an empty dict, for the reason
@@ -702,7 +740,28 @@ def unit_defaults():
     }
 
 
-def build_unit(unit, state, agent_conf, now, inventory_ok=True):
+def _overlay_stored(u, store, now):
+    """A box that did not answer, read from the store (#758).
+
+    Only ADDS: the state and the note the early returns decided stay as they
+    are — a stopped box is still "stopped — crew up starts it", an unreachable
+    one still says why — and the record gains what the host remembers: the
+    sessions, queue, spark and counts the same derivations produce over the
+    stored lines, `source: "stored"` and `stored_at` so no reader takes the
+    reading for live, and the 24h cost. Nothing stored: the unit is exactly
+    what it was.
+    """
+    try:
+        stored = store.stored_unit(u["box"], now)
+    except Exception as e:                                  # noqa: BLE001
+        u["note"] = "%s · store unreadable: %s" % (u["note"], e) if u["note"] else str(e)
+        return u
+    if stored:
+        u.update(stored)
+    return u
+
+
+def build_unit(unit, state, agent_conf, now, inventory_ok=True, store=None):
     """Roster entry + live probe -> the record the page renders.
 
     `inventory_ok` is whether `box list` ANSWERED. It matters only where state
@@ -710,6 +769,12 @@ def build_unit(unit, state, agent_conf, now, inventory_ok=True):
     makes every box look absent, and #204's grid filter would then read a
     broken inventory as a fleet nobody ever hired and draw an empty floor.
     Absence has to be measured before it can hide anything.
+
+    `store` is the host's store module (floor.store), or None for a caller
+    that only wants the parse (#758). With it, every probe runs in full mode
+    and its record is ingested after the parse, a probe that fails records a
+    failed pull, and a box that cannot be asked — stopped, unreachable — is
+    served from what the store holds, marked `source: "stored"`.
     """
     u = dict(unit)
     u.update(unit_defaults())
@@ -732,23 +797,57 @@ def build_unit(unit, state, agent_conf, now, inventory_ok=True):
         # Keeps "unknown": the box exists and nobody can ask it anything while
         # it is down. Hiring is not undone by `crew down`.
         u["note"] = "stopped — crew up starts it"
+        if store is not None:
+            try:
+                store.note_state(unit["box"], "stopped")
+            except Exception:                               # noqa: BLE001
+                pass
+            return _overlay_stored(u, store, now)
         return u
 
     # Bracket this box's own probe. The fleet's batch timestamp predates an
     # unbounded queue/transport delay and therefore cannot measure clock skew.
     # `::now` is sampled somewhere inside this interval; its distance from the
     # midpoint is bounded by half the interval, plus its one-second precision.
+    probe_env = None
+    if store is not None:
+        try:
+            probe_env = store.probe_env(unit["box"])
+        except Exception:                                   # noqa: BLE001
+            probe_env = {"PROBE_FULL": "1"}
     probe_started = time.time()
-    raw, err = probe_box(unit, agent_conf)
+    # The two-argument call is kept for a caller without a store: the suites
+    # stand a `lambda unit, agent_conf` in for probe_box, and a keyword they
+    # never knew is a TypeError on every one of them.
+    raw, err = (probe_box(unit, agent_conf, env=probe_env) if probe_env
+                else probe_box(unit, agent_conf))
     probe_finished = time.time()
     if raw is None:
         # Also "unknown", and this is the one that matters most: a box that
         # stopped answering is the hired-and-gone-dark case, and dropping its
         # console would hide the failure the floor is for.
         u["note"] = "unreachable: %s" % err
+        if store is not None:
+            # A failed probe is a failed pull, and the rows already stored
+            # stay exactly where they are: that is the reading served below.
+            try:
+                store.failed_pull(unit["box"], "unreachable: %s" % err, "unreachable")
+            except Exception:                               # noqa: BLE001
+                pass
+            return _overlay_stored(u, store, now)
         return u
 
     meta, loglines = parse_probe(raw)
+    u["source"] = "live"
+    if store is not None:
+        # Landed BEFORE the parse decides anything, in one transaction per
+        # box; a record the exec cut off is refused there and reported here.
+        try:
+            res = store.ingest_record(unit["box"], raw, unit.get("agent"), unit.get("room"))
+            if not res["ok"]:
+                u["note"] = "store: pull failed — %s" % res["note"]
+        except Exception as e:                              # noqa: BLE001
+            u["note"] = "store: %s" % e
     u["engine"] = meta.get("engine", "")
     # The engine stamp's provenance, in #159's vocabulary: current, modified,
     # unverified, absent. Carried, never re-derived and never smoothed — the box

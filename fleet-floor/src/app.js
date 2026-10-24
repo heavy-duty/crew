@@ -1462,6 +1462,9 @@ var dataCache={}, floorFilter={state:"all",role:"all"};
 function VENDORCOL(a){return VCOL[a]||"#8aa0b8";}
 function hexA(h,a){h=h.replace("#","");return "rgba("+parseInt(h.substr(0,2),16)+","+parseInt(h.substr(2,2),16)+","+parseInt(h.substr(4,2),16)+","+a+")";}
 function pad2(n){return (n<10?"0":"")+n;}
+/* #758 — the wall-clock HH:MM of the store's last ok pull, in the viewer's
+   zone; "—" when the stamp is missing or unreadable. */
+function storedClock(iso){var t=iso?new Date(iso):null;if(!t||isNaN(t.getTime()))return "—";return pad2(t.getHours())+":"+pad2(t.getMinutes());}
 function ri2(a,b){return a+Math.floor(Math.random()*(b-a+1));}
 function kindOf(room){return room==="builder"?"build":room==="reviewer"?"review":"triage";}
 function outcomeFor(k){return k==="build"?["opened PR","pushed fixups","needs-human","resumed"][ri2(0,3)]:k==="review"?["approved","changes-requested","commented"][ri2(0,2)]:["labeled ready","routed to builder","marked blocked","ruling posted"][ri2(0,3)];}
@@ -1624,6 +1627,11 @@ function liveData(u){
   d.limited=u.limited||null;d.floorEvents=u.floor_events||[];
   d.limitDropped=u.limit_dropped===undefined?null:u.limit_dropped;
   d.note=u.note||"";d.paused=!!u.paused;d.logs=u.logs||[];d.repos=u.repos||[];
+  /* #758 — WHERE the record came from. "stored" is a box that did not answer,
+     served from the host's store with the time of its last ok pull; the panel
+     marks it so an old reading is never taken for a fresh one. A collector
+     older than the field sends none, which renders as no mark. */
+  d.source=u.source||"";d.storedAt=u.stored_at||null;
   /* #189 gave the collector this flag and nothing here read it, so every
      deliberately-stopped box came through as a bare state:"offline" and got
      shouted at as SILENT (#203). Defaulted like the fields above: a collector
@@ -1789,7 +1797,7 @@ function goLive(){
     b.textContent="◈ LIVE";b.classList.add("live");
     b.title="Live telemetry — every box polled from the operator host over 'box exec'.";
   });
-  ["g-start","g-stop","g-wake","g-reg","a-pause","a-restart","c-send"].forEach(function(id){
+  ["g-start","g-stop","g-wake","g-reg","g-roster","a-pause","a-restart","c-send"].forEach(function(id){
     var e=document.getElementById(id);if(e){e.classList.remove("woff");e.title="";}
   });
   var cin=document.getElementById("c-in");
@@ -1989,7 +1997,7 @@ function populateDash(){
   /* The note under the big card always named the real reason, so an operator
      who read the sub-text was never blind — but the word in 40px type above it
      said SILENT for all three, and that is the one the eye takes. */
-  if(off)cs+='<div class="big" style="color:'+(stw?"#8aa0b8":"#ff5147")+'">— '+(stw||"SILENT")+' —</div><div class="task">'+esc(LIVE&&d.note?d.note:"no active session · cron missed")+'</div>';
+  if(off)cs+='<div class="big" style="color:'+(stw?"#8aa0b8":"#ff5147")+'">— '+(stw||"SILENT")+' —</div><div class="task">'+esc(LIVE&&d.note?d.note:"no active session · cron missed")+'</div>'+(d.source==="stored"?'<div class="task" id="cur-stored" style="color:#8aa0b8">off · stored '+storedClock(d.storedAt)+'</div>':'');
   /* STUCK outranks the running-session view even though a session IS running.
      That is the whole point: cron is ticking, duty.log is fresh, the box looks
      busy — and it has been holding the same lock for longer than two tick
@@ -6485,7 +6493,7 @@ for(var _sd=0;_sd<6;_sd++)tickerEvent();
    controls stay shown-but-disabled. Serving the page with `crew floor` is what
    turns them on — goLive() clears every .woff below. */
 var CTL_TIP="Open this page with `crew floor` — a served page drives the boxes from the host.";
-if(!LIVE){["g-start","g-stop","g-wake","g-reg","a-pause","a-restart","c-send"].forEach(function(id){var e=document.getElementById(id);if(e){e.classList.add("woff");e.title=CTL_TIP;}});var cin=document.getElementById("c-in");if(cin){cin.disabled=true;cin.classList.add("woff");cin.placeholder="Messaging needs a served page — run: crew floor";}}
+if(!LIVE){["g-start","g-stop","g-wake","g-reg","g-roster","a-pause","a-restart","c-send"].forEach(function(id){var e=document.getElementById(id);if(e){e.classList.add("woff");e.title=CTL_TIP;}});var cin=document.getElementById("c-in");if(cin){cin.disabled=true;cin.classList.add("woff");cin.placeholder="Messaging needs a served page — run: crew floor";}}
 /* Fleet-wide actions. "Start/Stop all" are box lifecycle, not a mood: they
    power the roster's boxes up and down. "Wake silent" resumes a paused crontab
    and starts a stopped box — it does NOT start a model session, because a box
@@ -6493,6 +6501,7 @@ if(!LIVE){["g-start","g-stop","g-wake","g-reg","a-pause","a-restart","c-send"].f
 document.getElementById("g-start").addEventListener("click",function(){if(!LIVE)return;if(confirm("Start every roster box?"))cmd("start-all");});
 document.getElementById("g-stop").addEventListener("click",function(){if(!LIVE)return;if(confirm("Stop every roster box? Running sessions are lost."))cmd("stop-all");});
 document.getElementById("g-reg").addEventListener("click",function(){openRegistries("");});
+document.getElementById("g-roster").addEventListener("click",function(){openRoster();});
 document.getElementById("g-wake").addEventListener("click",function(){if(!LIVE)return;cmd("wake-silent");});
 setInterval(tickOps,1000);setInterval(updateCurrent,1000);
 /* The access panel is re-rendered on every poll, so its buttons are handled by
@@ -6708,6 +6717,100 @@ function onRegistryClick(e){
        correct, which is the one moment the field's contents matter most. */
     if(r&&r.ok)openRegistries(box);
   });
+}
+/* ===================== the roster (#764) =====================
+
+   fleet.roster IS the fleet — one line per box: name, agent, role(s), and the
+   gold box/snapshot it is minted from — and it was the one piece of the
+   definition this console showed and could not change. It is edited here the
+   way the registries are: an overlay opened on demand, painted once from the
+   file as it is on disk right now (a hand edit between two clicks is picked
+   up), saved whole, refused whole with the line and the reason when a line is
+   wrong.
+
+   SAVING WRITES THE DEFINITION AND NOTHING ELSE. A new line becomes a box when
+   the operator runs `crew up` on the host (it creates, starts and hires every
+   roster box; the login is theirs, by hand). A removed line's box is left
+   alone: the console stops watching it, and nothing is ever deleted. The
+   collector reads the roster on every poll, so the edit is live at the next. */
+var ROSTER_OPTS={agents:[],roles:[]};
+function openRoster(){
+  if(!LIVE){setStatus("the roster is live-only — run the collector to edit it",true);return;}
+  setStatus("reading the roster…",false);
+  api("/api/roster").then(function(r){
+    if(!r||!r.members){setStatus("could not read the roster",true);return;}
+    var ov=document.getElementById("rosov");
+    if(!ov){
+      ov=document.createElement("div");ov.id="rosov";
+      ov.innerHTML='<div class="logbox"><div class="loghd"><span id="rosttl"></span><button id="rosx">✕ close</button></div><div class="regbody" id="rosbody"></div></div>';
+      document.body.appendChild(ov);
+      ov.addEventListener("click",function(e){if(e.target===ov||e.target.id==="rosx")closeRoster();});
+      document.getElementById("rosbody").addEventListener("click",onRosterClick);
+    }
+    ROSTER_OPTS={agents:r.agents||[],roles:r.roles||[]};
+    document.getElementById("rosttl").textContent="fleet roster · "+r.path;
+    /* Each row's standing is read off the poll's own snapshot, never re-asked:
+       a line with no box yet is the TARGET fleet (the roster deliberately names
+       boxes the CLI has not created, #77), and that is said as such. */
+    var units={};((LIVEMETA&&LIVEMETA.units)||[]).forEach(function(u){units[u.box]=u;});
+    document.getElementById("rosbody").innerHTML=
+      '<div class="regnote">One line per box: its name, the agent it runs, its role(s), and the box/snapshot it is minted from (optional). '
+      +'Saving writes <code>fleet.roster</code> on the host and nothing else: a new line becomes a box when you run <code>crew up</code> there '
+      +'(it creates, starts and hires every roster box; the login is yours, by hand). A removed line\'s box is left alone — the console stops watching it, nothing is ever deleted.</div>'
+      +'<table class="rostbl"><thead><tr><th>box</th><th>agent</th><th>roles</th><th>from (box/snapshot)</th><th></th></tr></thead><tbody id="roslist">'
+      +r.members.map(function(m){return rosterRow(m,units[m.box]);}).join('')
+      +'</tbody></table>'
+      +'<div class="regacts"><button class="lbtn" data-ros="add">+ Add a box</button><button class="lbtn" data-ros="save">Save roster</button></div>';
+    ov.style.display="flex";
+    setStatus("roster: "+r.members.length+" member"+(r.members.length===1?"":"s"),false);
+  }).catch(function(){setStatus("could not read the roster",true);});
+}
+function rosterStanding(u){
+  if(!u)return "new";
+  if(u.hired==="yes")return "hired";
+  if(/not created|inventory/.test(u.note||""))return "not created";
+  return u.hired==="no"?"not hired":"";
+}
+function rosterRow(m,u){
+  var chosen={};(m.room||"").split(",").forEach(function(x){if(x)chosen[x]=1;});
+  var st=rosterStanding(u);
+  return '<tr class="rosrow">'
+    +'<td><input class="rosin" data-k="box" value="'+esc(m.box||"")+'" placeholder="box-name" spellcheck="false"'+(u?' readonly title="an existing box keeps its name — a renamed line would be a second box"':'')+'>'
+    +(st?'<div class="rosst'+(st==="new"?" new":"")+'">'+esc(st)+'</div>':'')+'</td>'
+    +'<td><select class="rosin" data-k="agent">'+ROSTER_OPTS.agents.map(function(a){return '<option'+(a===m.agent?' selected':'')+'>'+esc(a)+'</option>';}).join('')+'</select></td>'
+    +'<td><div class="regsel rossel">'+ROSTER_OPTS.roles.map(function(x){return '<label class="regopt"><input type="checkbox" value="'+esc(x)+'"'+(chosen[x]?' checked':'')+'><span>'+esc(x)+'</span></label>';}).join('')+'</div></td>'
+    +'<td><input class="rosin" data-k="from" value="'+esc(m.from||"")+'" placeholder="(blank mint)" spellcheck="false"></td>'
+    +'<td><button class="lbtn rosdrop" data-ros="drop" title="remove this line (the box itself is left alone)">✕</button></td></tr>';
+}
+function closeRoster(){var ov=document.getElementById("rosov");if(ov)ov.style.display="none";}
+function onRosterClick(e){
+  var b=e.target.closest("[data-ros]");if(!b)return;
+  var list=document.getElementById("roslist");
+  if(b.dataset.ros==="add"){
+    list.insertAdjacentHTML("beforeend",rosterRow({box:"",agent:ROSTER_OPTS.agents[0]||"",room:"",from:""},null));
+    var inp=list.lastElementChild.querySelector('[data-k="box"]');if(inp)inp.focus();
+    return;
+  }
+  if(b.dataset.ros==="drop"){
+    var tr=b.closest("tr"),name=tr.querySelector('[data-k="box"]').value.trim();
+    /* Confirmed because it is a REMOVAL from the fleet's definition, even
+       though the box stays: the console stops watching it and the host tick
+       stops waking it. The question names what does and does not happen. */
+    if(name&&!confirm("Remove "+name+" from the roster? Its box is left exactly as it is — not stopped, not deleted — but the console stops watching it and the host tick stops waking it."))return;
+    tr.remove();
+    return;
+  }
+  /* Save: the whole table, as the file will read. The collector validates
+     every line before anything moves and refuses with the line and the
+     reason; a refusal leaves the operator's rows exactly as typed, beside
+     the reason in the status line — the one moment the contents matter most. */
+  var members=[].map.call(list.querySelectorAll("tr.rosrow"),function(tr){
+    return {box:tr.querySelector('[data-k="box"]').value.trim(),
+            agent:tr.querySelector('[data-k="agent"]').value,
+            roles:[].map.call(tr.querySelectorAll('.rossel input:checked'),function(i){return i.value;}),
+            from:tr.querySelector('[data-k="from"]').value.trim()};
+  });
+  return cmd("roster-set",{members:members}).then(function(r){if(r&&r.ok)openRoster();});
 }
 document.getElementById("filters").addEventListener("click",function(e){var b=e.target.closest(".fchip");if(!b)return;var f=b.dataset.f;floorFilter[f]=b.dataset.v;[].forEach.call(this.querySelectorAll('.fchip[data-f="'+f+'"]'),function(x){x.classList.toggle("on",x===b);});});
 /* Pause/Resume is the box's crontab, not its power: the engine stops being

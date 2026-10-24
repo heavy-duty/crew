@@ -157,6 +157,19 @@ input.woff{color:#5a6a80}
 #regov{display:none;position:fixed;inset:0;z-index:60;background:rgba(2,5,10,.82);align-items:center;justify-content:center;padding:5vh 5vw}
 #regov .logbox{display:flex;flex-direction:column;width:min(880px,92vw);max-height:86vh;background:#080d16;border:1px solid #223148;border-radius:10px;overflow:hidden}
 #regov .regbody{flex:1;overflow:auto;padding:14px}
+#rosov{display:none;position:fixed;inset:0;z-index:60;background:rgba(2,5,10,.82);align-items:center;justify-content:center;padding:5vh 5vw}
+#rosov .logbox{display:flex;flex-direction:column;width:min(980px,94vw);max-height:86vh;background:#080d16;border:1px solid #223148;border-radius:10px;overflow:hidden}
+#rosov .regbody{flex:1;overflow:auto;padding:14px}
+.rostbl{width:100%;border-collapse:collapse;font:11px/1.4 var(--mono);color:#b9c8dc;margin-top:8px}
+.rostbl th{text-align:left;font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:#46566a;padding:4px 6px;font-weight:normal}
+.rostbl td{padding:5px 6px;vertical-align:top;border-top:1px solid #142230}
+.rosin{width:100%;box-sizing:border-box;font:11px/1.4 var(--mono);color:#b9c8dc;background:#0a1017;border:1px solid #142230;border-radius:5px;padding:5px 7px}
+.rosin:focus{outline:none;border-color:#1d5772}
+.rosin[readonly]{color:#8aa0b8;border-style:dashed}
+.rossel{max-height:112px;padding:2px;min-width:140px}
+.rosst{font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:#5a6a80;margin-top:3px}
+.rosst.new{color:#f7bd4e}
+.rosdrop{color:#ff8a7c;border-color:#3a1c1c}
 .regblk{margin-bottom:16px}
 .regblk:last-child{margin-bottom:0}
 .regpath{font-family:var(--mono);font-size:9.5px;color:#46566a;margin:3px 0 6px;word-break:break-all}

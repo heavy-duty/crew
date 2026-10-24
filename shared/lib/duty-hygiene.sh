@@ -9,8 +9,7 @@
 # It stays the backstop for every fail-safe default in duty-triage.sh. Two
 # things keep that true rather than nominal: HYGIENE_FLOOR, which sweeps a
 # never-changing board anyway because some of what hygiene owns turns on the
-# clock and not on the board (a 48h reclaim, a 7-day post-merge nudge, an issue
-# the world made obsolete); and a gate that FAILS OPEN — a listing that errors
+# clock and not on the board (a 48h reclaim, an issue the world made obsolete); and a gate that FAILS OPEN — a listing that errors
 # or a ledger line that will not parse sweeps and warns, because a budget that
 # cannot read its balance must not spend, while a backstop that cannot read the
 # board must not stop being the backstop (#59, #464).
@@ -23,7 +22,7 @@
 # tick rather than degrade — the wrong direction for a value whose only job is
 # to make the sweep MORE frequent. Kept equal to shared/conf/roles/triage.conf,
 # and `hygiene-floor-default-matches-conf` fails if the two ever drift.
-HYGIENE_FLOOR_DEFAULT=43200
+HYGIENE_FLOOR_DEFAULT=86400
 
 # The cap on the bounded listing. Reaching it means the board is larger than the
 # digest can see, so a change past the cap would be invisible — that is a hole,

@@ -185,6 +185,19 @@ case "$cmd" in
       esac
       env HOME="$guest_home" PATH="$RST_PROBE_BIN" RST_FLOCK_RC="$probe_rc" RST_NOW=10000 \
         /bin/bash -c "$script"
+    elif [[ "$script" == *'echo "::logstart"'* ]]; then
+      # The drain's full probe (#761): a reset drains the box to the store
+      # before the disk goes back. RST_DRAIN_FAIL names a box whose drain
+      # answers nothing, which the store refuses as a truncated record.
+      # First in the chain: probe.sh carries most of the strings the arms
+      # below key on, so behind them it would never be reached.
+      printf 'drain %s\n' "$name" >>"$calls"
+      [ "$name" != "${RST_DRAIN_FAIL:-}" ] || exit 0
+      printf '::engine 9.9.9\n::integrity current\n::agent claude\n::uptime 1\n::now 2026-10-23T12:00:00Z\n'
+      printf '::tickhealthstart\n::tickhealthend\n::tickage 30\n::gh nofail\n::vendor nofail\n::suppression \n::limitdropped 0\n::limitstart\n::limitend\n::cron 1\n::paused 0\n::vitals \n'
+      printf '::logstart\n2026-10-23T11:00:00Z duty run start\n::logend\n'
+      printf '::statefiles .seen-build\n::filestart .seen-build\no/r#1 2026-10-23T00:00:00Z\n::fileend\n'
+      printf '::logfrom 1\n::logtotal 1\n::filestart duty.log\n2026-10-23T11:00:00Z duty run start\n::fileend\n'
     elif [[ "$script" == *'gh auth status'* ]]; then
       printf 'login-probe %s\n' "$name" >>"$calls"
       case " ${RST_LOGGED_IN:-} " in *" $name "*) exit 0 ;; *) exit 1 ;; esac
@@ -241,6 +254,23 @@ case "$cmd" in
     elif [[ "$script" == *'df -Pk'* ]]; then
       printf 'free-probe %s\n' "$name" >>"$calls"
       printf '1200\n'
+    elif [[ "$script" == *'destination="$HOME/duty/'* ]]; then
+      # The memory write-back rides bxput (#761): the archive arrives on
+      # stdin and the remote script names its destination under ~/duty.
+      cat >/dev/null
+      printf 'memory %s %s\n' "$name" "$(printf '%s' "$script" | sed -n 's|.*destination="\$HOME/duty/\([^"]*\)".*|\1|p' | head -1)" >>"$calls"
+    elif [[ "$script" == *'tar -xf .memory-restore.tar'* ]]; then
+      # ...and is unpacked under the duty lock; the box answers `restored`.
+      printf 'memory-unpack %s\n' "$name" >>"$calls"
+      [ "$name" != "${RST_UNPACK_FAIL:-}" ] || exit 1
+      echo restored
+      cat >/dev/null
+    elif [[ "$script" == *'touch ~/duty/.memory-pending'* ]]; then
+      # The checkpoint's marker (#763 re-review): set on the live box for the
+      # snapshot's duration, lifted after it and by the memory's return.
+      printf 'pending-on %s\n' "$name" >>"$calls"
+    elif [[ "$script" == *'rm -f ~/duty/.memory-pending'* ]]; then
+      printf 'pending-off %s\n' "$name" >>"$calls"
     elif [[ "$script" == *'crontab -l'* ]]; then
       exit 1
     else
@@ -257,6 +287,10 @@ case "$cmd" in
       # `install.sh` — that appears in stage_engine's `test -f` too, and
       # counting both made a single install look like two.
       case "$script" in *'retired obsolete box-side engine source'*) printf 'install %s\n' "$name" >>"$calls" ;; esac
+      # A hire carrying a credential pool names it on the install line (#761).
+      case "$script" in
+        *"--pool '"*) printf 'pool %s %s\n' "$name" "$(printf '%s' "$script" | sed -n "s/.*--pool '\([^']*\)'.*/\1/p" | head -1)" >>"$calls" ;;
+      esac
       printf 'exec %s\n' "$name" >>"$calls"
       if [ "$name" = "${RST_INSTALL_FAIL:-}" ]; then exit 1; fi
     fi
@@ -611,8 +645,88 @@ capture reset alpha
 t reset-restores-and-starts 0 "$RC"
 t reset-stops-before-restoring $'down alpha\nrestore alpha armed --force\nstart alpha' \
   "$(grep -E '^(down|restore|start) alpha' "$STATE/calls")"
+# The store half (#761): drained before the disk goes back, memory written
+# back onto the restored disk before the first tick.
+t reset-drains-before-stopping "drain alpha|down alpha" \
+  "$(grep -E '^(drain|down) alpha' "$STATE/calls" | paste -sd'|' -)"
+t reset-writes-the-memory-back-after-the-start 1 \
+  "$(awk '/^start alpha/{s=NR} /^memory alpha .memory-restore.tar/{m=NR} END{print (s && m && m>s) ? 1 : 0}' "$STATE/calls")"
+t reset-unpacks-the-memory-under-the-duty-lock 1 \
+  "$(awk '/^memory alpha .memory-restore.tar/{m=NR} /^memory-unpack alpha/{u=NR} END{print (m && u && u>m) ? 1 : 0}' "$STATE/calls")"
+case "$OUT" in *"alpha: memory restored from the store"*) r1=reported ;; *) r1="$OUT" ;; esac
+t reset-memory-restore-is-reported reported "$r1"
 case "$OUT" in *"alpha: restored to armed (crew@$BOX_STAMP_VERSION) and started"*) r1=reported ;; *) r1="$OUT" ;; esac
 t reset-restore-is-reported reported "$r1"
+# The memory's return lifts `.memory-pending` in the same locked step that
+# unpacks it, and a reset that cannot read the store is a FAILURE (#763
+# re-review) — not "no memory", which is a store that holds nothing for the
+# box and lifts the marker so its ticks run.
+t reset-the-unpack-lifts-the-marker-in-the-locked-step 1 \
+  "$(grep -c 'flock .duty.lock -c "tar -xf .memory-restore.tar && rm -f .memory-restore.tar .memory-pending"' "$CLI")"
+reset_case
+arm alpha
+printf 'stopped\n' >"$STATE/state-alpha"
+: >"$STATE/calls"
+CREW_FLOOR_STORE="$STATE/absent/fleet.sqlite" capture reset alpha
+t reset-a-store-that-cannot-be-read-is-a-failure 1 "$RC"
+case "$OUT" in *'alpha: memory restore FAILED — the store could not be read'*) r1=said ;; *) r1="$OUT" ;; esac
+t reset-the-unreadable-store-is-said said "$r1"
+case "$OUT" in *'alpha: FAILED — restored to armed and started, but its memory did not come back from the store'*) r1=said ;; *) r1="$OUT" ;; esac
+t reset-the-failed-memory-fails-the-restore said "$r1"
+case "$OUT" in *'reset: 0 restored, 0 skipped-busy, 1 failed'*) r1=counted ;; *) r1="$OUT" ;; esac
+t reset-the-failed-memory-is-counted counted "$r1"
+CREW_CONFIG_DIR="$CONF" CREW_FLOOR_STORE="$STATE/fresh.sqlite" python3 "$ROOT/fleet-floor/server/floor/store.py" init >/dev/null
+printf 'stopped\n' >"$STATE/state-alpha"
+: >"$STATE/calls"
+CREW_FLOOR_STORE="$STATE/fresh.sqlite" capture reset alpha
+t reset-a-store-with-no-memory-for-the-box-is-not-a-failure 0 "$RC"
+case "$OUT" in *'alpha: the store holds no memory file to restore (first reset, or never drained)'*) r1=said ;; *) r1="$OUT" ;; esac
+t reset-no-memory-is-said-as-that said "$r1"
+t reset-no-memory-lifts-the-marker-so-the-box-ticks 1 "$(calls_of 'pending-off alpha')"
+# The checkpoint carries the marker: set before the snapshot, lifted after it.
+reset_case
+arm alpha
+: >"$STATE/calls"
+capture reset --cut alpha
+t cut-sets-memory-pending-before-the-snapshot 1 \
+  "$(awk '/^pending-on alpha/{p=NR} /^snapshot alpha armed/{s=NR} END{print (p && s && p<s) ? 1 : 0}' "$STATE/calls")"
+t cut-lifts-memory-pending-from-the-live-box-after-it 1 \
+  "$(awk '/^snapshot alpha armed/{s=NR} /^pending-off alpha/{o=NR} END{print (s && o && o>s) ? 1 : 0}' "$STATE/calls")"
+# THE PAUSE AND THE CAP ARE KEPT (#763 re-review). Under --all a paused box
+# is left alone, as the daily restart leaves it; by name it is restored, its
+# memory written back, its crontab paused again and stopped. A box restored
+# while the cap is full goes back down for the host tick to start.
+reset_case
+arm alpha "$BOX_STAMP_VERSION"
+arm beta "$BOX_STAMP_VERSION"
+mkdir -p "$CONF/store/paused"; : >"$CONF/store/paused/alpha"
+: >"$STATE/calls"
+capture reset --all
+case "$OUT" in *'alpha: paused — left alone'*) r1=left ;; *) r1="$OUT" ;; esac
+t reset-all-leaves-a-paused-box-alone left "$r1"
+t reset-all-restores-nothing-for-a-paused-box 0 "$(calls_of 'restore alpha')"
+t reset-all-still-restores-the-others 1 "$(calls_of 'restore beta armed')"
+: >"$STATE/calls"
+capture reset alpha
+t reset-by-name-restores-a-paused-box 1 "$(calls_of 'restore alpha armed')"
+t reset-by-name-stops-a-paused-box-again-after-its-memory 1 \
+  "$(awk '/^memory-unpack alpha/{m=NR} /^down alpha/{if(m && NR>m)d=NR} END{print (m && d) ? 1 : 0}' "$STATE/calls")"
+case "$OUT" in *"alpha: restored to armed (crew@$BOX_STAMP_VERSION), its memory written back, and stopped again — it is paused"*) r1=said ;; *) r1="$OUT" ;; esac
+t reset-the-paused-stop-is-said said "$r1"
+rm -f "$CONF/store/paused/alpha"
+reset_case
+arm alpha "$BOX_STAMP_VERSION"
+arm beta "$BOX_STAMP_VERSION"
+printf 'FLEET_MAX_RUNNING=1\n' >>"$CONF/fleet.conf"
+printf 'running\n' >"$STATE/state-beta"
+: >"$STATE/calls"
+capture reset alpha
+t reset-a-box-past-the-cap-goes-back-down-after-its-memory 1 \
+  "$(awk '/^memory-unpack alpha/{m=NR} /^down alpha/{if(m && NR>m)d=NR} END{print (m && d) ? 1 : 0}' "$STATE/calls")"
+case "$OUT" in *"alpha: restored to armed (crew@$BOX_STAMP_VERSION), its memory written back, and stopped again — 1 of 1 boxes running; the host tick starts it when there is work"*) r1=said ;; *) r1="$OUT" ;; esac
+t reset-the-cap-stop-is-said said "$r1"
+t reset-the-cap-stop-is-not-a-failure 0 "$RC"
+sed -i '/^FLEET_MAX_RUNNING=1$/d' "$CONF/fleet.conf"
 
 reset_case
 arm alpha
@@ -1471,5 +1585,19 @@ case "$(cat "$HOSTLOG" 2>/dev/null || true)" in
   *) r1="$(cat "$HOSTLOG" 2>/dev/null || true)" ;;
 esac
 t reset-weekly-after-recut-logs-a-clean-boundary logged "$r1"
+
+# ── #761 — N members per subscription: `crew hire --pool` names the pool ────
+# Several members hired on one vendor subscription share a credential pool,
+# and `crew usage --by pool` reads the quota where it is spent. The pool is a
+# safe token, carried to the box's install line, written into instance.conf.
+# Here and not in cli-lifecycle because this shim is the one that carries a
+# hire through to its install exec.
+reset_case
+capture hire alpha --pool 'bad token'
+t hire-pool-must-be-a-safe-token 2 "$RC"
+reset_case
+capture hire alpha --pool claude-max-1
+t hire-pool-hires 0 "$RC"
+t hire-pool-reaches-the-install-line 1 "$(grep -c '^pool alpha claude-max-1$' "$STATE/calls" || true)"
 
 suite_finish

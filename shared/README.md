@@ -168,7 +168,7 @@ fleet's real protocol existed only inside five diverging scripts.
 | `COMMENTED` never counts as a verdict | grok/kimi | REVIEWER.md |
 | Re-request at unchanged head → auto-approve (via the gate) | kimi | ceremony#94 stale blocker, operator ruling 2026-07-23 |
 | Convergence from `latestOpinionatedReviews`, never `reviewDecision` | claude-bot | ceremony#26/#39 (a day of silence) |
-| `state:needs-human` refire guard; UNKNOWN mergeable waits | claude-bot | handoff refires; post-merge flap |
+| Handoff refire guard reads the engine's own `🤝 handed off at head` line, never `state:needs-human` (the reconciler's to clear); UNKNOWN mergeable waits | claude-bot, #452, #535 | handoff refires; 135 label flips in 6h19m on crew#516; post-merge flap |
 | Panel read from the PR repo's `labels.conf panel=`, never hardcoded | doctrine + codex's knowledge | rig#120 kimi-less panel |
 | Resume before build; the lock makes resume sound | claude-bot / codex | crash-only recovery, 10 clean resumes |
 | No `--force` except as the confirmed consequence of a successful preservation push | codex, amended by #168 | unpushed work on a disposable box is gone (#167); a bar nothing could satisfy left every dirty worktree stuck (#168) |

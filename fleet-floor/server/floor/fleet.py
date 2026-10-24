@@ -10,6 +10,7 @@ from floor.ping import (PING_FAILS_TO_WEDGE, PING_INTERVAL_S,
                         PING_STALE_AFTER_S, PING_TIMEOUT_S, PROBE_TIMEOUT_S,
                         log, ping_box)
 from floor import CREW_ROOT
+from floor import store as fleet_store
 from floor.roster import (CONFIG_DIR, FLOOR_VERSION, agent_conf_path, box_states,
                           read_roster, role_conf_path)
 from floor.units import build_unit, fmt_dur, stuck_verdict, unit_defaults
@@ -175,9 +176,14 @@ class Fleet:
 
         def work(i, unit):
             try:
+                # The store rides every poll (#758): a probe that answers is
+                # ingested after it is parsed, one that does not records a
+                # failed pull, and a box that cannot be asked is served from
+                # what the host already holds. Each thread opens its own
+                # connection inside the store; nothing here is shared.
                 units[i] = build_unit(unit, states.get(unit["box"]),
                                       self.agent_conf(unit["agent"]), now,
-                                      inventory_ok=states_ok)
+                                      inventory_ok=states_ok, store=fleet_store)
             except Exception as e:                          # noqa: BLE001
                 u = dict(unit)
                 u.update(unit_defaults())

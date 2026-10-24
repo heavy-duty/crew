@@ -887,6 +887,20 @@ sid_plan_verdict() ( # sid_plan_verdict none|both
 )
 t sid-the-gate-itself-refuses-without-the-resume-hook no "$(sid_plan_verdict none)"
 t sid-the-gate-resumes-when-only-the-hook-was-missing yes "$(sid_plan_verdict both)"
+# The stub names the task the killed session was on; a dispatch for other
+# work never resumes it (#763 re-review: a review of PR A resumed into PR B).
+sid_plan_task() ( # sid_plan_task STUB-TASK DISPATCH-TASK
+  local stub="$SID_PLAN_BOX/.session-resume.build.fixture_plan"
+  printf 'kind=build\nkey=fixture/plan\nsid=%s\nhead=%s\nwall=1\ntry=0\nlog=14\noutcome=TIMEOUT\nproductive=yes\nleft=0\ntask=%s\n' \
+    "$(_session_mint_sid)" "$(git -C "$SID_PLAN_BOX/work_dir.dot space" rev-parse HEAD)" "$1" >"$stub"
+  DUTY_DIR="$SID_PLAN_BOX"
+  eval 'bot_cli_resume_args() { BOT_CLI_RESUME_ARGS=(--resume "$1"); }'
+  SESSION_TASK="$2" _session_resume_plan build fixture/plan "$SID_PLAN_BOX/work_dir.dot space"
+  printf '%s' "$_SESSION_RESUMED"
+)
+t sid-a-stub-resumes-into-its-own-task yes "$(sid_plan_task o/r#1 o/r#1)"
+t sid-a-stub-never-resumes-into-another-task no "$(sid_plan_task o/r#1 o/r#2)"
+t sid-a-stub-with-no-task-resumes-as-before yes "$(sid_plan_task - '')"
 
 # --- a stub that is not one is absent, never resumable -------------------
 sid_corrupt_case() { # sid_corrupt_case BOX MUTATION...
@@ -980,6 +994,8 @@ sid_record_says() ( # sid_record_says RC VERDICT [STALE] — WROTE | deleted
 t sid-a-timeout-writes-the-stub WROTE "$(sid_record_says 124 TIMEOUT)"
 t sid-a-memory-kill-at-124-writes-the-stub WROTE "$(sid_record_says 124 MEMORY)"
 t sid-an-ordinary-end-deletes-a-stale-stub deleted "$(sid_record_says 0 ok stale)"
+# The stub names the task the killed session was on (#763 re-review).
+t sid-the-record-names-its-task 1 "$(SESSION_TASK=o/r#3 sid_record_says 124 TIMEOUT >/dev/null; grep -c '^task=o/r#3$' "$TMP/sid-record/.session-resume.build.fixture_rec")"
 
 # --- two keys, one filename: the tuple decides, never the path -----------
 #
@@ -1497,11 +1513,11 @@ t budget-off-says-nothing-about-budgets 0 \
 budget_off_golden() {
   cat <<'GOLDEN'
 SESSION START kind=build key=fixture/test1 timeout=5s log=<slog>-build-fixture_test1.log holder=<holder> sid=unknown
-SESSION END kind=build key=fixture/test1 rc=0 dur=<n>s outcome=ok acted=yes reply_tail=ZmluYWwgcmVwbHk= log=17 left=0 tier=default oom=0 sid=unknown
+SESSION END kind=build key=fixture/test1 rc=0 dur=<n>s outcome=ok acted=yes reply_tail=ZmluYWwgcmVwbHk= log=17 left=0 tier=default oom=0 why=cron sid=unknown
 SESSION START kind=build key=fixture/test2 timeout=5s log=<slog>-build-fixture_test2.log holder=<holder> sid=unknown
-SESSION END kind=build key=fixture/test2 rc=0 dur=<n>s outcome=ok acted=yes reply_tail=ZmluYWwgcmVwbHk= log=17 left=0 tier=default oom=0 sid=unknown
+SESSION END kind=build key=fixture/test2 rc=0 dur=<n>s outcome=ok acted=yes reply_tail=ZmluYWwgcmVwbHk= log=17 left=0 tier=default oom=0 why=cron sid=unknown
 SESSION START kind=build key=fixture/test3 timeout=5s log=<slog>-build-fixture_test3.log holder=<holder> sid=unknown
-SESSION END kind=build key=fixture/test3 rc=0 dur=<n>s outcome=ok acted=yes reply_tail=ZmluYWwgcmVwbHk= log=17 left=0 tier=default oom=0 sid=unknown
+SESSION END kind=build key=fixture/test3 rc=0 dur=<n>s outcome=ok acted=yes reply_tail=ZmluYWwgcmVwbHk= log=17 left=0 tier=default oom=0 why=cron sid=unknown
 GOLDEN
 }
 # The last line is the state-file/alert tally the case above reads; everything
@@ -2576,5 +2592,118 @@ mem_watch_signals() {
 t mem-the-measurement-only-ever-probes-liveness 0 "$(mem_watch_signals)"
 t mem-the-measurement-does-not-reach-the-terminator 0 \
   "$(declare -f _session_peak_rss_watch | grep -c '_session_mem_terminate' || true)"
+
+# ── #759 — every SESSION END says why the session was bought ──────────────
+# The host writes the wake's reason; duty.sh exports it as WAKE_REASON; the
+# line carries it as `why=`, one token, ahead of `sid=` which stays last.
+W759_WORK="$TMP/why-work"; mkdir -p "$W759_WORK"
+BOT_CLI_CMD=(bash -c 'printf "exec\nfinal reply\n"')
+# shellcheck disable=SC2317  # invoked indirectly by session_acted
+bot_session_acted() { grep -qx exec "$1"; }
+# shellcheck disable=SC2031  # DUTY_DIR here is the suite's own; the subshell edits above were theirs
+rm -f "$DUTY_DIR/.tick-acted"
+w759_end="$(WAKE_REASON='ready#o/r#12,attention#o/r#3' run_session build fixture/why "$W759_WORK" 5 prompt | tail -1)"
+t why-the-host-reason-is-on-the-line 1 "$(grep -c ' why=ready#o/r#12,attention#o/r#3 ' <<<"$w759_end")"
+t why-sid-stays-last 1 "$(grep -cE ' why=[^ ]+ sid=[^ ]+$' <<<"$w759_end")"
+# shellcheck disable=SC2031  # as above
+t why-the-session-stamps-the-tick 1 "$([ -e "$DUTY_DIR/.tick-acted" ] && echo 1 || echo 0)"
+w759_end="$( (unset WAKE_REASON; run_session build fixture/why2 "$W759_WORK" 5 prompt) | tail -1)"
+t why-cron-when-nothing-was-written 1 "$(grep -c ' why=cron ' <<<"$w759_end")"
+# shellcheck disable=SC2016  # the literal \$punct is the point: the token is sanitised, not expanded
+w759_end="$(WAKE_REASON='two words; and $punct' run_session build fixture/why3 "$W759_WORK" 5 prompt | tail -1)"
+t why-is-one-sanitised-token 1 "$(grep -c ' why=two_words__and__punct ' <<<"$w759_end")"
+unset -f bot_session_acted
+
+# ── #759 — tier aliases: `cheap` is what the profile says it is ────────────
+w759_tier() {  # w759_tier <MODEL_BUILD value> [BOT_CLI_TIER_CHEAP value]
+  # shellcheck disable=SC2034  # read by the alias resolution in _session_cli_cmd
+  ( MODEL_BUILD="$1"; BOT_CLI_TIER_CHEAP="${2-}"; [ -n "${2-}" ] || unset BOT_CLI_TIER_CHEAP
+    BOT_CLI_CMD=(vendor -p)
+    # shellcheck disable=SC2317  # the profile hook, reached through _session_cli_cmd
+    bot_cli_model_cmd() { BOT_CLI_MODEL_CMD=(vendor --model "$1" -p); }
+    _session_cli_cmd build >/dev/null 2>&1; printf '%s|%s' "$_SESSION_TIER" "${_SESSION_CLI_CMD[*]}" )
+}
+t tier-cheap-resolves-through-the-profile "haiku|vendor --model haiku -p" "$(w759_tier cheap haiku)"
+t tier-an-undefined-alias-stays-on-the-default "default|vendor -p" "$(w759_tier cheap)"
+t tier-a-vendor-name-passes-through "sonnet|vendor --model sonnet -p" "$(w759_tier sonnet)"
+t tier-unset-is-the-default "default|vendor -p" "$(w759_tier "")"
+unset -f w759_tier
+# The shipped levers are ON: every budget ceiling is a positive number and the
+# repair and sweep lanes name the cheap tier.
+w759_zero="$(grep -hE '^BUDGET_(SESSIONS|MINUTES)_[A-Z_]+=0$' "$SHARED/conf/fleet.defaults.conf" "$SHARED"/conf/roles/*.conf | tr '\n' ' ')"
+t budgets-ship-on "" "$w759_zero"
+t repair-lanes-ship-on-the-cheap-tier "MODEL_CI_RED=cheap MODEL_HYGIENE=cheap MODEL_REBASE=cheap" \
+  "$(grep -hE '^MODEL_(REBASE|CI_RED|HYGIENE)=' "$SHARED"/conf/roles/*.conf | sort | tr '\n' ' ' | sed 's/ $//')"
+t hygiene-sweeps-daily 1 "$(grep -c '^HYGIENE_INTERVAL=86400$' "$SHARED/conf/roles/triage.conf")"
+
+# ── #760 — resume by default: an ok session is continued by the next dispatch ──
+# The kill-resume above answers a wall-clock kill once per head; this answers
+# the ordinary case — a session that ended ok and a next dispatch on the same
+# kind and key — by resuming the recorded id, so the next session starts from
+# where the last one stopped instead of re-reading the world.
+cont_stub() { printf '%s/.session-continue.build.%s' "$TMP/sid-$1" "$2"; }
+# A continuation is OF A TASK: the caller names it (SESSION_TASK), or the key
+# does when it is task-shaped. These chains are all about one task.
+export SESSION_TASK=task-a
+c1="$(sid_run cont fixture/cont 5 reply both)"
+CONT_SID="$(sid_argv_flag "$c1" --session-id)"
+t cont-first-dispatch-is-pinned-not-resumed "" "$(sid_argv_flag "$c1" --resume)"
+t cont-first-dispatch-minted-an-id uuid "$(sid_shape "$CONT_SID")"
+t cont-an-ok-session-writes-the-continue-stub present \
+  "$([ -s "$(cont_stub cont fixture_cont)" ] && printf present || printf MISSING)"
+t cont-the-stub-carries-the-id "$CONT_SID" "$(sid_stub_field "$(cont_stub cont fixture_cont)" sid)"
+c2="$(sid_run cont fixture/cont 5 reply both)"
+t cont-the-next-dispatch-resumes-the-recorded-id "$CONT_SID" "$(sid_argv_flag "$c2" --resume)"
+t cont-a-resumed-dispatch-is-not-pinned "" "$(sid_argv_flag "$c2" --session-id)"
+cont_starts="$(grep 'SESSION START' "$TMP/sid-cont/records" | sed -n 's/.* sid=\([^ ]*\).*/\1/p')"
+t cont-both-records-carry-one-id "$CONT_SID $CONT_SID" "$(printf '%s' "$cont_starts" | sed -n 1,2p | paste -sd' ' -)"
+t cont-the-try-counts-the-chain 1 "$(sid_stub_field "$(cont_stub cont fixture_cont)" try)"
+c3="$(sid_run cont fixture/elsewhere 5 reply both)"
+t cont-another-key-is-another-chain "" "$(sid_argv_flag "$c3" --resume)"
+# Another TASK on the same key is another chain — a build for #13 never
+# resumes #12's transcript — and a session with no task identity is never
+# continued at all; a task-shaped key (`repo#num`) names its own task.
+c3b="$(SESSION_TASK=task-b sid_run cont fixture/cont 5 reply both)"
+t cont-another-task-on-the-same-key-is-fresh "" "$(sid_argv_flag "$c3b" --resume)"
+t cont-another-task-replaces-the-stub task-b "$(sid_stub_field "$(cont_stub cont fixture_cont)" task)"
+(unset SESSION_TASK; sid_run cont fixture/notask 5 reply both >/dev/null)
+t cont-no-task-writes-no-stub gone "$([ -e "$(cont_stub cont fixture_notask)" ] && printf present || printf gone)"
+(unset SESSION_TASK; sid_run cont 'fixture/cont#5' 5 reply both >/dev/null)
+t cont-a-task-shaped-key-is-its-own-task present "$([ -s "$(cont_stub cont fixture_cont_5)" ] && printf present || printf MISSING)"
+c3c="$(sid_run cont fixture/cont 5 reply both)"
+t cont-the-first-task-starts-over-after-the-other "" "$(sid_argv_flag "$c3c" --resume)"
+# A failure breaks the chain: the next dispatch is fresh, not a resume of a
+# session that failed, and the stub is gone.
+sid_run cont fixture/cont 5 fail both >/dev/null
+t cont-a-failed-session-forgets-the-chain gone \
+  "$([ -e "$(cont_stub cont fixture_cont)" ] && printf present || printf gone)"
+c4="$(sid_run cont fixture/cont 5 reply both)"
+t cont-after-a-failure-the-dispatch-is-fresh "" "$(sid_argv_flag "$c4" --resume)"
+# The cap: a chain at SESSION_CONTINUE_MAX_TRIES starts over.
+SESSION_CONTINUE_MAX_TRIES=1
+c5="$(sid_run cont fixture/cont 5 reply both)"
+t cont-the-first-continuation-is-within-the-cap present "$([ -n "$(sid_argv_flag "$c5" --resume)" ] && printf present || printf MISSING)"
+c6="$(sid_run cont fixture/cont 5 reply both)"
+t cont-past-the-cap-the-dispatch-is-fresh "" "$(sid_argv_flag "$c6" --resume)"
+SESSION_CONTINUE_MAX_TRIES=12
+# A profile that cannot resume gets a fresh pinned session every time.
+sid_run contpin fixture/pin 5 reply pin-only >/dev/null
+c7="$(sid_run contpin fixture/pin 5 reply pin-only)"
+t cont-a-profile-without-resume-stays-fresh "" "$(sid_argv_flag "$c7" --resume)"
+# A transcript the profile says is gone starts fresh and clears the stub —
+# read straight off the plan, with the hook answering no.
+cont_plan_verdict="$(
+  DUTY_DIR="$TMP/sid-contplan"; mkdir -p "$DUTY_DIR"
+  printf 'sid=01a06ef6-ca2a-7fd0-a487-25913257471d\ntry=0\n' >"$DUTY_DIR/.session-continue.build.k"
+  # shellcheck disable=SC2317  # invoked indirectly by the continuation path
+  bot_cli_resume_args() { BOT_CLI_RESUME_ARGS=(--resume "$1"); }
+  bot_session_transcript_present() { return 1; }
+  _SESSION_RESUMED=no
+  _session_continue_plan build k "$DUTY_DIR"
+  printf '%s %s' "$_SESSION_RESUMED" "$([ -e "$DUTY_DIR/.session-continue.build.k" ] && printf present || printf gone)"
+)"
+t cont-a-missing-transcript-starts-fresh-and-clears-the-stub "no gone" "$cont_plan_verdict"
+unset SESSION_TASK
+unset -f cont_stub
 
 suite_finish

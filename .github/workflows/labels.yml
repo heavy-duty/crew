@@ -34,6 +34,6 @@ permissions:
   pull-requests: write
 jobs:
   labels:
-    uses: heavy-duty/ceremony/.github/workflows/labels.yml@0.7.7
+    uses: heavy-duty/ceremony/.github/workflows/labels.yml@0.7.11
     # The sweep caller beside this file is named labels-sweep.yml, the
     # default, so no `with: { sweep_workflow: ... }` is needed.

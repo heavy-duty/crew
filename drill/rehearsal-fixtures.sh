@@ -30,20 +30,19 @@ REHEARSAL_LABEL_NEEDS_TRIAGE=""
 REHEARSAL_LABEL_READY=""
 REHEARSAL_LABEL_CLAIMED=""
 REHEARSAL_LABEL_BLOCKED=""
-REHEARSAL_LABEL_POST_MERGE=""
 REHEARSAL_LABEL_EPIC=""
 REHEARSAL_BOARD_LABEL_REASON=""
 REHEARSAL_QUEUE_LABELS=""
 
 # Read positionally, never through `sed '/^$/d'`: a box that resolves no
 # LABEL_BLOCKED must leave REHEARSAL_LABEL_BLOCKED empty and be refused for
-# that, not shift LABEL_POST_MERGE up into its slot and mint a board whose
+# that, not shift LABEL_EPIC up into its slot and mint a board whose
 # names are silently one place out.
 #
 # A positional read can be shifted by a value of its OWN, though, which
 # emptiness cannot catch: a name carrying an embedded newline emits two lines,
 # every slot below it lands one place out, and the LAST value is dropped — so
-# all seven slots are non-empty and the guard below never runs. The box
+# all six slots are non-empty and the guard below never runs. The box
 # therefore terminates its seven values with a sentinel and the read refuses
 # unless the eighth line is exactly that: positive evidence that the seven
 # lines read are the seven that were written. A value that IS the sentinel
@@ -59,7 +58,7 @@ rehearsal_load_installed_board_labels() {
              [ ! -f ~/duty/conf/fleet.conf ] || . ~/duty/conf/fleet.conf
              printf "%s\n" "$LABEL_ATTENTION" "$LABEL_NEEDS_TRIAGE" \
                "$LABEL_READY" "$LABEL_CLAIMED" "$LABEL_BLOCKED" \
-               "$LABEL_POST_MERGE" "$LABEL_EPIC" '"'$sentinel'"
+               "$LABEL_EPIC" '"'$sentinel'"
   # `s/\r$//` and not the drill's usual `tr -d '\r'`, at this one site. The CR
   # this read has to survive is the TRANSPORT's: bx hands the box's stdout back
   # through a channel that may translate line endings, and a CR sitting at the
@@ -80,7 +79,6 @@ rehearsal_load_installed_board_labels() {
     IFS= read -r REHEARSAL_LABEL_READY
     IFS= read -r REHEARSAL_LABEL_CLAIMED
     IFS= read -r REHEARSAL_LABEL_BLOCKED
-    IFS= read -r REHEARSAL_LABEL_POST_MERGE
     IFS= read -r REHEARSAL_LABEL_EPIC
     IFS= read -r terminator
   } <<<"$conf" || true
@@ -88,7 +86,7 @@ rehearsal_load_installed_board_labels() {
   # rehearsal-breaker.sh:117-122's reason: GitHub accepts one and every
   # `grep -qx`, `-f "labels[]=…"` and jq needle downstream would have to agree
   # about the quoting, so the drill declines to guess on the operator's behalf.
-  for name in ATTENTION NEEDS_TRIAGE READY CLAIMED BLOCKED POST_MERGE EPIC; do
+  for name in ATTENTION NEEDS_TRIAGE READY CLAIMED BLOCKED EPIC; do
     eval "value=\$REHEARSAL_LABEL_$name"
     case "$value" in
       '')             missing="$missing${missing:+, }LABEL_$name" ;;
@@ -123,7 +121,6 @@ rehearsal_mint_board_vocabulary() {
     "$REHEARSAL_LABEL_READY"        0e8a16 \
     "$REHEARSAL_LABEL_CLAIMED"      1d76db \
     "$REHEARSAL_LABEL_BLOCKED"      b60205 \
-    "$REHEARSAL_LABEL_POST_MERGE"   006b75 \
     "$REHEARSAL_LABEL_EPIC"         5319e7
   while [ "$#" -gt 0 ]; do
     gh api "repos/$repo/labels" -f name="$1" -f color="$2" >/dev/null 2>&1 || true
@@ -135,8 +132,9 @@ rehearsal_load_installed_queue_labels() {
   local count
   # fleet.conf OVER the defaults (#735 D2). The engine grades the queue on the
   # effective names, so the set the stray-ruling assertion matches an issue's
-  # labels against has to be resolved from them too. Six is still the count: a
-  # fleet.conf that collides two names onto one string resolves five through
+  # labels against has to be resolved from them too. Five is the count since
+  # ceremony 0.7.11 retired `post-merge`: a fleet.conf that collides two names
+  # onto one string resolves four through
   # `sort -u` and reds here.
   # shellcheck disable=SC2016  # the label variables expand inside the box
   REHEARSAL_QUEUE_LABELS="$(bx '
@@ -145,11 +143,11 @@ rehearsal_load_installed_queue_labels() {
     [ ! -f ~/duty/conf/fleet.conf ] || . ~/duty/conf/fleet.conf
     printf "%s\n" \
       "$LABEL_READY" "$LABEL_CLAIMED" "$LABEL_BLOCKED" \
-      "$LABEL_POST_MERGE" "$LABEL_EPIC" "$LABEL_NEEDS_TRIAGE"
+      "$LABEL_EPIC" "$LABEL_NEEDS_TRIAGE"
   ' | sed -e 's/\r$//' -e '/^$/d' | sort -u)"
   # The same end-of-line CR strip the board read carries, for a reason this
   # issue created: before it, this set was only COUNTED, and a transport that
-  # translated line endings resolved six names that happened to end in CR and
+  # translated line endings resolved every name that happened to end in CR and
   # the row still read green. It is now the set an issue's labels are matched
   # against, where a trailing CR matches nothing the board carries and the stray
   # assertion reds on a correct engine. Only the end-of-line CR, for the reason
@@ -160,14 +158,14 @@ rehearsal_load_installed_queue_labels() {
   # fixture can read the set itself instead of re-deriving it and passing under
   # its own mutation.
   count="$(printf '%s\n' "$REHEARSAL_QUEUE_LABELS" | sed '/^$/d' | wc -l | tr -d ' ')"
-  if [ "$count" -eq 6 ]; then
-    ok "triage: installed queue-label set resolves six names"
+  if [ "$count" -eq 5 ]; then
+    ok "triage: installed queue-label set resolves five names"
     return 0
   fi
 
   echo "triage: installed queue-label set resolved $count name(s):"
   printf '%s\n' "$REHEARSAL_QUEUE_LABELS" | sed 's/^/  /'
-  fail "triage: installed queue-label set resolves six names"
+  fail "triage: installed queue-label set resolves five names"
   return 1
 }
 
@@ -335,22 +333,6 @@ rehearsal_lane_budget() {
     ''|*[!0-9]*|0) return 1 ;;
   esac
   printf '%s\n' "$value"
-}
-
-rehearsal_mint_post_merge_fixture() {
-  local repo="$1" title="$2" body="$3"
-  gh api "repos/$repo/issues" -f title="$title" -f body="$body" \
-    -f "labels[]=$REHEARSAL_LABEL_POST_MERGE" --jq .number
-}
-
-# The fixture's labels are unchanged AND they are still the single post-merge
-# name — the second half is what makes the first mean something, because a
-# session that stripped the label and a board that never had it read alike.
-rehearsal_post_merge_labels_intact() {
-  local repo="$1" num="$2" before="$3" now
-  now="$(gh api "repos/$repo/issues/$num" --jq '[.labels[].name] | sort | join(" ")')" \
-    || return 1
-  [ "$now" = "$before" ] && [ "$before" = "$REHEARSAL_LABEL_POST_MERGE" ]
 }
 
 rehearsal_mint_builder_ready_fixture() {

@@ -230,10 +230,10 @@ rehearsal_breaker_attention_is_clear_from_json() {
     >/dev/null <<<"$1"
 }
 
+# Speaks wait_for's state protocol through the shared predicate (#749): a read
+# that fails is 3, never "the label is still there".
 rehearsal_breaker_attention_is_clear() {
-  local repo="$1" issue="$2" label="${3:-attention}" issue_json
-  issue_json="$(gh api "repos/$repo/issues/$issue")" || return 1
-  rehearsal_breaker_attention_is_clear_from_json "$issue_json" "$label"
+  rehearsal_issue_lacks_label "$1" "$2" "${3:-attention}"
 }
 
 # --- arming is graded on the FIXTURE'S STATE, not on a request's rc (#724) ---
@@ -579,7 +579,7 @@ rehearsal_breaker_drill() {
   log_text="$REHEARSAL_BREAKER_TICK_LOG"
   check "breaker: later tick recovers and launches a session" \
     rehearsal_breaker_recovered_from_log "$kind" "$log_text"
-  wait_for 300 "breaker: $REHEARSAL_BREAKER_LABEL label removed after recovered session" \
+  wait_for_lane ATTENTION "breaker: $REHEARSAL_BREAKER_LABEL label removed after recovered session" \
     rehearsal_breaker_attention_is_clear "$repo" "$issue" \
       "$REHEARSAL_BREAKER_LABEL"
   check "breaker: state is cleared after recovery" bx "test ! -e '$REHEARSAL_BREAKER_STATE'"

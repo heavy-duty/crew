@@ -60,6 +60,21 @@ _session_cli_cmd() {
   _SESSION_CLI_CMD=("${BOT_CLI_CMD[@]}")
   _SESSION_TIER=default
   [ -n "$tier" ] || return 0
+  # A tier may be named by ROLE — `cheap` or `expensive` — and translated by
+  # the agent profile's BOT_CLI_TIER_CHEAP / BOT_CLI_TIER_EXPENSIVE (#759): a
+  # role conf cannot know what a vendor calls its small model, and the profile
+  # already owns that vocabulary. An alias the profile does not define leaves
+  # the duty on the default, loudly, exactly as an untranslatable tier does.
+  case "$tier" in
+    cheap|expensive)
+      local alias_var="BOT_CLI_TIER_${tier^^}" alias_value
+      alias_value="${!alias_var:-}"
+      if [ -z "$alias_value" ]; then
+        warn "session model: kind=$kind asked for the $tier tier but agent profile ${BOT_AGENT:-unknown} names no $alias_var — staying on the default"
+        return 0
+      fi
+      tier="$alias_value" ;;
+  esac
   # D3, and the failure mode it exists to stop: silently ignoring a configured
   # override is what makes an operator think they saved something. Both ways a
   # profile can fail to honour a tier — no translation at all, and a
@@ -162,6 +177,20 @@ _session_sid_suffix() {
   printf ' sid=%s' "$_SESSION_SID"
 }
 
+# _session_why_suffix — ` why=<reason>` for the SESSION END line (#759): the
+# wake's reason, as the host wrote it to $DUTY_DIR/.wake-reason before this
+# tick (duty.sh reads it into WAKE_REASON) or `cron` when the box's own cron
+# fired with nothing written. Sanitised to one token: a reason is a list of
+# `kind#item` words joined by commas, never free text. Sits past the pool
+# usage suffix and ahead of the pool suffix and of `sid=`, which #538 keeps
+# last.
+_session_why_suffix() {
+  local why="${WAKE_REASON:-cron}"
+  why="${why//[^A-Za-z0-9._:#,\/-]/_}"
+  [ -n "$why" ] || why=cron
+  printf ' why=%s' "$why"
+}
+
 _session_pool_suffix() {
   local pool="${SESSION_CREDENTIAL_POOL:-}"
   [ -n "$pool" ] || return 0
@@ -255,6 +284,14 @@ _session_log_bytes() {
 # incident where raising it is worst. A second resume, if it is ever wanted, is
 # a deliberate change with its own evidence — not a config edit.
 SESSION_RESUME_MAX_TRIES=1
+# Continuation (#760): a session that ended `ok` is resumed by the NEXT
+# dispatch of the same kind and key — the vendor session continues, so the
+# next session starts from where the last one stopped instead of re-reading
+# the world. Bounded by SESSION_CONTINUE_MAX_TRIES consecutive continuations
+# (the vendor's own compaction carries a long chain; the cap is what stops a
+# chain nobody meant), and broken by any non-ok outcome, which hands the
+# decision to the kill-resume above.
+SESSION_CONTINUE_MAX_TRIES="${SESSION_CONTINUE_MAX_TRIES:-12}"
 
 # Set by `_session_resume_plan` when the next dispatch continues a session.
 # The outcome is carried in the stub rather than rediscovered from duty.log,
@@ -367,6 +404,83 @@ _session_resume_state() {
     "$DUTY_DIR" "${kind//[^[:alnum:]._-]/_}" "${key//[^[:alnum:]._-]/_}"
 }
 
+# _session_continue_state KIND KEY — the continuation stub (#760): `sid=` and
+# `try=`, written after an ok session, read by the next dispatch of the same
+# kind and key. Beside the kill-resume stub, same slugging, different name.
+_session_continue_state() {
+  local kind="$1" key="$2"
+  printf '%s/.session-continue.%s.%s' \
+    "$DUTY_DIR" "${kind//[^[:alnum:]._-]/_}" "${key//[^[:alnum:]._-]/_}"
+}
+
+# _session_continue_record KIND KEY RC VERDICT — after an ok session with a
+# valid id, record it for the next dispatch; after anything else, forget the
+# chain (the kill-resume stub, if any, decides the next dispatch).
+# _session_continue_task KIND KEY — the task a continuation is OF, or nothing.
+# A transcript is resumed only into a session about the same task: the caller
+# names it in SESSION_TASK (the builder's resume set, the reviewer's PR set),
+# or the key names it when it is task-shaped (`repo#num`). A session with no
+# task identity — a build that picks its own issue, a triage sweep — is never
+# continued, because the next one is about something else.
+_session_continue_task() {
+  local task="${SESSION_TASK:-}"
+  if [ -z "$task" ]; then case "$2" in *'#'*) task="$2" ;; esac; fi
+  printf '%s' "$task" | tr -c 'A-Za-z0-9#/,._-' '_'
+}
+
+_session_continue_record() {
+  local kind="$1" key="$2" rc="$3" verdict="$4" state sid try=0 task
+  state="$(_session_continue_state "$kind" "$key")"
+  task="$(_session_continue_task "$kind" "$key")"
+  [ -n "$task" ] || { rm -f "$state" 2>/dev/null || true; return 0; }
+  if [ "$rc" -ne 0 ] || [ "$verdict" != ok ]; then
+    rm -f "$state" 2>/dev/null || true
+    return 0
+  fi
+  sid="$_SESSION_SID"
+  [ "$sid" != unknown ] || sid="$_SESSION_OBSERVED_SID"
+  _session_sid_valid "$sid" || { rm -f "$state" 2>/dev/null || true; return 0; }
+  [ "$_SESSION_RESUME_OUTCOME" = continue ] && try="$_SESSION_CONTINUE_TRY"
+  printf 'sid=%s\ntry=%s\ntask=%s\n' "$sid" "$try" "$task" >"$state.tmp" && mv -f "$state.tmp" "$state"
+}
+
+# _session_continue_plan KIND KEY — the continuation half of the resume plan:
+# called only when no kill-resume stub spoke. Resumes the recorded id when the
+# chain is under its cap, the profile can resume at all, and — when the
+# profile can say — the transcript is still on disk.
+_session_continue_plan() {
+  local kind="$1" key="$2" dir="$3" state sid="" try="" task="" field value
+  state="$(_session_continue_state "$kind" "$key")"
+  [ -r "$state" ] || return 0
+  while IFS='=' read -r field value; do
+    case "$field" in sid) sid="$value" ;; try) try="$value" ;; task) task="$value" ;; esac
+  done <"$state"
+  _session_sid_valid "$sid" || { rm -f "$state"; return 0; }
+  # The same task, or no continuation: a stub from another task is stale.
+  if [ -z "$task" ] || [ "$task" != "$(_session_continue_task "$kind" "$key")" ]; then
+    rm -f "$state"; return 0
+  fi
+  case "$try" in ''|*[!0-9]*) try=0 ;; esac
+  if [ "$try" -ge "${SESSION_CONTINUE_MAX_TRIES:-12}" ]; then
+    rm -f "$state"; return 0
+  fi
+  if ! declare -F bot_cli_resume_cmd >/dev/null 2>&1 \
+      && ! declare -F bot_cli_resume_args >/dev/null 2>&1; then
+    return 0
+  fi
+  if declare -F bot_session_transcript_present >/dev/null 2>&1 \
+      && ! bot_session_transcript_present "$sid" "$dir"; then
+    rm -f "$state"; return 0
+  fi
+  _SESSION_SID="$sid"
+  _SESSION_RESUMED=yes
+  # The continuation chain has its own count; the kill-resume try stays 0, so a
+  # continued session that is killed is still kill-resumable once.
+  _SESSION_CONTINUE_TRY=$((try + 1))
+  _SESSION_TRY=0
+  _SESSION_RESUME_OUTCOME="continue"
+}
+
 # _session_resume_read FILE KIND KEY — the stub's fields, validated, as `k=v`
 # lines; or nothing. NOTHING IS THE ONLY FAILURE MODE, and it is what "a stub
 # that is missing, unreadable, or ambiguous is treated as absent, never as
@@ -397,7 +511,7 @@ _session_resume_state() {
 _session_resume_read() {
   local file="$1" want_kind="${2-}" want_key="${3-}" line field value lines=0
   local kind="" key="" sid="" head="" wall="" try="" logb="" outcome="" productive=""
-  local survivor_count=""
+  local survivor_count="" task=""
   local seen=""
   [ -s "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
@@ -437,6 +551,7 @@ _session_resume_read() {
       outcome) outcome="$value" ;;
       productive) productive="$value" ;;
       left) survivor_count="$value" ;;
+      task) task="$value" ;;
       *) return 0 ;;
     esac
   done <"$file"
@@ -457,6 +572,12 @@ _session_resume_read() {
   case "$outcome" in TIMEOUT | MEMORY) ;; *) return 0 ;; esac
   case "$productive" in yes | no) ;; *) return 0 ;; esac
   case "$survivor_count" in unknown) ;; '' | *[!0-9]*) return 0 ;; esac
+  # A stub written before `task=` existed carries none and resumes as it did;
+  # one that names a task resumes only into a dispatch for that same task.
+  if [ -n "$task" ] && [ "$task" != - ] \
+      && [ "$task" != "$(_session_continue_task "$want_kind" "$want_key" | tr -d '\n')" ]; then
+    return 0
+  fi
   printf 'sid=%s\nhead=%s\nwall=%s\ntry=%s\nlog=%s\noutcome=%s\nproductive=%s\nleft=%s\n' \
     "$sid" "$head" "$wall" "$try" "$logb" "$outcome" "$productive" "$survivor_count"
 }
@@ -493,11 +614,15 @@ _session_resume_plan() {
   _SESSION_SID=""
   _SESSION_RESUMED=no
   _SESSION_TRY=0
+  _SESSION_CONTINUE_TRY=0
   _SESSION_RESUME_OUTCOME=""
   state="$(_session_resume_state "$kind" "$key")"
   fields="$(_session_resume_read "$state" "$kind" "$key")"
   rm -f "$state" 2>/dev/null || true
-  [ -n "$fields" ] || return 0
+  if [ -z "$fields" ]; then
+    _session_continue_plan "$kind" "$key" "$dir"
+    return 0
+  fi
   while IFS='=' read -r field value; do
     case "$field" in
       sid) sid="$value" ;; head) head="$value" ;; try) try="$value" ;;
@@ -689,9 +814,14 @@ _session_resume_record() {
     fi
   fi
   case "$wall" in '' | *[!0-9]*) wall=0 ;; esac
-  printf 'kind=%s\nkey=%s\nsid=%s\nhead=%s\nwall=%s\ntry=%s\nlog=%s\noutcome=%s\nproductive=%s\nleft=%s\n' \
+  # `task=` is the work the killed session was on (the resume set, the PR
+  # set, a `repo#num`), so a later dispatch on OTHER work never resumes this
+  # transcript into it — the same rule _session_continue_task applies to
+  # continuation. `-` when the lane names no task.
+  printf 'kind=%s\nkey=%s\nsid=%s\nhead=%s\nwall=%s\ntry=%s\nlog=%s\noutcome=%s\nproductive=%s\nleft=%s\ntask=%s\n' \
     "$kind" "$key" "$record_sid" "$(_session_head "$dir")" "$wall" \
     "$_SESSION_TRY" "$logb" "$verdict" "$productive" "$survivor_count" \
+    "$(_session_continue_task "$kind" "$key" | tr -d '\n')" \
     >"$state" 2>/dev/null || true
   return 0
 }
@@ -792,6 +922,8 @@ $prompt"
   # breaks all of them. This is the same position — and the same reason — as
   # tier=, log=, left= and peak_rss= on SESSION END below.
   log "SESSION START kind=$kind key=$key timeout=${tmo}s log=$slog holder=$(_session_holder) sid=$_SESSION_SID"
+  # The tick bought a session: duty.sh's idle counter reads this stamp (#759).
+  : >"$DUTY_DIR/.tick-acted" 2>/dev/null || true
   start=$SECONDS
   oom_source="$(_session_oom_source)"
   [ -z "$oom_source" ] || oom_before="$(_session_oom_count "$oom_source")"
@@ -877,7 +1009,7 @@ $prompt"
   # after dispatch and before the resume stub is considered (#673).
   _session_observe_identity "$structured_log" "$dir" "$slog"
   local dur=$((SECONDS - start)) verdict=ok acted reply_tail peak_rss mem_hit log_bytes
-  local usage_suffix pool_suffix sid_suffix
+  local usage_suffix pool_suffix sid_suffix why_suffix
   sid_suffix="$(_session_sid_suffix)"
   mem_hit="$(session_mem_hit "$slog.mem")"
   [ "$rc" -eq 124 ] && verdict=TIMEOUT
@@ -915,6 +1047,7 @@ $prompt"
   else
     pool_suffix=""
   fi
+  why_suffix="$(_session_why_suffix)"
   rm -f "$slog.peak" "$slog.mem" 2>/dev/null || true
   [ -z "$structured_log" ] || rm -f "$structured_log" 2>/dev/null || true
   # log= and left= are appended immediately after reply_tail (#529), then the
@@ -960,12 +1093,13 @@ $prompt"
   # Unconditional, unlike the two suffixes ahead of it — a session with no id
   # emits `sid=unknown`, because D3 asks for the token on EVERY record and
   # `unknown` is the answer `_session_mint_sid` already gives.
-  log "SESSION END kind=$kind key=$key rc=$rc dur=${dur}s outcome=$verdict acted=$acted reply_tail=$reply_tail log=$log_bytes left=$survivor_count tier=$_SESSION_TIER${peak_rss:+ peak_rss=$peak_rss} oom=$oom_delta$usage_suffix$pool_suffix$sid_suffix"
+  log "SESSION END kind=$kind key=$key rc=$rc dur=${dur}s outcome=$verdict acted=$acted reply_tail=$reply_tail log=$log_bytes left=$survivor_count tier=$_SESSION_TIER${peak_rss:+ peak_rss=$peak_rss} oom=$oom_delta$usage_suffix$why_suffix$pool_suffix$sid_suffix"
   # Written after the line that reports the session and before the counters
   # that bill it, reading the two figures that line just published: this stub
   # and that record can never disagree about what the session left behind.
   _session_resume_record "$kind" "$key" "$dir" "$rc" "$tmo" \
     "$log_bytes" "$survivor_count" "$verdict" "$acted" "$slog"
+  _session_continue_record "$kind" "$key" "$rc" "$verdict"
   _session_terminal_record "$kind" "$terminal" "$acted" "$slog"
   # The rolling counter is written alongside the line that carries the same
   # duration, so the budget and the log can never disagree about what a
@@ -1608,4 +1742,22 @@ session_mem_hit() {
     '' | *[!0-9]*) return 0 ;;
   esac
   printf '%s' "$v"
+}
+
+# idle_ticks_account — the host's stop-on-idle reads $DUTY_DIR/.idle-ticks: the
+# number of consecutive ticks that bought no session, reset by the first tick
+# that does (run_session stamps .tick-acted above). duty.sh calls it on every
+# exit path, right after its `duty run end` line (#759). It lives here and
+# not in duty.sh because the first-tick fixture runs duty.sh's identity block
+# with only this library sourced, and the accounting is on that block's
+# exit paths too.
+idle_ticks_account() {
+  local n
+  if [ -e "$DUTY_DIR/.tick-acted" ]; then
+    printf '0\n' >"$DUTY_DIR/.idle-ticks"
+  else
+    n="$(cat "$DUTY_DIR/.idle-ticks" 2>/dev/null || echo 0)"
+    case "$n" in ''|*[!0-9]*) n=0 ;; esac
+    printf '%s\n' "$((n + 1))" >"$DUTY_DIR/.idle-ticks"
+  fi
 }

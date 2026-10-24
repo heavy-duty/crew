@@ -3,11 +3,17 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths: ['fleet-floor/**', '.github/workflows/ci-floor.yml']
-  # Main keeps the pre-split invariant: both halves run after every relevant
-  # merge, using the former workflow's full filter on each half.
+  # The floor's own paths only (#756): the no-browser half of this suite runs
+  # in ci-shell's matrix on every engine change, so this workflow — the
+  # browser walk — runs when the floor moves, weekly on main, and by hand on a
+  # candidate (`gh workflow run ci-floor.yml --ref X.Y.Z-rcN`, recorded in the
+  # candidate's drill record).
   push:
     branches: [main]
-    paths: ['shared/**', 'cli/**', 'drill/**', 'fleet-floor/**', 'examples/**', 'install.sh', 'dist/**', '.ceremony/**', '.github/workflows/ci-shell.yml', '.github/workflows/ci-floor.yml']
+    paths: ['fleet-floor/**', '.github/workflows/ci-floor.yml']
+  schedule:
+    - cron: '47 4 * * 1'
+  workflow_dispatch:
 
 concurrency:
   group: ci-floor-${{ github.ref }}
@@ -28,9 +34,16 @@ jobs:
           for f in fleet-floor/build.sh fleet-floor/server/probe.sh fleet-floor/test/run.sh fleet-floor/test/*.sh fleet-floor/test/floor/*.sh fleet-floor/test/stub-box; do
             bash -n "$f"
           done
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        id: shellcheck-cache
+        with:
+          path: ~/.local/bin/shellcheck
+          key: shellcheck-v0.10.0-linux-x86_64
+      - if: steps.shellcheck-cache.outputs.cache-hit != 'true'
+        run: .github/ci/fetch-shellcheck.sh
+      - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: shellcheck (floor)
         run: |
-          sudo apt-get install -y shellcheck >/dev/null
           shellcheck -x fleet-floor/build.sh fleet-floor/server/probe.sh fleet-floor/test/*.sh fleet-floor/test/floor/*.sh fleet-floor/test/stub-box
       - name: python syntax (collector)
         run: python3 -m py_compile fleet-floor/server/floor.py fleet-floor/server/floor/*.py

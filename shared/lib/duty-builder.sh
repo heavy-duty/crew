@@ -393,10 +393,18 @@ _redraft_authored_pr() {
   fi
   is_draft="$(printf '%s' "$payload" | jq -r '.data.repository.pullRequest.isDraft // false' 2>/dev/null)"
   [ "$is_draft" = false ] || return 0
+  # The round is read against the panel sized for THIS head (#761): the
+  # reviewers the engine asked are the ones whose verdicts close it.
+  _panel_effective "$repo" "$num" "$(printf '%s' "$payload" | jq -r '.data.repository.pullRequest.headRefOid // ""' 2>/dev/null)" "$eff_panel"
+  # The whole roster rides beside the sized subset: a request still open to a
+  # reviewer outside the subset (a head requested whole under the old rule, a
+  # PR whose risk dropped) is a round still open, never a closed one.
+  local roster_panel="$eff_panel"
+  eff_panel="$_PANEL_EFFECTIVE_JSON"
   redraft="$(printf '%s' "$payload" \
     | jq -c --arg addressing "$LABEL_ADDRESSING" \
         '.data.repository.pullRequest.labels.nodes |= map(select(.name != $addressing))' 2>/dev/null \
-    | jq -r --argjson panel "$eff_panel" --arg addressing "$LABEL_ADDRESSING" \
+    | jq -r --argjson panel "$eff_panel" --argjson roster "$roster_panel" --arg addressing "$LABEL_ADDRESSING" \
         -f "$DUTY_DIR/lib/jq/addressing.jq" 2>/dev/null || echo err)"
   case "$redraft" in
     true)
@@ -524,36 +532,43 @@ _handoff_comment() {
 # no clone (#91). Every step is idempotent and NONE gates the next: the label
 # is what notify.sh polls, and making it contingent on a comment or a request
 # that can fail is the invisible-escalation class the notifier exists to
-# prevent. Order is chosen for crash-safety, not priority — state:needs-human
-# is written LAST because it is the convergence refire guard (converged.jq's
-# $not_handed): a box that dies before it refires next tick, and every write
-# above is a no-op on the retry (post-once dedup, an already-requested
-# reviewer, an already-present round marker). Requesting the human does not
-# suppress the refire on its own — converged.jq's $no_panel_reqs counts only
-# PANEL requests, and the human is off-panel.
+# prevent. Order is chosen for crash-safety, not priority — the MARK_HANDOFF
+# comment is written LAST because it is the convergence refire guard
+# (converged.jq's $handed_at_head, #535): a box that dies before it refires
+# next tick, and every write above is a no-op on the retry (an already-
+# requested reviewer, an already-present label, an already-present round
+# marker; the comment itself is post-once's exact-body dedup). A comment that
+# does not post leaves the guard unarmed on purpose — the next tick retries the
+# whole handoff, loudly, until the fact is on the record. Requesting the human
+# does not suppress the refire on its own — converged.jq's $no_panel_reqs
+# counts only PANEL requests, and the human is off-panel — and neither does
+# the label: it is the reconciler's to clear, and reading it as the guard is
+# the flood #535 measured.
 #
 # What the human's request DOES spend is round_owed's second clause (#452): the
 # builder wake for a human CHANGES_REQUESTED is "blocking at the head and not
 # currently requested", so this line is where a wake that was answered stops
-# firing — the mirror of the panel clause's outstanding-request guard. The
-# label is still the refire guard, and converged.jq's own human disqualifier is
-# what stops the reconciler taking that label back off and bouncing the PR
-# between the two.
+# firing — the mirror of the panel clause's outstanding-request guard.
+# converged.jq's own human disqualifier is what keeps a blocked head from
+# handing off while the ball is the builder's.
 _handoff_finalize() {
   local repo="$1" num="$2" comment
   _mirror_rounds "$repo" "$num" true   # finalize the live round: the PR is converging
-  comment="$(_handoff_comment "$repo" "$num")"
-  if [ -n "$comment" ]; then
-    "$BIN_DIR/post-once.sh" "$repo" "$num" "$comment" \
-      || warn "$repo#$num: handoff comment did not post (best-effort; label still set)"
-  else
-    warn "$repo#$num: could not render the handoff comment this tick (best-effort)"
-  fi
   gh api "repos/$repo/pulls/$num/requested_reviewers" \
     -f "reviewers[]=$FLEET_HUMAN" >/dev/null 2>&1 \
     || warn "$repo#$num: review request for @$FLEET_HUMAN failed (already requested?)"
   gh issue edit "$num" -R "$repo" --add-label "$LABEL_NEEDS_HUMAN" >/dev/null 2>&1 \
     || warn "$repo#$num: could not set $LABEL_NEEDS_HUMAN"
+  # LAST: the refire guard. Posted after the label so a crash between the two
+  # retries the handoff rather than stranding a handed-off head without its
+  # label.
+  comment="$(_handoff_comment "$repo" "$num")"
+  if [ -n "$comment" ]; then
+    "$BIN_DIR/post-once.sh" "$repo" "$num" "$comment" \
+      || warn "$repo#$num: handoff comment did not post (label set; the handoff retries next tick until it does)"
+  else
+    warn "$repo#$num: could not render the handoff comment this tick (label set; the handoff retries next tick)"
+  fi
 }
 
 _report_unsignalled_hold() {
@@ -620,7 +635,7 @@ ROUND_CAP_NAMED="-"
 # PR that has rounds left.
 _round_cap_census() {
   local repo="$1" panel_json="$2" listing="$3"
-  local owner name num payload capjson rounds at_cap named="" items="" fresh measured
+  local owner name num payload capjson rounds at_cap named="" items="" fresh measured cap_head
   local issue record="" record_fresh
   ROUND_CAP_PRS=""
   ROUND_CAP_NAMED="-"
@@ -648,8 +663,15 @@ _round_cap_census() {
         'round-cap history exceeds its unpaginated GraphQL window'; then
       continue
     fi
+    # THE SIZED PANEL, here as at the request, the redraft and the handoff
+    # (#761): a round closes when the reviewers THIS head was asked of have all
+    # spoken, so a low-risk PR reviewed by one sized reviewer reaches the cap on
+    # that reviewer's five rounds — counted against the whole roster it never
+    # would, and the PR would cycle past five without the cut.
+    cap_head="$(printf '%s' "$payload" | jq -r '.data.repository.pullRequest.headRefOid // ""' 2>/dev/null)"
+    _panel_effective "$repo" "$num" "$cap_head" "$panel_json"
     capjson="$(printf '%s' "$payload" \
-      | jq -c -L "$DUTY_DIR/lib/jq" --argjson panel "$panel_json" \
+      | jq -c -L "$DUTY_DIR/lib/jq" --argjson panel "$_PANEL_EFFECTIVE_JSON" \
           -f "$DUTY_DIR/lib/jq/round-cap.jq" 2>/dev/null)" || capjson="" # Decision-path empty fallback: the next branch warns and excludes this PR from the destructive cap decision.
     if [ -z "$capjson" ]; then
       warn "$repo#$num: round-cap eval failed; not counted this tick"
@@ -737,6 +759,86 @@ _at_round_cap() {
 # PAYLOAD is the same GraphQL pullRequest object the handoff loop already
 # fetched (now carrying comments), so this costs no extra call. Every write is
 # best-effort and gates nothing — the same rule as _handoff_finalize.
+# --- Risk-sized panels (#761) -------------------------------------------------
+#
+# _panel_risk REPO NUM — sets _PANEL_RISK_TIER (`low` or `high`) and
+# _PANEL_RISK_WHY; prints nothing, so a caller reads both without a subshell.
+# Read off the head's files: any path matching PANEL_RISK_PATHS, more than
+# PANEL_RISK_MAX_FILES files, or more than PANEL_RISK_MAX_LINES lines changed
+# is high. A read that fails is high — a panel that cannot see the change
+# reviews it whole, never smaller.
+_PANEL_RISK_WHY=""
+_PANEL_RISK_TIER=high
+_panel_risk() {
+  local repo="$1" num="$2" files paths n lines risky
+  _PANEL_RISK_WHY=""; _PANEL_RISK_TIER=high
+  if ! files="$(gh pr view "$num" -R "$repo" --json files \
+      --jq '.files[] | "\(.path) \(.additions + .deletions)"' 2>/dev/null)"; then
+    _PANEL_RISK_WHY="files unreadable"; return 0
+  fi
+  n="$(printf '%s\n' "$files" | sed '/^$/d' | wc -l | tr -d ' ')"
+  lines="$(printf '%s\n' "$files" | awk 'NF {s += $2} END {print s + 0}')"
+  paths="$(printf '%s\n' "$files" | awk 'NF {print $1}')"
+  risky="$(printf '%s\n' "$paths" | grep -E -c "${PANEL_RISK_PATHS:-^$}" || true)"
+  if [ "$risky" -gt 0 ]; then
+    _PANEL_RISK_WHY="$risky risky path(s): $(printf '%s\n' "$paths" | grep -E "${PANEL_RISK_PATHS:-^$}" | head -3 | paste -sd, -)"
+    return 0
+  fi
+  if [ "$n" -gt "${PANEL_RISK_MAX_FILES:-3}" ]; then
+    _PANEL_RISK_WHY="$n files (bound ${PANEL_RISK_MAX_FILES:-3})"; return 0
+  fi
+  if [ "$lines" -gt "${PANEL_RISK_MAX_LINES:-80}" ]; then
+    _PANEL_RISK_WHY="$lines lines (bound ${PANEL_RISK_MAX_LINES:-80})"; return 0
+  fi
+  _PANEL_RISK_WHY="$n file(s), $lines lines, no risky path"
+  _PANEL_RISK_TIER=low
+}
+
+# _panel_sized TIER NUM TO_REQUEST — the reviewers to request: all of them
+# at high, PANEL_LOW_RISK_SIZE of them at low, starting at NUM modulo the
+# count so consecutive low-risk heads rotate through the panel.
+_panel_sized() {
+  local tier="$1" num="$2" to_request="$3" size count start
+  [ "$tier" = low ] || { printf '%s\n' "$to_request"; return 0; }
+  size="${PANEL_LOW_RISK_SIZE:-1}"
+  case "$size" in ''|*[!0-9]*|0) size=1 ;; esac
+  count="$(printf '%s\n' "$to_request" | sed '/^$/d' | wc -l | tr -d ' ')"
+  [ "$count" -gt "$size" ] || { printf '%s\n' "$to_request"; return 0; }
+  start=$(( num % count ))
+  printf '%s\n' "$to_request" | sed '/^$/d' | awk -v s="$start" -v k="$size" -v c="$count" '
+    { line[NR - 1] = $0 }
+    END { for (i = 0; i < k; i++) print line[(s + i) % c] }'
+}
+
+# _panel_effective REPO NUM HEAD PANEL_JSON — THE panel for this head: the
+# risk-sized subset of the resolved roster, as a JSON array in
+# _PANEL_EFFECTIVE_JSON, with the tier and its reason in _PANEL_RISK_TIER and
+# _PANEL_RISK_WHY. It is what request-panel.jq requests FROM and what
+# converged.jq counts approvals AGAINST, so a low-risk head is reviewed by one
+# reviewer and hands off on that one approval — sizing the panel, not the
+# order it is asked in. The reading is cached per head in
+# `.panel-sized-<repo>-<num>` (`<head> <tier> <why>`), so every tick of the
+# same head sizes the same way and the files read is one per head, not one per
+# tick; a new head reads again.
+_PANEL_EFFECTIVE_JSON="[]"
+_panel_effective() {
+  local repo="$1" num="$2" head="$3" panel_json="$4" cache c_head tier why sized
+  cache="$DUTY_DIR/.panel-sized-${repo//\//_}-$num"
+  if [ -n "$head" ] && [ -r "$cache" ] && read -r c_head tier why <"$cache" \
+      && [ "$c_head" = "$head" ] && [ -n "$tier" ]; then
+    _PANEL_RISK_TIER="$tier"; _PANEL_RISK_WHY="$why"
+  else
+    _panel_risk "$repo" "$num"
+    # PANEL_SIZED_CACHE=off is for a harness that runs the engine out of its
+    # own tree: it reads the same way and leaves no file behind.
+    [ -z "$head" ] || [ "${PANEL_SIZED_CACHE:-on}" = off ] \
+      || { printf '%s %s %s\n' "$head" "$_PANEL_RISK_TIER" "$_PANEL_RISK_WHY" >"$cache.tmp" && mv -f "$cache.tmp" "$cache"; }
+  fi
+  sized="$(_panel_sized "$_PANEL_RISK_TIER" "$num" "$(printf '%s' "$panel_json" | jq -r '.[]' 2>/dev/null)")"
+  _PANEL_EFFECTIVE_JSON="$(printf '%s\n' "$sized" | awk 'NF' | jq -R . | jq -cs .)"
+  [ -n "$_PANEL_EFFECTIVE_JSON" ] || _PANEL_EFFECTIVE_JSON="$panel_json"
+}
+
 _request_panel() {
   local repo="$1" num="$2" payload="$3" panel_json="$4" check_state="$5" hc_head="$6"
   local at_cap="${7:-false}"
@@ -798,8 +900,11 @@ _request_panel() {
   # push landed between them, defer a tick rather than request on a head whose
   # check nobody has seen settle.
   [ "$hc_head" = "$gql_head" ] || { log "$repo#$num: head moved mid-tick — deferring panel request"; return 0; }
+  # The panel for THIS head (#761): risk-sized once per head, and the same
+  # subset converged.jq counts against, so the request and the handoff agree.
+  _panel_effective "$repo" "$num" "$gql_head" "$panel_json"
   to_request="$(printf '%s' "$payload" \
-    | jq -r --argjson panel "$panel_json" --argjson signal "$signal_json" \
+    | jq -r --argjson panel "$_PANEL_EFFECTIVE_JSON" --argjson signal "$signal_json" \
         -f "$DUTY_DIR/lib/jq/request-panel.jq" 2>/dev/null)"
   # Nothing to request is now the ROUND-CLOSED case as well as the
   # nothing-owed one (#286): a panel that answered with CHANGES_REQUESTED spends
@@ -808,6 +913,16 @@ _request_panel() {
   # PR stays in this loop for every tick until the human merges it, and a line
   # per tick per PR would bury the writes that matter.
   [ -n "${to_request//[[:space:]]/}" ] || return 0
+  # The tier and what decided it, on the pull request ONCE PER HEAD: the
+  # marker line is the key post-once matches, so a later tick that requests a
+  # further member of the same sized panel posts nothing new.
+  local risk_tier="$_PANEL_RISK_TIER" risk_why="$_PANEL_RISK_WHY" sized_marker
+  sized_marker="<!-- duty:panel-sized:$repo#$num@$gql_head -->"
+  log "$repo#$num: panel sized $risk_tier ($risk_why): $(printf '%s' "$_PANEL_EFFECTIVE_JSON" | jq -r 'join(" ")' 2>/dev/null)"
+  "$BIN_DIR/post-once.sh" "$repo" "$num" \
+    "${MARK_PANEL_SIZED:-🧭 panel sized} $risk_tier at $gql_head: $(printf '%s' "$_PANEL_EFFECTIVE_JSON" | jq -r 'join(" ")' 2>/dev/null) — $risk_why
+$sized_marker" "$sized_marker" >/dev/null 2>&1 \
+    || warn "$repo#$num: the panel-sized comment did not post (best-effort)"
   # One reviewer per call, not a batched reviewers[] array: a single 422 (an
   # already-pending request that raced the predicate) must not drop the others.
   for rvr in $to_request; do
@@ -1781,7 +1896,9 @@ _flip_owed_resume_rows() {
     # next move is theirs. Both gates are needed and each does one job: this one
     # says nobody was ever asked, the one below says an ask is still owed. An
     # off-panel reviewer is advisory (BUILDER.md) and is never the ask.
-    if [ "$(printf '%s' "$pr" | jq -r --argjson panel "$panel" \
+    # Owed to the panel sized for this head, not the whole roster (#761).
+    _panel_effective "$repo" "$num" "$head" "$panel"
+    if [ "$(printf '%s' "$pr" | jq -r --argjson panel "$_PANEL_EFFECTIVE_JSON" \
         '[.reviewRequests[]? | .login // empty
           | select(. as $l | ($panel | index($l)) != null)] | length')" != 0 ]; then
       continue
@@ -1807,7 +1924,7 @@ _flip_owed_resume_rows() {
     [ -n "$signal_json" ] || signal_json='{"sha":"","createdAt":""}'
     [ "$(printf '%s' "$signal_json" | jq -r '.sha // ""')" = "$head" ] || continue
     to_request="$(printf '%s' "$payload" \
-      | jq -r --argjson panel "$panel" --argjson signal "$signal_json" \
+      | jq -r --argjson panel "$_PANEL_EFFECTIVE_JSON" --argjson signal "$signal_json" \
           -f "$BUILDER_LIB_DIR/jq/request-panel.jq" 2>/dev/null)"
     [ -n "${to_request//[[:space:]]/}" ] || continue
     warn "$repo#$num: a draft carrying a valid signal at green head $head, owing a panel ($(printf '%s' "$to_request" | tr '\n' ' ')) that has never been asked — the handoff was consumed, not completed; resuming this tick (#384). The flip stays yours."
@@ -2394,6 +2511,102 @@ duty_builder() {
   done <<<"$duty_repos"
 }
 
+
+# --- The handoff note (#760) --------------------------------------------------
+#
+# The builder's own record of a claim is the pull request body's `## Worklog`
+# and `## Round log` (BUILDER.md): what was done, verified, and next. The
+# engine does not write it — the session does — but the engine READS it first
+# and keeps a copy: at every dispatch for a claim the sections are fetched,
+# saved to $DUTY_DIR/.handoff-<repo>-<num> (the probe ships it, the store
+# holds it, so a re-minted box and the host both have the last checkpoint),
+# and injected into the prompt ahead of the repository. After a session that
+# ran to completion the copy is refreshed — the checkpoint. A fetch that
+# fails falls back to the copy, never to nothing said.
+_handoff_file() { printf '%s/.handoff-%s-%s' "$DUTY_DIR" "${1//\//_}" "$2"; }
+
+# _handoff_sections BODY — the two sections, each to its next `## ` heading.
+_handoff_sections() {
+  awk '
+    /^## (Worklog|Round log)[[:space:]]*$/ { keep = 1; print; next }
+    /^## / { keep = 0 }
+    keep { print }
+  ' <<<"$1"
+}
+
+# _handoff_fetch REPO NUM — fetch, save, print the note (or the saved copy).
+_handoff_fetch() {
+  local repo="$1" num="$2" file body head note
+  file="$(_handoff_file "$repo" "$num")"
+  if body="$(gh pr view "$num" -R "$repo" --json body,headRefOid \
+      --jq '.headRefOid + "\n" + (.body // "")' 2>/dev/null)" && [ -n "$body" ]; then
+    head="${body%%$'\n'*}"
+    note="$(_handoff_sections "${body#*$'\n'}")"
+    { printf '# %s#%s head=%s at=%s\n' "$repo" "$num" "$head" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+      printf '%s\n' "$note"; } >"$file.tmp" && mv -f "$file.tmp" "$file"
+  fi
+  [ -r "$file" ] || return 1
+  if [ -z "${head:-}" ]; then
+    # The live body could not be read: the copy is served, SAID to be a copy,
+    # with the head it was taken at, so a note from an older head is never
+    # read as current.
+    local hdr; hdr="$(head -1 "$file")"
+    printf '(stale copy: the live body could not be read; this note is from %s)\n' \
+      "$(printf '%s' "$hdr" | sed -n 's/^# [^ ]* \(head=[^ ]* at=[^ ]*\).*/\1/p')"
+  fi
+  sed '1d' "$file"
+}
+
+# _handoff_block REPO NUMS — the prompt block for these pull requests.
+_handoff_block() {
+  local repo="$1" nums="$2" num note out=""
+  for num in $nums; do
+    case "$num" in ''|none|*[!0-9]*) continue ;; esac
+    note="$(_handoff_fetch "$repo" "$num" 2>/dev/null || true)"
+    [ -n "${note//[[:space:]]/}" ] || note="(no worklog yet — start one under \`## Worklog\` in the PR body)"
+    out="$out### $repo#$num
+$note
+
+"
+  done
+  [ -n "$out" ] || { printf 'none\n'; return 0; }
+  printf '%s' "$out"
+}
+
+# --- Parked waits (#760) -----------------------------------------------------
+#
+# park-until.sh leaves $DUTY_DIR/.wait-<repo>-<num> — `repo num head at` —
+# and ends the session. Every builder tick reads them: a wait whose checks
+# have concluded, or whose head has moved since (the wait is moot), is due:
+# the file is removed and the pull request joins this tick's resume set with
+# `why=wait#repo#num`. A wait still pending costs one API read and nothing
+# else. The host's tick reads the same files from the store while the box
+# sleeps (shared/lib/host/wake.sh), so a parked box is woken for it.
+_builder_waits_due() { # REPO — due pull request numbers, one per line
+  local repo="$1" f wrepo num head at rollup pending now_head
+  for f in "$DUTY_DIR/.wait-${repo//\//_}-"*; do
+    [ -f "$f" ] || continue
+    read -r wrepo num head at <"$f" || continue
+    [ "$wrepo" = "$repo" ] || continue
+    rollup="$(gh pr view "$num" -R "$repo" --json headRefOid,statusCheckRollup 2>/dev/null)" || continue
+    now_head="$(jq -r '.headRefOid // ""' <<<"$rollup")"
+    pending="$(jq -r '[.statusCheckRollup[]? | select((.conclusion // "") == "" and ((.status // "") == "QUEUED" or (.status // "") == "IN_PROGRESS" or (.status // "") == "PENDING" or (.status // "") == "WAITING" or (.status // "") == "REQUESTED" or (.status // "") == "EXPECTED" or (.state // "") == "PENDING" or (.state // "") == "EXPECTED"))] | length' <<<"$rollup")"
+    if [ "$pending" = 0 ] || { [ -n "$now_head" ] && [ "$now_head" != "$head" ]; }; then
+      log "$repo#$num: parked wait is due (pending=$pending head=${now_head:0:7} parked-at=${head:0:7} since $at)"
+      printf '%s\n' "$num"
+    fi
+  done
+}
+
+# _builder_waits_clear REPO NUMS — the due waits, consumed: called once the
+# tick has acted on them (the resume session ran to completion, or there was
+# nothing left to resume), never before, so a clone or session failure keeps
+# the wake (#760).
+_builder_waits_clear() {
+  local repo="$1" num
+  for num in $2; do rm -f "$DUTY_DIR/.wait-${repo//\//_}-$num"; done
+}
+
 _builder_repo() {
   local R="$1"
   local slug="${R//\//__}" owner="${R%%/*}" name="${R##*/}"
@@ -2402,6 +2615,13 @@ _builder_repo() {
   wt_rules="$(render_prompt fragment-wt-rules.txt WT_DIR="$TREES_DIR/$slug" ME="$ME" NAME="$name")"
   oneshot_rules="$(render_prompt fragment-oneshot-rules.txt BIN="$BIN_DIR")"
   operator_clause="$(_operator_build_prompt_clause "${LABEL_OPERATOR:-}")"
+  local wait_rules wait_nums wait_why=""
+  wait_rules="$(render_prompt fragment-wait-rules.txt BIN="$BIN_DIR" REPO="$R")"
+  # Parked waits that have concluded join this tick's resume set (#760).
+  wait_nums="$(_builder_waits_due "$R" | tr '\n' ' ')"
+  wait_nums="${wait_nums% }"
+  # shellcheck disable=SC2086  # the numbers split into lines on purpose
+  [ -z "$wait_nums" ] || wait_why="$(printf '%s\n' $wait_nums | sed "s|^|wait#$R#|" | paste -sd, -)"
 
   # panel_for_repo deliberately falls back to FLEET_BENCH when neither the
   # local clone nor the contents API yields a roster. Resolve this author-aware
@@ -2467,9 +2687,10 @@ _builder_repo() {
   open_heads="$(gh pr list -R "$R" --state open --author "$ME" \
     --json headRefName --jq '.[].headRefName' 2>/dev/null || echo err)"
   # A merged build/* branch is NOT interrupted work: its PR landed, and the
-  # claim lingers only until triage moves the issue to its post-merge state
-  # (heavy-duty/ceremony#172 — the PR carried Refs #N, not Closes, because the
-  # remaining ACs are post-merge and triage-owned). Treating it as an orphan
+  # claim lingers only until GitHub closes the issue on the merge (a same-repo
+  # PR always carries Closes #N since ceremony 0.7.11; after-close work is a
+  # successor issue minted at the split, never residue on this one — the
+  # `post-merge` queue row it used to wait in is retired). Treating it as an orphan
   # phantom-rebuilds merged code every tick and holds the build slot against
   # ready work (incubator#55/#64). Gather merged heads and exclude them below,
   # so every box gets this in the shared engine instead of re-deriving it by
@@ -2535,8 +2756,8 @@ _builder_repo() {
         | tr ' ' '\n' | awk 'NF && !seen[$0]++' | tr '\n' ' ')"
     fi
     near_miss_desc="$(_near_miss_dispatch_desc "$near_miss_rows" "$stranded_nums")"
-    # Post-merge wait, not an orphan: a merged branch never resumes. Re-entry
-    # for residue is a fresh branch from main after triage re-readies it (#172).
+    # A merged branch never resumes and is not an orphan: it waits for GitHub's
+    # close. Re-entry for residue is a successor issue and a fresh branch.
     orphan_nums="$(_orphan_claim_nums "$name" "$claimed_nums" "$merged_heads" "$open_heads")"
     # THE DOABLE-WORK GATE (#314). Every other wake in this engine is
     # ledger-filtered; resume was the one that was not, and a park is invisible
@@ -2562,17 +2783,30 @@ _builder_repo() {
   _round_cap_census "$R" "$panel_json" "$resume_json"
   round_rules="$(render_prompt fragment-round-rules.txt TRIAGE="$FLEET_TRIAGE" BENCH="$FLEET_BENCH" MARK_ADDRESSING="$MARK_ADDRESSING" MARK_ANSWERED="$MARK_ANSWERED" ROUND_CAP="$ROUND_CAP_NAMED")"
 
+  if [ -n "$wait_nums" ]; then
+    draft_nums="$(printf '%s %s' "${draft_nums:-}" "$wait_nums" | tr ' ' '\n' | awk 'NF && !seen[$0]++' | paste -sd' ' -)"
+  fi
   if [ -n "${draft_nums// /}" ] || [ -n "${orphan_nums// /}" ] || [ -n "${stranded_nums// /}" ]; then
     log "$R: resume duty (drafts: ${draft_nums:-none}; orphaned claims:${orphan_nums:-" none"}; unsignalled ready PRs: ${stranded_nums:-none}; of those, signals that missed the wire: ${near_miss_desc:-none}, green heads owed a signal: ${green_head_nums:-none}; drafts owed a flip: ${flip_owed_nums:-none})"
     ensure_main_clone "$R" "$dir" || return 0
     RUN_SESSION_RC=1
+    local handoff_block
+    handoff_block="$(render_prompt fragment-handoff.txt \
+      HANDOFF="$(_handoff_block "$R" "${draft_nums:-} ${stranded_nums:-}")")"
+    SESSION_TASK="$(printf '%s\n' "${draft_nums:-}" "${stranded_nums:-}" | tr ' ' '\n' | awk 'NF' | sort -un | paste -sd, -)" \
+    WAKE_REASON="${WAKE_REASON:-cron}${wait_why:+,$wait_why}" \
     run_session resume "$R" "$dir" "$TIMEOUT_RESUME" \
       "$(render_prompt resume.txt ME="$ME" REPO="$R" NAME="$name" \
         DRAFTS="${draft_nums:-none}" ORPHANS="${orphan_nums:-none}" \
         STRANDED="${stranded_nums:-none}" NEAR_MISS="${near_miss_desc:-none}" \
         GREEN_HEAD="${green_head_nums:-none}" FLIP_OWED="${flip_owed_nums:-none}" \
         MARK_RESUME="$MARK_RESUME" \
-        WT_RULES="$wt_rules" ROUND_RULES="$round_rules")"
+        WT_RULES="$wt_rules" ROUND_RULES="$round_rules" \
+        HANDOFF_BLOCK="$handoff_block" WAIT_RULES="$wait_rules")"
+    # The checkpoint: the copy the host and a re-minted box read is the
+    # session's own last word, refreshed only when it ran to completion.
+    [ "${RUN_SESSION_RC:-1}" -ne 0 ] || _handoff_block "$R" "${draft_nums:-} ${stranded_nums:-}" >/dev/null
+    [ "${RUN_SESSION_RC:-1}" -ne 0 ] || _builder_waits_clear "$R" "$wait_nums"
     # Committed only on rc 0, exactly as .seen-build and .seen-ci-red are: a
     # crashed or timed-out session must re-dispatch next tick, never lose the
     # wake it never got to act on.
@@ -2581,6 +2815,9 @@ _builder_repo() {
     fi
   else
     log "$R: no resume duty"
+    # A due wait with nothing to resume names a pull request this tick no
+    # longer owes anything on: spent, so the host stops waking for it.
+    _builder_waits_clear "$R" "$wait_nums"
   fi
 
   # --- One listing of my open PRs, several facts. The state of the check at
@@ -2692,11 +2929,14 @@ _builder_repo() {
         red_num="${red_key#*#}"; red_num="${red_num%@*}"
         log "$R#$red_num: check RED at head — launching ci-red session (${red_checks:-unknown})"
         ensure_main_clone "$R" "$dir" || continue
+        local red_handoff
+        red_handoff="$(render_prompt fragment-handoff.txt HANDOFF="$(_handoff_block "$R" "$red_num")")"
         RUN_SESSION_RC=1
         run_session ci-red "$R#$red_num" "$dir" "$TIMEOUT_CIRED" \
           "$(render_prompt ci-red.txt ME="$ME" REPO="$R" NUM="$red_num" \
             CHECKS="${red_checks:-unknown}" WT_RULES="$wt_rules" \
-            ROUND_RULES="$round_rules")"
+            ROUND_RULES="$round_rules" \
+            HANDOFF_BLOCK="$red_handoff" WAIT_RULES="$wait_rules")"
         if [ "${RUN_SESSION_RC:-1}" -eq 0 ]; then
           local settled_json
           settled_json="$(gh pr view "$red_num" -R "$R" \
@@ -2873,7 +3113,8 @@ _builder_repo() {
         DECLINE_MARK="$_DECLINE_MARK" DECLINE_REASONS="$_DECLINE_REASONS" \
         OPERATOR_CLAUSE="$operator_clause" \
         HEAD_CHECKS="$head_checks" \
-        WT_RULES="$wt_rules" ROUND_RULES="$round_rules" ONESHOT_RULES="$oneshot_rules")"
+        WT_RULES="$wt_rules" ROUND_RULES="$round_rules" ONESHOT_RULES="$oneshot_rules" \
+        WAIT_RULES="$wait_rules")"
     # Record what this session SAW, at the state it saw it in — but only if the
     # session actually ran to completion. A crash or timeout leaves the ids
     # uncommitted so the next tick retries: declined and never-got-there must
@@ -2913,21 +3154,32 @@ _builder_repo() {
   # --- HANDOFF: a converged round of mine that owes the human. Convergence
   # computed directly: every panelist's latest opinionated review APPROVES
   # the CURRENT head, no panel request outstanding, PR mergeable RIGHT NOW,
-  # state:needs-human not already set (the human is off-panel — without the
-  # refire guard this wake fires forever after a successful handoff), and no
-  # standing unanswered CHANGES_REQUESTED from the human at that head (#452).
+  # no standing unanswered CHANGES_REQUESTED from the human at that head
+  # (#452), and THIS HEAD NOT ALREADY HANDED OFF — the refire guard, read off
+  # my own MARK_HANDOFF comment at this head (#535). The human is off-panel,
+  # so without that guard this wake fires forever after a successful handoff.
   #
-  # THAT LAST TERM IS WHY THE LABEL WAS NOT ENOUGH. The refire guard reads a
-  # label the RECONCILER owns, and the reconciler takes it off the moment the
-  # human blocks — correctly, the ball is the builder's. Convergence then read
-  # true again on the next tick (the panel still approves the head; a verdict
-  # does not move mergeable), the handoff re-requested the human and re-set the
-  # label, and the reconciler's "an explicit human request outranks the
-  # remaining bot outcomes" clause made it stick. The change request never
-  # reached the builder and the PR parked back on the human with a fresh nag —
-  # the withdrawn-then-re-nagged pair notify.sh shows. The disqualifier is
-  # spent by the builder's signal at that head, so an argued answer still
-  # converges and still reaches the human.
+  # THE GUARD READS A FACT THE ENGINE OWNS, NEVER A LABEL (#535). It used to
+  # read state:needs-human, which the RECONCILER owns and takes off for reasons
+  # of its own, each of them correct under its rule: a human CHANGES_REQUESTED
+  # (#452 — the ball is the builder's), or blocker:ci-red moving the PR to
+  # state:addressing (#535). Every removal re-armed the wake at an unchanged
+  # head: the panel still approved, a label does not move mergeable, so the
+  # handoff re-requested the human and re-set the label, and the reconciler
+  # took it off again — at tick cadence, 135 label events in 6h19m on crew#516,
+  # over a red that was main's own and no push by the builder could clear.
+  # #452 fixed one trigger with the $human_block disqualifier (kept exactly as
+  # it was: a human block at the head is the builder's work, not a handoff to
+  # suppress, and the builder's signal at that head spends it so an argued
+  # answer still converges and still reaches the human). The guard itself was
+  # the defect, and no writer had to yield to fix it: the handoff at a head is
+  # the builder's own durable fact, already posted as `MARK_HANDOFF <head>` by
+  # _handoff_finalize, so converged.jq reads that line and nothing else. A
+  # handed-off head stays handed off until the head MOVES — a push, a rebase or
+  # a force-push re-arms the wake; a label removal, a check flipping colour or
+  # a reconciler state change does not. The suppressed refire is logged, by
+  # PR and head (D5), so the guard is never mistaken for a guard that is not
+  # there.
   #
   # HANDOFF IS DELIBERATELY NOT GATED ON A GREEN HEAD, and the obvious
   # improvement is the bug (grok, #64). Adding `&& check_state == "green"`
@@ -2940,7 +3192,7 @@ _builder_repo() {
   # is the incident #17 was filed from. A converged PR reaching the human with
   # a red check is a human's call to make; a converged PR reaching nobody is
   # the failure this module exists to end. ---
-  local my_open converged handoff_signal handoff_prs="" _pr_at_cap=false
+  local my_open converged handoff_signal handoff_head handoff_prs="" _pr_at_cap=false
   if [ "$mine_json" = "err" ]; then
     warn "$R: handoff detection failed; skipping"
   else
@@ -3026,13 +3278,24 @@ _builder_repo() {
         | jq -c --arg me "$ME" --arg mark "$MARK_ANSWERED" \
             -f "$DUTY_DIR/lib/jq/answered-head.jq" 2>/dev/null)"
       [ -n "$handoff_signal" ] || handoff_signal='{"sha":"","createdAt":""}'
+      # Against the SAME sized panel the request was made from (#761).
+      _panel_effective "$R" "$N" "$(jq -r '.data.repository.pullRequest.headRefOid // ""' <<<"$pr_payload" 2>/dev/null)" "$panel_json"
       converged="$(printf '%s' "$pr_payload" \
-        | jq -r --argjson panel "$panel_json" --arg needs_human "$LABEL_NEEDS_HUMAN" \
+        | jq -r --argjson panel "$_PANEL_EFFECTIVE_JSON" --argjson roster "$panel_json" --arg me "$ME" --arg mark_handoff "$MARK_HANDOFF" \
             --arg human "${FLEET_HUMAN:-}" --argjson signal "$handoff_signal" \
             -f "$DUTY_DIR/lib/jq/converged.jq" 2>/dev/null || echo err)"
       case "$converged" in
         true)  handoff_prs="$handoff_prs $N" ;;
         false) : ;;
+        # The refire guard held (#535 D5): the wake would have fired and the
+        # head already carries my MARK_HANDOFF line. Said out loud, naming the
+        # PR and the head, because a guard that silently does nothing is
+        # indistinguishable from a guard that is not there (#501's dead
+        # detector). One line per tick per suppressed PR, nothing written.
+        handed-off)
+          handoff_head="$(printf '%s' "$pr_payload" \
+            | jq -r '.data.repository.pullRequest.headRefOid // ""' 2>/dev/null)"
+          log "$R#$N: converged at head ${handoff_head:-?} — already handed off at this head; refire suppressed (#535)" ;;
         # UNKNOWN mergeability is GitHub's post-merge recompute flap; the
         # next tick sees the real value. Logged distinctly so a converged-
         # but-deferred PR is never mistaken for an unconverged round.

@@ -553,7 +553,7 @@ BS_TIMEOUT_NAMES="$(sed -n 's/^[[:space:]]*\(TIMEOUT_[A-Z0-9_]*\)=.*/\1/p' \
   "$BS_ROOT/shared/conf/fleet.defaults.conf" "$BS_ROOT/shared/conf/agents/"*.conf \
   "$BS_ROOT/shared/conf/roles/"*.conf | sort -u | tr '\n' ' ')"
 t "message: TIMEOUT_* census contains session budgets only" \
-  "TIMEOUT_ATTENTION TIMEOUT_BUILD TIMEOUT_CIRED TIMEOUT_HYGIENE TIMEOUT_MENTION TIMEOUT_OPERATOR TIMEOUT_REBASE TIMEOUT_RESUME TIMEOUT_REVIEW TIMEOUT_TRIAGE " \
+  "TIMEOUT_ATTENTION TIMEOUT_BUILD TIMEOUT_CIRED TIMEOUT_HYGIENE TIMEOUT_MENTION TIMEOUT_OPERATOR TIMEOUT_REBASE TIMEOUT_RELEASE TIMEOUT_RESUME TIMEOUT_REVIEW TIMEOUT_TRIAGE " \
   "$BS_TIMEOUT_NAMES"
 
 # --------------------------------------------------------------------------

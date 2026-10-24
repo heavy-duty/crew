@@ -883,23 +883,14 @@ else
   check "triage: no second ruling on re-tick" bash -c \
     "[ \"\$(gh api 'repos/$SANDBOX/issues/$tnum/comments' --jq 'length')\" = '$TCOMMENTS' ]"
 
-  # A post-merge issue is already in a valid terminal queue state. Leave it
-  # as the only non-conforming-looking fixture, then prove a complete tick
-  # neither spends a session on it nor mutates it.
-  pnum="$(rehearsal_mint_post_merge_fixture "$SANDBOX" \
-    "drill: triage post-merge $(date -u +%H%M%S)" \
-    "Drill fixture: this issue is already in post-merge. Do not comment on it or change its labels.")"
-  rehearsal_fixture_record_issue "$SANDBOX" "$pnum"
-  PCOMMENTS="$(gh api "repos/$SANDBOX/issues/$pnum/comments" --jq 'length')"
-  PLABELS="$(gh api "repos/$SANDBOX/issues/$pnum" --jq '[.labels[].name] | sort | join(" ")')"
+  # The quiet-tick reading (#358, kept past the post-merge row's retirement in
+  # ceremony 0.7.11): with every fixture ruled into a valid queue state, a
+  # complete tick spends no session. Read off the tick that follows the
+  # re-tick above, on the same board.
   DUTY_LOG_LINES="$(bx "wc -l < ~/duty/duty.log")"
   bx "~/duty/bin/tick.sh" || true
   sleep 20
-  check "triage: post-merge drew no comment" bash -c \
-    "[ \"\$(gh api 'repos/$SANDBOX/issues/$pnum/comments' --jq 'length')\" = '$PCOMMENTS' ]"
-  check "triage: post-merge kept its single label" \
-    rehearsal_post_merge_labels_intact "$SANDBOX" "$pnum" "$PLABELS"
-  check "triage: post-merge-only tick launched no session" bx \
+  check "triage: quiet-board tick launched no session" bx \
     "out=\$(tail -n +$((DUTY_LOG_LINES + 1)) ~/duty/duty.log); grep -Fq '$SANDBOX: quiet — no mentions, no triage signals, no session launched' <<<\"\$out\""
 
   # -- the hygiene slot's board audit: both malformed shapes, not repaired --

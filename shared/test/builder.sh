@@ -6,7 +6,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=shared/test/lib.sh
 source "$HERE/lib.sh"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+trap 'rm -rf "$TMP"; rm -f "$SHARED"/.panel-sized-*' EXIT
 unset CREW_CONFIG_DIR CREW_EXPECT_OPERATOR_CONFIG
 export XDG_CONFIG_HOME="$TMP/xdg-empty"
 mkdir -p "$XDG_CONFIG_HOME"
@@ -225,8 +225,10 @@ mk_pr() {  # head mergeable labels requests reviews
       reviewRequests:{nodes:($reqs|map({requestedReviewer:{login:.}}))},
       latestOpinionatedReviews:{nodes:$revs}}}}}'
 }
-cj() {  # cj [signal-json] [panel-json] [human]
-  jq -r --argjson panel "${2:-$PANEL}" --arg needs_human state:needs-human \
+CJ_ME="builder-me"
+CJ_MARK="🤝 handed off at head"   # MARK_HANDOFF, the wire string (fleet.defaults.conf)
+cj() {  # cj [signal-json] [panel-json] [human] [roster-json]
+  jq -r --argjson panel "${2:-$PANEL}" --argjson roster "${4:-${2:-$PANEL}}" --arg me "$CJ_ME" --arg mark_handoff "$CJ_MARK" \
     --arg human "${3-$CJ_HUMAN}" --argjson signal "${1:-$CJ_NO_SIG}" -f "$CJQ"
 }
 
@@ -998,6 +1000,33 @@ CHK_SUPERSEDED_CANCEL_AND_FAILURE='[
 CHK_FAILURE_THEN_RUNNING='[
   {"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-07-29T10:58:47Z","completedAt":"2026-07-29T10:59:22Z"},
   {"__typename":"CheckRun","name":"test","status":"IN_PROGRESS","conclusion":null,"startedAt":"2026-07-29T11:02:00Z","completedAt":null}]'
+# THE STATUS AND THE CONCLUSION DISAGREE (#634). Every literal above is
+# terminal-or-null: a non-terminal status always sits beside a null conclusion,
+# which is why a status-only `is_pending` shipped. GitHub can leave a finished
+# run at `status: IN_PROGRESS` with its `conclusion` set (ceremony#593's
+# `labels / scope`, verbatim shape); the run never revises itself, so the head
+# graded pending for as long as it existed. The sibling literals keep the
+# genuinely running shapes — `null`, and `gh`'s real `""` + zero-time
+# `completedAt` — so the guard is proved narrow, not merely present.
+CHK_FINISHED_LEFT_IN_PROGRESS='[
+  {"__typename":"CheckRun","name":"labels / scope","status":"IN_PROGRESS","conclusion":"SUCCESS"},
+  {"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"}]'
+CHK_RUNNING_BESIDE_GREEN='[
+  {"__typename":"CheckRun","name":"labels / scope","status":"IN_PROGRESS","conclusion":null},
+  {"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"}]'
+CHK_RUNNING_BESIDE_FAILURE='[
+  {"__typename":"CheckRun","name":"labels / scope","status":"IN_PROGRESS","conclusion":null},
+  {"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]'
+CHK_GH_RUNNING_SHAPE='[
+  {"__typename":"CheckRun","name":"labels / scope","status":"IN_PROGRESS","conclusion":"","completedAt":"0001-01-01T00:00:00Z"}]'
+CHK_RUNNING_AND_FINISHED_LEFT_IN_PROGRESS='[
+  {"__typename":"CheckRun","name":"labels / scope","status":"IN_PROGRESS","conclusion":null},
+  {"__typename":"CheckRun","name":"test","status":"IN_PROGRESS","conclusion":"SUCCESS"}]'
+CHK_FAILED_LEFT_IN_PROGRESS='[
+  {"__typename":"CheckRun","name":"labels / scope","status":"IN_PROGRESS","conclusion":"FAILURE"},
+  {"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS"}]'
+SC_PENDING='[{"__typename":"StatusContext","context":"ci/legacy","state":"PENDING"}]'
+SC_OK='[{"__typename":"StatusContext","context":"ci/legacy","state":"SUCCESS"}]'
 # The StatusContext shape. THIS is the fixture that matters: crew's own CI is a
 # single CheckRun, so an implementation that discriminates on __typename and
 # reads only .conclusion passes every other test in this file and reports a
@@ -1062,6 +1091,73 @@ t head-unrelated-failure-is-named "test (FAILURE)" \
 # A rerun in progress is the latest word and therefore pending, not the stale
 # failure from the earlier run.
 t head-running-rerun-supersedes-failure pending "$(state_of "$CHK_FAILURE_THEN_RUNNING")"
+# A finished run GitHub left at IN_PROGRESS is the shape ceremony#593 sat on
+# for 10h17m (#634): the shipped grader read it pending and green at once, and
+# `check_state` tests pending first, so the head graded pending forever and the
+# panel was never requested. The guard lives on `is_pending` and is NARROW —
+# the three running shapes beside it still hold the request, and a FAILURE
+# anywhere is still red: pending never masks red.
+t head-finished-left-in-progress-is-green green "$(state_of "$CHK_FINISHED_LEFT_IN_PROGRESS")"
+t head-running-beside-green-is-pending pending "$(state_of "$CHK_RUNNING_BESIDE_GREEN")"
+t head-gh-running-shape-is-pending pending "$(state_of "$CHK_GH_RUNNING_SHAPE")"
+t head-running-and-finished-left-in-progress-is-pending pending \
+  "$(state_of "$CHK_RUNNING_AND_FINISHED_LEFT_IN_PROGRESS")"
+t head-running-beside-failure-is-red red "$(state_of "$CHK_RUNNING_BESIDE_FAILURE")"
+# ...and a FAILED run left at IN_PROGRESS is red, not pending: the conclusion
+# is the verdict whatever the status says, and a guard that read only
+# `is_green` would hold the request (and blind #17's wake) on a failed head.
+t head-failed-left-in-progress-is-red red "$(state_of "$CHK_FAILED_LEFT_IN_PROGRESS")"
+t head-failed-left-in-progress-is-named "labels / scope (FAILURE)" \
+  "$(hc '[]' "$(mk_prc "$CHK_FAILED_LEFT_IN_PROGRESS")" | cut -f6)"
+# The StatusContext axis is untouched by the guard: a status has no conclusion.
+t head-status-context-pending-is-pending pending "$(state_of "$SC_PENDING")"
+t head-status-context-success-is-green green "$(state_of "$SC_OK")"
+# THE PREDICATES, ASSERTED DIRECTLY RATHER THAN INFERRED FROM `check_state`.
+# `is_blocking` is `(is_green or is_pending) | not` and must not move under the
+# guard on any payload above (#634 D3); `check_state` would hide a move behind
+# its own ordering. `HC_DEFS` is the file's definitions — everything before its
+# `.[]` main expression — so this reads the shipped predicates, not a restated
+# copy of them.
+HC_DEFS="$(sed '/^\.\[\]$/,$d' "$HC")"
+t head-predicates-sliced-from-the-module 1 "$(grep -c '^def is_blocking' <<<"$HC_DEFS")"
+pred_of() {  # pred_of <predicate> <rollup> -> the predicate per row, rollup order
+  printf '%s' "$2" | jq -r "$HC_DEFS map($1) | map(tostring) | join(\" \")"
+}
+t head-finished-left-in-progress-rows-not-pending "false false" \
+  "$(pred_of is_pending "$CHK_FINISHED_LEFT_IN_PROGRESS")"
+t head-finished-left-in-progress-rows-green "true true" \
+  "$(pred_of is_green "$CHK_FINISHED_LEFT_IN_PROGRESS")"
+t head-finished-left-in-progress-rows-not-blocking "false false" \
+  "$(pred_of is_blocking "$CHK_FINISHED_LEFT_IN_PROGRESS")"
+t head-running-beside-green-rows-pending "true false" \
+  "$(pred_of is_pending "$CHK_RUNNING_BESIDE_GREEN")"
+t head-running-beside-green-rows-not-blocking "false false" \
+  "$(pred_of is_blocking "$CHK_RUNNING_BESIDE_GREEN")"
+t head-running-beside-failure-rows-pending "true false" \
+  "$(pred_of is_pending "$CHK_RUNNING_BESIDE_FAILURE")"
+t head-running-beside-failure-rows-blocking "false true" \
+  "$(pred_of is_blocking "$CHK_RUNNING_BESIDE_FAILURE")"
+t head-gh-running-shape-row-pending true "$(pred_of is_pending "$CHK_GH_RUNNING_SHAPE")"
+t head-gh-running-shape-row-not-blocking false "$(pred_of is_blocking "$CHK_GH_RUNNING_SHAPE")"
+t head-running-and-finished-rows-pending "true false" \
+  "$(pred_of is_pending "$CHK_RUNNING_AND_FINISHED_LEFT_IN_PROGRESS")"
+t head-running-and-finished-rows-not-blocking "false false" \
+  "$(pred_of is_blocking "$CHK_RUNNING_AND_FINISHED_LEFT_IN_PROGRESS")"
+t head-failed-left-in-progress-rows-not-pending "false false" \
+  "$(pred_of is_pending "$CHK_FAILED_LEFT_IN_PROGRESS")"
+t head-failed-left-in-progress-rows-blocking "true false" \
+  "$(pred_of is_blocking "$CHK_FAILED_LEFT_IN_PROGRESS")"
+t head-status-context-pending-row-pending true "$(pred_of is_pending "$SC_PENDING")"
+t head-status-context-pending-row-not-blocking false "$(pred_of is_blocking "$SC_PENDING")"
+t head-status-context-success-row-green true "$(pred_of is_green "$SC_OK")"
+t head-status-context-success-row-not-blocking false "$(pred_of is_blocking "$SC_OK")"
+# MUST FAIL — `check_state` testing green before pending (#634 D2). That is the
+# plausible wrong fix: it also grades a head green while a second check is
+# genuinely still running, which is #45's gate defeated. Pinned by source text
+# (red, then pending, then green, and no green test among the branches) and by
+# behaviour (`head-running-beside-green-is-pending` above).
+hc_order="$(sed -n '/^def check_state/,/end;/p' "$HC" | grep -o 'map(is_[a-z]*)' | tr '\n' ' ')"
+t head-check-state-tests-red-then-pending "map(is_blocking) map(is_pending) " "$hc_order"
 # The genuinely-not-a-failure conclusions stay green, or every skipped matrix
 # leg would wake a builder.
 t head-neutral-is-green       green   "$(state_of "$CHK_NEUTRAL")"
@@ -1511,7 +1607,8 @@ t near-miss-request-issues-no-review-request 0 \
 # harness being inert.
 NM_REAL_ONLY="$(mk_rp "$H" '[]' '[]' \
   "$(jq -cn --arg b "$RP_MARK $H" '[{author:{login:"me-bot"},body:$b}]')")"
-t near-miss-control-real-signal-does-request 3 \
+# Four since #761: the sizing read of the head's files is one more gh call.
+t near-miss-control-real-signal-does-request 4 \
   "$(nm_request "$NM_REAL_ONLY" "$TMP/near-miss-gh-calls-control")"
 
 # The detection over a listing. Fixtures, never a live box (#319's test plan).
@@ -2165,7 +2262,8 @@ assert_doctrine_quote "$RG_PROMPT" 'under Claiming:' \
 # fragment-unblockable.txt,
 # fragment-wt-rules.txt,
 # hygiene.txt, mention.txt,
-# rebase.txt, review.txt, and triage.txt contain no direct occurrence.
+# rebase.txt, release.txt, review.txt, and triage.txt contain no direct
+# occurrence.
 # fragment-round-count.txt is sizing evidence read by TRIAGE, so it cites no
 # builder doctrine slot even though its subject is the builder's round cap.
 declare -A doctrine_builder_occurrences=(
@@ -2175,8 +2273,10 @@ declare -A doctrine_builder_occurrences=(
   [fragment-graph-changed.txt]=0 [fragment-round-count.txt]=0
   [fragment-round-rules.txt]=3 [fragment-signals.txt]=0
   [fragment-unblockable.txt]=0
-  [fragment-wt-rules.txt]=0 [hygiene.txt]=0 [mention.txt]=0
-  [rebase.txt]=0 [resume.txt]=4 [review.txt]=0 [triage.txt]=0
+  [fragment-wt-rules.txt]=0 [fragment-handoff.txt]=0 [fragment-wait-rules.txt]=0
+  [fragment-wait-rules-review.txt]=0
+  [hygiene.txt]=0 [mention.txt]=0
+  [rebase.txt]=0 [release.txt]=0 [resume.txt]=4 [review.txt]=0 [triage.txt]=0
 )
 for doctrine_prompt in "$SHARED"/prompts/*.txt; do
   doctrine_prompt_name="$(basename "$doctrine_prompt")"
@@ -2200,7 +2300,7 @@ P384_HEAD=d4b8035d4b8035d4b8035d4b8035d4b8035d4b80
 P384_OLD=aa11bb22aa11bb22aa11bb22aa11bb22aa11bb22
 P384_START=2026-08-06T07:41:19Z
 P384_DONE=2026-08-06T07:52:18Z
-p384_run() {  # p384_run CONCLUSION [COMPLETED] — one CheckRun in a rollup
+p384_run() {  # p384_run CONCLUSION [COMPLETED] [STATUS] — one CheckRun in a rollup
   # The jq arg is `fin`, not `done`: shellcheck reads a bare `done` after --arg
   # as the loop keyword and warns (SC1010), and ci-shell runs it without a
   # severity floor, so a warning is a red job.
@@ -2213,9 +2313,15 @@ p384_run() {  # p384_run CONCLUSION [COMPLETED] — one CheckRun in a rollup
   # The first cut of this fixture omitted both, which is the only reason a
   # `completedAt != ""` test for "has concluded" passed here while fabricating a
   # stamp on every real running check (#391 round 2, claude).
-  jq -cn --arg c "$1" --arg fin "${2:-}" --arg started "$P384_START" \
+  #
+  # STATUS, when given, overrides the derivation from CONCLUSION (#634). The
+  # derivation assumes the two fields agree, and on a finished run GitHub can
+  # leave `status: IN_PROGRESS` beside a set conclusion — a shape that was
+  # unrepresentable here, not merely untested. An empty or absent STATUS is
+  # today's derivation exactly, so every existing caller is byte-identical.
+  jq -cn --arg c "$1" --arg fin "${2:-}" --arg st "${3:-}" --arg started "$P384_START" \
     '[{__typename:"CheckRun", name:"ci-floor", workflowName:"ci-floor",
-       status:(if $c == "" then "IN_PROGRESS" else "COMPLETED" end),
+       status:(if $st != "" then $st elif $c == "" then "IN_PROGRESS" else "COMPLETED" end),
        conclusion:$c, startedAt:$started,
        completedAt:(if $fin == "" then "0001-01-01T00:00:00Z" else $fin end)}]'
 }
@@ -2360,6 +2466,27 @@ t p384-no-fixture-fabricates-status-createdAt 0 \
 t p384-state-green "$(printf '381\tgreen')" "$(_resume_check_states o/r "$P384_ONE")"
 t p384-state-pending "$(printf '381\tpending')" "$(_resume_check_states o/r "$P384_RUNNING")"
 t p384-state-red "$(printf '381\tred')" "$(_resume_check_states o/r "$P384_FAILED")"
+# A finished run left at IN_PROGRESS beside its SUCCESS (#634) grades green
+# through the same path the engine takes, and the override is what makes the
+# shape representable in this family at all.
+P384_LEFT_IN_PROGRESS="$(p384_run SUCCESS "$P384_DONE" IN_PROGRESS)"
+t p384-status-override-lands 1 "$(grep -c '"status":"IN_PROGRESS","conclusion":"SUCCESS"' <<<"$P384_LEFT_IN_PROGRESS")"
+P384_FINISHED_LEFT_IN_PROGRESS="$(jq -cn --argjson pr "$(p384_pr 381 true "$P384_LEFT_IN_PROGRESS" '')" '[$pr]')"
+t p384-state-finished-left-in-progress-is-green "$(printf '381\tgreen')" \
+  "$(_resume_check_states o/r "$P384_FINISHED_LEFT_IN_PROGRESS")"
+# MUST FAIL — today's argument list producing anything but today's output. The
+# default is pinned to the literal, not to a re-derivation, and an explicit
+# empty STATUS is the two-argument call.
+t p384-run-default-green-is-byte-identical \
+  '[{"__typename":"CheckRun","name":"ci-floor","workflowName":"ci-floor","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-08-06T07:41:19Z","completedAt":"2026-08-06T07:52:18Z"}]' \
+  "$P384_GREEN"
+t p384-run-default-pending-is-byte-identical \
+  '[{"__typename":"CheckRun","name":"ci-floor","workflowName":"ci-floor","status":"IN_PROGRESS","conclusion":"","startedAt":"2026-08-06T07:41:19Z","completedAt":"0001-01-01T00:00:00Z"}]' \
+  "$P384_PENDING"
+t p384-run-default-red-is-byte-identical \
+  '[{"__typename":"CheckRun","name":"ci-floor","workflowName":"ci-floor","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-08-06T07:41:19Z","completedAt":"2026-08-06T07:52:18Z"}]' \
+  "$P384_RED"
+t p384-run-empty-status-is-the-default "$P384_GREEN" "$(p384_run SUCCESS "$P384_DONE" "")"
 # Drafts are graded too, which head-checks.jq alone will not do — the flip-owed
 # predicate's whole subject is a draft.
 t p384-state-grades-drafts 1 "$(_resume_check_states o/r "$P384_ONE" | grep -c green)"
@@ -3976,7 +4103,9 @@ t ci-red-rollup-fetched fetched "$r1"
 # defect one layer down: parsing a field you already have is not fetching it.
 # Only a `--json` argument list can name a field to fetch, so that is what is
 # counted, and the explanation above can say `statusCheckRollup` freely.
-t ci-red-rollup-fetched-on-three-listings 3 \
+# ...plus the parked-wait read since #760: _builder_waits_due names the rollup
+# in its own --json list, one per parked wait, which is the fourth listing.
+t ci-red-rollup-fetched-on-three-listings 4 \
   "$(grep -c -- '--json [^ ]*statusCheckRollup' "$BMOD")"
 # The resume half of that count adds no CALL — the listing was already being
 # fetched, and #384 put two more fields on it. A `gh` call inside either new
@@ -4076,7 +4205,7 @@ mk_addressing_payload() {  # draft labels requests reviews [comments]
 review_addressing_actions() (  # payload [label-rc]
   AR_PAYLOAD="$1"; AR_LABEL_RC="${2:-0}"
   LABEL_ADDRESSING=state:addressing
-  DUTY_DIR="$SHARED"
+  DUTY_DIR="$SHARED" PANEL_SIZED_CACHE=off
   AR_LOG="$TMP/addressing-actions"; : >"$AR_LOG"
   panel_for_repo() { printf '%s\n' '["rev-a","rev-b"]'; }
   log() { :; }
@@ -4090,6 +4219,11 @@ review_addressing_actions() (  # payload [label-rc]
       printf '%s\n' label >>"$AR_LOG"
       return "$AR_LABEL_RC"
     fi
+    # The head's files, when the case sizes the panel (low: one small file).
+    if [ "$1" = pr ] && [ "$2" = view ] && [[ "$*" == *"--json files"* ]] && [ -n "${AR_FILES:-}" ]; then
+      printf '%s\n' "$AR_FILES"
+      return 0
+    fi
     return 3
   }
   _mark_addressing owner/repo 7
@@ -4100,7 +4234,7 @@ review_addressing_actions() (  # payload [label-rc]
 author_redraft_actions() (  # payload [draft-rc]
   AR_PAYLOAD="$1"; AR_DRAFT_RC="${2:-0}"
   LABEL_ADDRESSING=state:addressing
-  DUTY_DIR="$SHARED" ME=builder MARK_ANSWERED="$RP_MARK"
+  DUTY_DIR="$SHARED" ME=builder MARK_ANSWERED="$RP_MARK" PANEL_SIZED_CACHE=off
   AR_LOG="$TMP/redraft-actions"; : >"$AR_LOG"
   log() { :; }
   warn() { :; }
@@ -4143,6 +4277,23 @@ t redraft-label-failure-is-best-effort 'rc=0 actions=label' \
   "$(review_addressing_actions "$AR_OPEN" 1)"
 t redraft-conversion-failure-is-best-effort 'rc=0 actions=draft' \
   "$(author_redraft_actions "$AR_LABELLED" 1)"
+
+# THE SIZED PANEL CLOSES THE ROUND (#763 review). PR #7 at low risk is asked of
+# rev-b alone (7 mod 2 = 1); rev-b's change-request at the head is then the
+# whole round — closed, not approved — and the label is written. Read against
+# the whole roster the same verdict is "rev-a has not reviewed", the round is
+# still open, and state:addressing is never written (it is written nowhere
+# else). A request still open to rev-a — outside the sized subset — keeps the
+# round open under either reading: the whole roster's requests count.
+AR_ONE_CR='[{"author":{"login":"rev-b"},"state":"CHANGES_REQUESTED","commit":{"oid":"'$AR_H'"}}]'
+AR_SIZED="$(mk_addressing_payload false '[]' '[]' "$AR_ONE_CR")"
+AR_SIZED_REQ="$(mk_addressing_payload false '[]' '["rev-a"]' "$AR_ONE_CR")"
+t addressing-a-low-risk-head-is-marked-on-its-sized-reviewers-verdict 'rc=0 actions=label' \
+  "$(AR_FILES='README.md 3' review_addressing_actions "$AR_SIZED")"
+t addressing-the-same-verdict-against-the-whole-roster-is-an-open-round 'rc=0 actions=' \
+  "$(review_addressing_actions "$AR_SIZED")"
+t addressing-a-request-open-outside-the-sized-subset-holds-the-round 'rc=0 actions=' \
+  "$(AR_FILES='README.md 3' review_addressing_actions "$AR_SIZED_REQ")"
 
 # The author-aware panel is resolved once per repository tick and passed into
 # every PR predicate. panel_for_repo owns the safe fleet-bench fallback, so the
@@ -4196,7 +4347,7 @@ t redraft-resume-names-completed-round woken "$r1"
 redraft_round_trip() (
   AR_IS_DRAFT=false AR_LABELS='[]' AR_COMMENTS='[]' AR_ACTIONS=""
   LABEL_ADDRESSING=state:addressing LABEL_BOTS_REVIEWING=state:bots-reviewing
-  DUTY_DIR="$SHARED" ME=builder MARK_ANSWERED="$RP_MARK"
+  DUTY_DIR="$SHARED" ME=builder MARK_ANSWERED="$RP_MARK" PANEL_SIZED_CACHE=off
   panel_for_repo() { printf '%s\n' '["rev-a","rev-b"]'; }
   log() { :; }
   warn() { :; }
@@ -5659,10 +5810,18 @@ rc_census() (  # payload listing
   RC_LOG="$TMP/round-cap-census"; : >"$RC_LOG"
   log() { printf 'log %s\n' "$*" >>"$RC_LOG"; }
   warn() { printf 'warn %s\n' "$*" >>"$RC_LOG"; }
+  PANEL_SIZED_CACHE=off
   gh() {
     printf 'gh %s\n' "$*" >>"$RC_LOG"
     if [ "$1" = api ] && [ "$2" = graphql ]; then
       printf '%s\n' "$RC_PAYLOAD"
+      return 0
+    fi
+    # The head's files, when the case sizes the panel: one small file, no
+    # risky path, which is the low tier (#761). Unanswered, the read fails and
+    # the panel is whole.
+    if [ "$1" = pr ] && [ "$2" = view ] && [[ "$*" == *"--json files"* ]] && [ -n "${RC_FILES:-}" ]; then
+      printf '%s\n' "$RC_FILES"
       return 0
     fi
     return 3
@@ -5684,11 +5843,29 @@ t roundcap-census-leaves-a-below-cap-pr-unnamed \
 # closes one, or writes a body.
 rm -f "$RC_DUTY/.seen-round-cap"
 rc_census "$(rc_build 5)" "$RC_LISTING" >/dev/null
-RC_CALLS="$(grep -c '^gh ' "$TMP/round-cap-census")"
+RC_CALLS="$(grep -c '^gh api graphql' "$TMP/round-cap-census")"
+RC_FILE_READS="$(grep -c '^gh pr view 7 -R owner/repo --json files' "$TMP/round-cap-census")"
 RC_MUTATIONS="$(grep -Ec '^gh .*(mutation|pr create|pr close|pr edit|-X PATCH|-X POST|convertPullRequest|requested_reviewers|issue edit)' \
   "$TMP/round-cap-census" || true)"
 t roundcap-census-reads-once-per-pr 1 "$RC_CALLS"
+t roundcap-census-reads-the-heads-files-once 1 "$RC_FILE_READS"
 t roundcap-census-performs-no-act-of-the-cut 0 "$RC_MUTATIONS"
+# THE SIZED PANEL (#763 review): the census counts against the panel the head
+# was asked of. PR #7 at low risk is sized to rev-b (7 mod 2 = 1), who approved
+# every round — so the fifth round closed APPROVED and the cap is not reached,
+# where the whole roster (rev-a's five change-requests) would name it. PR #8 is
+# sized to rev-a (8 mod 2 = 0): five change-requests from the one reviewer the
+# head was asked of IS the cap. Without the sizing the low-risk PR cycled past
+# five forever, the one reviewer never being "every panelist".
+rm -f "$RC_DUTY/.seen-round-cap"
+t roundcap-census-a-low-risk-pr-is-counted-against-its-sized-reviewer-approving \
+  'prs=[] named=[-]' \
+  "$(RC_FILES='README.md 3' rc_census "$(rc_build 5)" "$RC_LISTING")"
+rm -f "$RC_DUTY/.seen-round-cap"
+t roundcap-census-a-low-risk-pr-reaches-the-cap-on-its-one-reviewer \
+  'prs=[owner/repo#8] named=[owner/repo#8 (5 rounds)]' \
+  "$(RC_FILES='README.md 3' rc_census "$(rc_build 5)" '[{"number":8}]')"
+rm -f "$RC_DUTY/.seen-round-cap"
 # ...and no module of the engine opens or closes a pull request at all, which is
 # the same claim made where a later change would actually make it. Comment lines
 # are stripped first: duty-builder.sh's resume header names `gh pr create` while
@@ -5697,13 +5874,19 @@ t roundcap-census-performs-no-act-of-the-cut 0 "$RC_MUTATIONS"
 # The match runs off a here-string and never off a pipe: a `| grep -q` takes the
 # pipeline's status from grep under pipefail, and #449's guard reds on writing
 # the shape at all.
-RC_ENGINE_CODE="$(engine_lib_sources | xargs grep -hEv '^[[:space:]]*#')"
+# duty-release.sh is carved out by name (#762): the one `gh pr close` it
+# carries withdraws the engine's OWN release cut when main moves past it,
+# which is not the round-cap cut and is pinned on its own below — a carve-out
+# this guard cannot see is the only way to keep it a guard.
+RC_ENGINE_CODE="$(engine_lib_sources | grep -v '/duty-release\.sh$' | xargs grep -hEv '^[[:space:]]*#')"
 if grep -Eq 'gh pr (create|close|reopen)|closePullRequest' <<<"$RC_ENGINE_CODE"; then
   r1=ENGINE-CUTS
 else
   r1=session-cuts
 fi
 t roundcap-engine-opens-and-closes-no-pr session-cuts "$r1"
+t release-module-closes-only-its-own-cut 1 "$(grep -Ev '^[[:space:]]*#' "$SHARED/lib/duty-release.sh" | grep -cE 'gh pr (create|close|reopen)|closePullRequest')"
+t release-module-withdrawal-is-in-the-settle-step 1 "$(awk '/^_release_settle_cut\(\) \{/{f=1} f && /gh pr close "\$num" -R "\$repo" --delete-branch/{c++} /^}/{f=0} END{print c+0}' "$SHARED/lib/duty-release.sh")"
 # Said once per (PR, round count), not once per tick: a PR sits at the cap until
 # the builder cuts it, and #167's rule is that a line repeating forever is
 # wallpaper. The second census over the same state must add no log line.
@@ -5732,7 +5915,7 @@ t roundcap-census-failed-listing-warns 1 \
 # --- D2a: the predecessor is never requested, and everything else is today's -
 # shellcheck disable=SC2034,SC2317  # vars/mocks consumed by the engine helper
 rc_request() (  # payload [at_cap]
-  DUTY_DIR="$SHARED" ME=builder MARK_ANSWERED="$RP_MARK"
+  DUTY_DIR="$SHARED" ME=builder MARK_ANSWERED="$RP_MARK" PANEL_SIZED_CACHE=off
   LABEL_BOTS_REVIEWING=state:bots-reviewing
   RC_LOG="$TMP/round-cap-request"; : >"$RC_LOG"
   log() { :; }
@@ -5822,8 +6005,8 @@ rc_flow() (  # cap-payload pr-payload
   _request_panel owner/repo 7 "$RC_PR" '["rev-a","rev-b"]' green "$AR_H" "$rc_cap"
   rc_signal="$(printf '%s' "$RC_PR" | jq -c --arg me "$ME" --arg mark "$MARK_ANSWERED" \
     -f "$RC_DUTY/lib/jq/answered-head.jq")"
-  rc_conv="$(printf '%s' "$RC_PR" | jq -r --argjson panel '["rev-a","rev-b"]' \
-    --arg needs_human "$LABEL_NEEDS_HUMAN" --arg human "" --argjson signal "$rc_signal" \
+  rc_conv="$(printf '%s' "$RC_PR" | jq -r --argjson panel '["rev-a","rev-b"]' --argjson roster '["rev-a","rev-b"]' \
+    --arg me "$ME" --arg mark_handoff "${MARK_HANDOFF:-🤝 handed off at head}" --arg human "" --argjson signal "$rc_signal" \
     -f "$RC_DUTY/lib/jq/converged.jq")"
   printf 'named=[%s] at_cap=%s requested=[%s] converged=%s' \
     "$ROUND_CAP_NAMED" "$rc_cap" "$(paste -sd, "$RC_LOG")" "$rc_conv"
@@ -5992,14 +6175,15 @@ rc_names roundcap-instruction-names-the-converged-carve-out \
   'THE CUT IS FOR A ROUND THAT CLOSED WITH WORK STILL OWED' \
   'it converges and goes to the human to merge' \
   'If the approvals are STALE because you have since pushed, the cut is owed again'
-# The carve-out is crew's reading of a collision between two unconditional
-# doctrine rules, not doctrine's own, and triage ruled that the citation "should
-# ride wherever this reading is stated in the build". This is one of the two
-# places it is stated; round-cap.jq's header is the other. Pinned so an edit
-# cannot drop the one link that says the reading is contingent and where it
-# would be overturned (#566 round 2, @claude-bot-andresmgsl).
-rc_names roundcap-instruction-cites-the-doctrine-collision \
-  "THAT CARVE-OUT IS CREW'S READING AND IT IS CITED" \
+# The carve-out was crew's reading of a collision between two unconditional
+# doctrine rules until ceremony 0.7.11 ruled it the same way ("A fifth round
+# that passes does not cut at its close"; a push after the human's return
+# fires the cut). The instruction now cites the ruling and keeps the link to
+# the discussion that carried it there, in both places the reading is stated
+# — here and round-cap.jq's header (#566 round 2, #762).
+rc_names roundcap-instruction-cites-the-doctrine-ruling \
+  "THIS IS DOCTRINE'S OWN RULING SINCE CEREMONY 0.7.11" \
+  'a push after the human returns it fires the cut' \
   'heavy-duty/ceremony#517'
 
 # --- #503: the same count, read against the issue and as a distribution -----
@@ -6206,5 +6390,215 @@ rk_census "$(rk_payload 'Closes #503' 4)" "$RC_LISTING" >/dev/null
 RK_ACTIONS="$(grep -Ec '^gh .*(mutation|issue edit|pr edit|pr create|pr close|--add-label|--remove-label|-X PATCH|-X POST|-X PUT|-X DELETE)' \
   "$TMP/round-count-census" || true)"
 t roundcount-census-takes-no-automatic-action 0 "$RK_ACTIONS"
+
+# ── #535 — the handoff refire guard is the engine's own mark, never a label ──
+# converged.jq used to read state:needs-human as "already handed off"; the
+# reconciler owns that label and takes it off for reasons of its own, and each
+# removal re-armed the wake at an unchanged head (135 label events in 6h19m on
+# crew#516). The guard now reads the builder's own `MARK_HANDOFF <head>` line
+# in a comment by $me, whole first line, and nothing else.
+d7_pr() {  # d7_pr <head> <mergeable> <comments-json> [labels-json]
+  jq -n --arg head "$1" --arg m "$2" --argjson comments "$3" --argjson labels "${4:-[]}" \
+    --argjson revs "${REVS_OK//$H/$1}" \
+    '{data:{repository:{pullRequest:{
+      headRefOid:$head, mergeable:$m,
+      labels:{nodes:($labels|map({name:.}))},
+      reviewRequests:{nodes:[]},
+      comments:{nodes:$comments},
+      latestOpinionatedReviews:{nodes:$revs}}}}}'
+}
+D7_H1="1111111111111111111111111111111111111111"
+D7_H2="2222222222222222222222222222222222222222"
+d7_mark() { jq -n --arg a "$1" --arg b "$2" '[{author:{login:$a},body:$b}]'; }   # d7_mark <login> <body>
+t d7-converged-without-mark-hands-off true "$(d7_pr "$D7_H1" MERGEABLE '[]' | cj)"
+t d7-my-mark-at-head-is-handed-off handed-off \
+  "$(d7_pr "$D7_H1" MERGEABLE "$(d7_mark "$CJ_ME" "$CJ_MARK $D7_H1"$'\n\nEvery panel verdict approves')" | cj)"
+# THE DEFECT: the label is not the guard in either direction.
+t d7-mark-survives-label-removal handed-off \
+  "$(d7_pr "$D7_H1" MERGEABLE "$(d7_mark "$CJ_ME" "$CJ_MARK $D7_H1")" '[]' | cj)"
+t d7-label-alone-is-not-the-guard true \
+  "$(d7_pr "$D7_H1" MERGEABLE '[]' '["state:needs-human"]' | cj)"
+# A new head re-arms; nobody else's mark, and no prose mention, is the mark.
+t d7-mark-at-an-old-head-rearms true \
+  "$(d7_pr "$D7_H2" MERGEABLE "$(d7_mark "$CJ_ME" "$CJ_MARK $D7_H1")" | cj)"
+t d7-another-login-mark-is-not-mine true \
+  "$(d7_pr "$D7_H1" MERGEABLE "$(d7_mark rev-a "$CJ_MARK $D7_H1")" | cj)"
+t d7-mark-in-prose-is-not-the-mark true \
+  "$(d7_pr "$D7_H1" MERGEABLE "$(d7_mark "$CJ_ME" "as noted, $CJ_MARK $D7_H1 earlier")" | cj)"
+t d7-mark-with-a-tail-is-not-the-mark true \
+  "$(d7_pr "$D7_H1" MERGEABLE "$(d7_mark "$CJ_ME" "$CJ_MARK $D7_H1 (again)")" | cj)"
+# The guard answers only where "true" would have: unknown mergeability still
+# defers, and a human block still wins.
+t d7-mark-under-unknown-still-defers defer-unknown \
+  "$(d7_pr "$D7_H1" UNKNOWN "$(d7_mark "$CJ_ME" "$CJ_MARK $D7_H1")" | cj)"
+d7_blocked="$(d7_pr "$D7_H1" MERGEABLE "$(d7_mark "$CJ_ME" "$CJ_MARK $D7_H1")" \
+  | jq --arg h "$CJ_HUMAN" --arg head "$D7_H1" '.data.repository.pullRequest.latestOpinionatedReviews.nodes += [{author:{login:$h},state:"CHANGES_REQUESTED",submittedAt:"2026-08-11T10:00:00Z",commit:{oid:$head}}]')"
+t d7-mark-under-a-human-block-is-still-false false "$(printf '%s' "$d7_blocked" | cj)"
+# The flood: the same converged head over ten ticks is suppressed on every one.
+d7_flood=""
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  d7_flood="$d7_flood $(d7_pr "$D7_H1" MERGEABLE "$(d7_mark "$CJ_ME" "$CJ_MARK $D7_H1")" | cj)"
+done
+t d7-ten-ticks-at-one-head-are-all-suppressed 10 "$(grep -o 'handed-off' <<<"$d7_flood" | wc -l | tr -d ' ')"
+# The engine's side: the mark is passed, the label is not, the suppression is
+# logged, and _handoff_finalize posts the mark LAST so a crash retries whole.
+# shellcheck disable=SC2016  # the engine's own text, $ included
+t d7-engine-passes-the-mark-to-converged 1 \
+  "$(grep -A2 -- '--argjson panel "\$_PANEL_EFFECTIVE_JSON"' "$SHARED/lib/duty-builder.sh" | grep -c -- '--arg mark_handoff "\$MARK_HANDOFF"')"
+t d7-engine-no-longer-passes-the-label 0 "$(grep -c -- '--arg needs_human' "$SHARED/lib/duty-builder.sh" "$CJQ" | awk -F: '{s+=$2} END{print s}')"
+t d7-engine-logs-the-suppressed-refire 1 "$(grep -c 'refire suppressed (#535)' "$SHARED/lib/duty-builder.sh")"
+d7_fin="$(sed -n '/^_handoff_finalize() {/,/^}/p' "$SHARED/lib/duty-builder.sh")"
+t d7-finalize-posts-the-mark-after-the-label 1 \
+  "$(awk '/add-label "\$LABEL_NEEDS_HUMAN"/{l=NR} /post-once.sh/{p=NR} END{print (l && p && p>l) ? 1 : 0}' <<<"$d7_fin")"
+unset -f d7_pr d7_mark
+
+# ── #760 — the handoff note, the parked waits, the wait idiom ─────────────
+H760="$TMP/h760"; mkdir -p "$H760"
+h760_body='Closes #12.
+
+## Worklog
+- [x] wrote the thing
+- [ ] run the suite
+
+## Round log
+### Current state
+round 1 answered at abc1234
+
+## Something else
+not part of the note'
+t handoff-sections-keep-worklog-and-round-log "## Worklog|- [x] wrote the thing|- [ ] run the suite||## Round log|### Current state|round 1 answered at abc1234|" \
+  "$(_handoff_sections "$h760_body" | paste -sd'|' -)"
+t handoff-sections-of-a-body-without-them-are-empty "" "$(_handoff_sections 'just prose')"
+h760_run() {  # h760_run <gh-mode> <fn> <args...> — the fn's stdout, under a gh that answers one way
+  (
+    DUTY_DIR="$H760"
+    # shellcheck disable=SC2317  # the gh stub is invoked indirectly by the fn under test
+    case "$1" in
+      ok)   gh() { printf '%s\n' 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef' "$h760_body"; } ;;
+      fail) gh() { return 1; } ;;
+      pending) gh() { printf '{"headRefOid":"h1","statusCheckRollup":[{"status":"IN_PROGRESS","conclusion":null}]}\n'; } ;;
+      green)   gh() { printf '{"headRefOid":"h1","statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"}]}\n'; } ;;
+      moved)   gh() { printf '{"headRefOid":"h2","statusCheckRollup":[{"status":"IN_PROGRESS","conclusion":null}]}\n'; } ;;
+    esac
+    # shellcheck disable=SC2317  # invoked indirectly by the fn under test
+    log() { :; }
+    shift; "$@"
+  )
+}
+h760_note="$(h760_run ok _handoff_fetch o/r 12)"
+t handoff-fetch-prints-the-note 1 "$(grep -c '^- \[ \] run the suite$' <<<"$h760_note")"
+t handoff-fetch-saves-a-copy-with-its-header 1 "$(grep -c '^# o/r#12 head=deadbeef' "$H760/.handoff-o_r-12")"
+t handoff-a-failed-fetch-falls-back-to-the-copy 1 "$(h760_run fail _handoff_fetch o/r 12 | grep -c '^- \[x\] wrote the thing$')"
+rm -f "$H760/.handoff-o_r-12"
+t handoff-a-failed-fetch-with-no-copy-is-1 1 "$(h760_run fail _handoff_fetch o/r 12 >/dev/null; echo $?)"
+t handoff-block-names-each-pr 1 "$(h760_run ok _handoff_block o/r "12 none" | grep -c '^### o/r#12$')"
+t handoff-block-of-nothing-is-none none "$(h760_run ok _handoff_block o/r "none")"
+printf 'o/r 7 h1 2026-10-23T10:00:00Z\n' >"$H760/.wait-o_r-7"
+t waits-a-pending-wait-is-not-due "" "$(h760_run pending _builder_waits_due o/r)"
+t waits-a-pending-wait-keeps-its-file yes "$([ -e "$H760/.wait-o_r-7" ] && echo yes || echo no)"
+t waits-a-concluded-wait-is-due 7 "$(h760_run green _builder_waits_due o/r)"
+# The reader consumes nothing: a due wait is cleared only once the tick has
+# acted on it, so a clone or session failure after the read keeps the wake.
+t waits-a-due-wait-is-not-consumed-by-the-read yes "$([ -e "$H760/.wait-o_r-7" ] && echo yes || echo no)"
+h760_run green _builder_waits_clear o/r 7
+t waits-clear-consumes-the-named-wait no "$([ -e "$H760/.wait-o_r-7" ] && echo yes || echo no)"
+printf 'o/r 7 h1 2026-10-23T10:00:00Z\n' >"$H760/.wait-o_r-7"
+t waits-a-moved-head-makes-the-wait-moot-and-due 7 "$(h760_run moved _builder_waits_due o/r)"
+h760_run green _builder_waits_clear o/r 7
+printf 'x/y 9 h1 2026-10-23T10:00:00Z\n' >"$H760/.wait-x_y-9"
+t waits-another-repos-park-is-not-this-repos "" "$(h760_run green _builder_waits_due o/r)"
+t waits-clear-leaves-another-repos-park yes "$(h760_run green _builder_waits_clear o/r 9; [ -e "$H760/.wait-x_y-9" ] && echo yes || echo no)"
+# shellcheck disable=SC2016  # the pin quotes the engine's source line verbatim
+t engine-clears-waits-only-after-the-resume-ran 1 "$(grep -c '^    \[ "${RUN_SESSION_RC:-1}" -ne 0 \] || _builder_waits_clear "$R" "$wait_nums"$' "$SHARED/lib/duty-builder.sh")"
+# The helpers a session calls.
+h760_gh="$TMP/h760-bin"; mkdir -p "$h760_gh"
+# shellcheck disable=SC2016  # the stub's own source, read by the shell that runs it
+printf '#!/usr/bin/env bash\ncase "$*" in *statusCheckRollup*) printf "%%s\\n" "$H760_ROLLUP" ;; *headRefOid*) printf "h1\\n" ;; esac\n' >"$h760_gh/gh"; chmod +x "$h760_gh/gh"
+t wait-for-usage-is-2 2 "$(PATH="$h760_gh:$PATH" bash "$SHARED/bin/wait-for.sh" nothing >/dev/null 2>&1; echo $?)"
+# The stub answers the poller's jq: `<pending> <total>`.
+t wait-for-settled-checks-return-0 0 "$(H760_ROLLUP='0 2' PATH="$h760_gh:$PATH" bash "$SHARED/bin/wait-for.sh" checks o/r 7 --timeout 1 >/dev/null 2>&1; echo $?)"
+# An EMPTY rollup is not "settled" on sight (the first poll after a push can
+# land before any run is reported): it is confirmed on a second poll, and
+# said for what it is. A pending run (REQUESTED counts) runs out the budget.
+t wait-for-an-empty-rollup-is-confirmed-then-said "no checks reported on o/r#7" \
+  "$(H760_ROLLUP='0 0' WAIT_FOR_POLL_S=0 PATH="$h760_gh:$PATH" bash "$SHARED/bin/wait-for.sh" checks o/r 7 --timeout 5 2>/dev/null | sed 's/ (.*//')"
+t wait-for-a-pending-run-runs-out-the-budget 1 "$(H760_ROLLUP='1 1' WAIT_FOR_POLL_S=0 PATH="$h760_gh:$PATH" bash "$SHARED/bin/wait-for.sh" checks o/r 7 --timeout 2 >/dev/null 2>&1; echo $?)"
+t wait-for-every-poller-counts-requested-and-expected-as-pending 3 "$(grep -l '"REQUESTED" or (.status // "") == "EXPECTED"' "$SHARED/bin/wait-for.sh" "$SHARED/lib/host/wake.sh" "$SHARED/lib/duty-builder.sh" | wc -l | tr -d ' ')"
+t wait-for-pending-checks-run-out-the-budget 1 "$(H760_ROLLUP=2 PATH="$h760_gh:$PATH" bash "$SHARED/bin/wait-for.sh" checks o/r 7 --timeout 0 >/dev/null 2>&1; echo $?)"
+t wait-for-a-gone-pid-returns-0 0 "$(bash "$SHARED/bin/wait-for.sh" pid 999999999 --timeout 5 >/dev/null 2>&1; echo $?)"
+t park-until-writes-the-park "o/r 7 h1" "$(DUTY_DIR="$H760" PATH="$h760_gh:$PATH" bash "$SHARED/bin/park-until.sh" checks o/r 7 >/dev/null; cut -d' ' -f1-3 "$H760/.wait-o_r-7")"
+t park-until-tells-the-session-to-end 1 "$(DUTY_DIR="$H760" PATH="$h760_gh:$PATH" bash "$SHARED/bin/park-until.sh" checks o/r 7 | grep -c 'End your session now')"
+t park-until-usage-is-2 2 "$(bash "$SHARED/bin/park-until.sh" checks >/dev/null 2>&1; echo $?)"
+# The prompts carry the contract, and every dispatch renders it.
+t prompts-resume-reads-the-handoff-first 1 "$(grep -c '{{HANDOFF_BLOCK}}' "$SHARED/prompts/resume.txt")"
+t prompts-ci-red-reads-the-handoff-first 1 "$(grep -c '{{HANDOFF_BLOCK}}' "$SHARED/prompts/ci-red.txt")"
+t prompts-every-lane-carries-the-wait-rules "build ci-red resume review" \
+  "$(grep -l '{{WAIT_RULES}}' "$SHARED"/prompts/{build,ci-red,resume,review}.txt | xargs -n1 basename | sed 's/\.txt$//' | paste -sd' ' -)"
+t prompts-the-wait-fragment-names-the-helpers 2 "$(grep -o -E '(wait-for|park-until)\.sh' "$SHARED/prompts/fragment-wait-rules.txt" | sort -u | wc -l | tr -d ' ')"
+# shellcheck disable=SC2016  # the pin quotes the engine's source line verbatim
+t engine-renders-the-wait-rules-on-every-builder-lane 3 "$(grep -c 'WAIT_RULES="$wait_rules"' "$SHARED/lib/duty-builder.sh")"
+t engine-renders-the-park-free-wait-rules-for-the-reviewer 1 "$(grep -c 'fragment-wait-rules-review.txt' "$SHARED/lib/duty-review.sh")"
+t the-reviewer-wait-rules-carry-no-park 0 "$(grep -c 'park-until.sh checks' "$SHARED/prompts/fragment-wait-rules-review.txt")"
+# shellcheck disable=SC2016  # the pin quotes the engine's source line verbatim
+t engine-passes-the-wait-reason-into-the-resume-session 1 "$(grep -c 'WAKE_REASON="${WAKE_REASON:-cron}${wait_why:+,$wait_why}"' "$SHARED/lib/duty-builder.sh")"
+# shellcheck disable=SC2016  # the pin quotes the engine's source line verbatim
+t engine-checkpoints-the-note-after-a-complete-session 1 "$(grep -c -- '-ne 0 \] || _handoff_block "$R"' "$SHARED/lib/duty-builder.sh")"
+rm -rf "$H760" "$h760_gh"; unset -f h760_run
+
+# ── #761 — the panel follows the head's risk ──────────────────────────────
+p761_risk() {  # p761_risk <files-json-lines|FAIL> — tier|why
+  (
+    PANEL_RISK_PATHS='^(shared/lib|shared/bin|cli|\.github/workflows)/'
+    PANEL_RISK_MAX_FILES=3 PANEL_RISK_MAX_LINES=80
+    fx="$1"
+    if [ "$fx" = FAIL ]; then gh() { return 1; }; else gh() { printf '%s\n' "$fx"; }; fi
+    _panel_risk o/r 7; printf '%s|%s' "$_PANEL_RISK_TIER" "$_PANEL_RISK_WHY"
+  )
+}
+t panel-risk-a-small-safe-change-is-low "low|2 file(s), 30 lines, no risky path" "$(p761_risk $'docs/a.md 20\nshared/test/x.sh 10')"
+t panel-risk-a-risky-path-is-high "high|1 risky path(s): shared/lib/duty-builder.sh" "$(p761_risk $'shared/lib/duty-builder.sh 2')"
+t panel-risk-too-many-files-is-high "high|4 files (bound 3)" "$(p761_risk $'a 1\nb 1\nc 1\nd 1')"
+t panel-risk-too-many-lines-is-high "high|81 lines (bound 80)" "$(p761_risk $'docs/a.md 81')"
+t panel-risk-an-unreadable-head-is-high "high|files unreadable" "$(p761_risk FAIL)"
+p761_panel=$'rev-a\nrev-b\nrev-c'
+t panel-sized-high-is-the-whole-panel "rev-a rev-b rev-c" "$(_panel_sized high 7 "$p761_panel" | paste -sd' ' -)"
+t panel-sized-low-is-one-reviewer-rotated-by-number "rev-b" "$(PANEL_LOW_RISK_SIZE=1 _panel_sized low 7 "$p761_panel")"
+t panel-sized-low-rotates "rev-c" "$(PANEL_LOW_RISK_SIZE=1 _panel_sized low 8 "$p761_panel")"
+t panel-sized-low-can-take-two "rev-b rev-c" "$(PANEL_LOW_RISK_SIZE=2 _panel_sized low 7 "$p761_panel" | paste -sd' ' -)"
+t panel-sized-a-panel-no-larger-than-the-size-is-whole "rev-a" "$(PANEL_LOW_RISK_SIZE=1 _panel_sized low 7 "rev-a")"
+t panel-sized-a-bad-size-is-one "rev-b" "$(PANEL_LOW_RISK_SIZE=x _panel_sized low 7 "$p761_panel")"
+t panel-knobs-ship "PANEL_LOW_RISK_SIZE=1 PANEL_RISK_MAX_FILES=3 PANEL_RISK_MAX_LINES=80" \
+  "$(grep -hE '^PANEL_(LOW_RISK_SIZE|RISK_MAX_FILES|RISK_MAX_LINES)=' "$SHARED/conf/fleet.defaults.conf" | sort | paste -sd' ' -)"
+# shellcheck disable=SC2016  # the pin quotes the engine's source line verbatim
+t panel-request-posts-the-sizing-mark 1 "$(grep -c '"${MARK_PANEL_SIZED:-🧭 panel sized} $risk_tier at $gql_head:' "$SHARED/lib/duty-builder.sh")"
+# shellcheck disable=SC2016  # the pin quotes the engine's source line verbatim
+# Two request sites — the engine's request and the flip-owed detection — and
+# both ask from the sized panel.
+t panel-request-requests-from-the-sized-panel 2 "$(grep -c -- '--argjson panel "$_PANEL_EFFECTIVE_JSON" --argjson signal "$signal_json"' "$SHARED/lib/duty-builder.sh")"
+# shellcheck disable=SC2016  # the pin quotes the engine's source line verbatim
+t panel-redraft-reads-the-round-against-the-sized-panel 1 "$(grep -c '^  eff_panel="$_PANEL_EFFECTIVE_JSON"$' "$SHARED/lib/duty-builder.sh")"
+# shellcheck disable=SC2016  # the pin quotes the engine's source line verbatim
+t panel-handoff-counts-against-the-sized-panel 1 "$(grep -c -- '--argjson panel "$_PANEL_EFFECTIVE_JSON" --argjson roster "$panel_json" --arg me "$ME" --arg mark_handoff' "$SHARED/lib/duty-builder.sh")"
+# shellcheck disable=SC2016  # the pin quotes the engine's source line verbatim
+t panel-sizing-mark-is-keyed-once-per-head 1 "$(grep -c 'sized_marker="<!-- duty:panel-sized:$repo#$num@$gql_head -->"' "$SHARED/lib/duty-builder.sh")"
+# The effective panel: a low-risk head is ONE reviewer, the same one every
+# tick of that head; a high-risk head is the roster; a new head re-reads.
+p761_eff() { # p761_eff <files-json-lines|FAIL> <head> [num]
+  (
+    PANEL_RISK_PATHS='^(shared/lib|shared/bin|cli|\.github/workflows)/'
+    PANEL_RISK_MAX_FILES=3 PANEL_RISK_MAX_LINES=80 PANEL_LOW_RISK_SIZE=1
+    fx="$1"
+    if [ "$fx" = FAIL ]; then gh() { return 1; }; else gh() { printf '%s\n' "$fx"; }; fi
+    _panel_effective o/r "${3:-7}" "$2" '["rev-a","rev-b","rev-c"]'
+    printf '%s|%s' "$_PANEL_RISK_TIER" "$_PANEL_EFFECTIVE_JSON"
+  )
+}
+rm -f "$TMP"/.panel-sized-*
+t effective-panel-low-is-one-reviewer 'low|["rev-b"]' "$(p761_eff $'docs/a.md 2' h1)"
+t effective-panel-same-head-is-cached-not-re-read 'low|["rev-b"]' "$(p761_eff FAIL h1)"
+t effective-panel-new-head-re-reads 'high|["rev-a","rev-b","rev-c"]' "$(p761_eff FAIL h2)"
+t effective-panel-cache-names-the-head-and-tier 1 "$(grep -c '^h2 high ' "$TMP/.panel-sized-o_r-7")"
+rm -f "$TMP"/.panel-sized-*
+unset -f p761_risk
 
 suite_finish

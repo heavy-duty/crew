@@ -302,7 +302,7 @@ t hygiene-comma-bearing-assignee-change-sweeps 1 \
 
 # D2. The floor is what keeps the gate a saving rather than a hole: without it
 # a board that never changes is never swept again, and the 48h reclaim and the
-# 7-day post-merge nudge go with it. Ages are set on the committed row, so no
+# ageing go with it. Ages are set on the committed row, so no
 # clock is mocked; the margins are wide enough that a slow box cannot flip one.
 hyg_age_ledger() {  # hyg_age_ledger <seconds ago>
   local digest now
@@ -337,7 +337,7 @@ t hygiene-unset-floor-does-not-abort-the-sweep 0 \
 # default and says so, like every other input this file cannot read.
 hyg_reset
 hygiene_case "$BOARD_A" >/dev/null
-hyg_age_ledger 50000
+hyg_age_ledger 90000
 HYG_BADFLOOR="$(hygiene_case "$BOARD_A" 12h 2>/dev/null)"
 t hygiene-non-numeric-floor-warns-by-repo 1 \
   "$(hyg_count "$HYG_BADFLOOR" '^WARN heavy-duty/crew: HYGIENE_FLOOR is not a whole number of seconds')"
@@ -349,14 +349,14 @@ t hygiene-non-numeric-floor-falls-back-to-the-default 1 \
 # this whole change exists to end.
 hyg_reset
 hygiene_case "$BOARD_A" >/dev/null
-hyg_age_ledger 40000
+hyg_age_ledger 80000
 t hygiene-non-numeric-floor-still-honours-the-default 0 \
   "$(hyg_count "$(hygiene_case "$BOARD_A" 12h 2>/dev/null)" '^SESSION ')"
 # And the skip line it does print names the floor actually in force, not the
 # string that was rejected — the self-contradicting line is the reason this
 # guard exists at all.
 t hygiene-non-numeric-floor-skip-line-names-the-real-floor 1 \
-  "$(hyg_count "$(hygiene_case "$BOARD_A" 12h 2>/dev/null)" 'of the 43200s floor elapsed')"
+  "$(hyg_count "$(hygiene_case "$BOARD_A" 12h 2>/dev/null)" 'of the 86400s floor elapsed')"
 
 # D3. Everything the gate cannot read sweeps anyway and says which repo.
 hyg_reset
@@ -544,7 +544,9 @@ t hygiene-floor-default-matches-conf \
   "$(awk -F= '/^HYGIENE_FLOOR=/{print $2}' "$HYG_CONF")" \
   "$(awk -F= '/^HYGIENE_FLOOR_DEFAULT=/{print $2}' "$HYG_MOD")"
 t hygiene-floor-is-configured-in-triage-conf 1 "$(grep -c -- '^HYGIENE_FLOOR=' "$HYG_CONF" || true)"
-t hygiene-interval-is-unchanged 1 "$(grep -c -- '^HYGIENE_INTERVAL=3600$' "$HYG_CONF" || true)"
+# Daily since #759: hygiene is a sweep, not a wake, and the host tick is what
+# brings a box back for work.
+t hygiene-interval-is-daily 1 "$(grep -c -- '^HYGIENE_INTERVAL=86400$' "$HYG_CONF" || true)"
 
 # D4/D5/D6 on the prompt. The two removals are asserted as the absence of the
 # instruction, so a later edit cannot quietly restore the duplication, and the

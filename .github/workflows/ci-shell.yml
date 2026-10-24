@@ -1,24 +1,53 @@
 name: ci-shell
+# The engine's own loop (#756). A pull request runs only the suites its
+# changed paths need (.github/ci/suites.map through .github/ci/plan.sh), one
+# job per suite, so the wall time is the longest suite and not their sum. A
+# push to main and the weekly schedule run every suite, which is what bounds
+# a wrong map rule to one week. The job named `ci-shell` at the end is the
+# one verdict readers look for; it reds if any leg did.
 on:
   pull_request:
     # Naming types replaces GitHub's defaults; ready_for_review is what makes
     # the draft gate below wake at the head the panel will review.
     types: [opened, synchronize, reopened, ready_for_review]
-    paths: ['shared/**', 'cli/**', 'drill/**', 'fleet-floor/**', 'examples/**', 'install.sh', 'dist/**', '.ceremony/**', '.github/workflows/ci-shell.yml', '.github/workflows/ci-floor.yml']
-  # Both triggers keep the full pre-split filter: shared/test/run.sh carries
-  # repo-wide and cross-reader guards that police fleet-floor changes too.
+    paths: ['shared/**', 'cli/**', 'drill/**', 'fleet-floor/**', 'examples/**', 'install.sh', 'dist/**', '.ceremony/**', '.github/ci/**', '.github/workflows/ci-shell.yml', '.github/workflows/ci-floor.yml']
   push:
     branches: [main]
-    paths: ['shared/**', 'cli/**', 'drill/**', 'fleet-floor/**', 'examples/**', 'install.sh', 'dist/**', '.ceremony/**', '.github/workflows/ci-shell.yml', '.github/workflows/ci-floor.yml']
+    paths: ['shared/**', 'cli/**', 'drill/**', 'fleet-floor/**', 'examples/**', 'install.sh', 'dist/**', '.ceremony/**', '.github/ci/**', '.github/workflows/ci-shell.yml', '.github/workflows/ci-floor.yml']
+  schedule:
+    # Mondays 04:17 UTC — the whole matrix on main, whatever the week's PRs ran.
+    - cron: '17 4 * * 1'
 
 concurrency:
   group: ci-shell-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  SHELLCHECK_VERSION: v0.10.0
+
 jobs:
-  check:
-    name: ci-shell
+  plan:
+    name: plan
     # Draft pushes are checkpoints, not proposals. Pushes have no PR payload.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.plan.outputs.full }}
+      suites: ${{ steps.plan.outputs.suites }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            .github/ci/plan.sh --pr "${{ github.repository }}" "${{ github.event.pull_request.number }}"
+          else
+            .github/ci/plan.sh --all
+          fi
+
+  lint:
+    name: lint
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
@@ -29,26 +58,55 @@ jobs:
           # shared/lib/*.sh and shared/test/*.sh do not descend, so each module
           # directory is named: an unlisted one is silently unchecked (#507).
           for f in install.sh dist/*.sh shared/bin/*.sh shared/lib/*.sh shared/lib/common/*.sh shared/install.sh shared/test/*.sh shared/test/common/*.sh cli/crew drill/*.sh fleet-floor/build.sh fleet-floor/server/probe.sh \
-                   fleet-floor/test/run.sh fleet-floor/test/stub-box; do
+                   fleet-floor/test/run.sh fleet-floor/test/stub-box .github/ci/*.sh; do
             bash -n "$f"
           done
+      # A pinned shellcheck from the cache; on a miss, fetched and checksummed
+      # by .github/ci/fetch-shellcheck.sh. Never apt-get on the hot path.
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        id: shellcheck-cache
+        with:
+          path: ~/.local/bin/shellcheck
+          key: shellcheck-${{ env.SHELLCHECK_VERSION }}-linux-x86_64
+      - if: steps.shellcheck-cache.outputs.cache-hit != 'true'
+        run: .github/ci/fetch-shellcheck.sh
+      - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: shellcheck
         run: |
-          sudo apt-get install -y shellcheck >/dev/null
-          for f in install.sh dist/*.sh shared/bin/*.sh shared/lib/*.sh shared/lib/common/*.sh shared/install.sh shared/test/*.sh shared/test/common/*.sh cli/crew drill/*.sh fleet-floor/server/probe.sh fleet-floor/test/*.sh fleet-floor/test/stub-box shared/conf/fleet.defaults.conf examples/fleet.conf shared/conf/agents/*.conf shared/conf/roles/*.conf; do
+          shellcheck --version | head -2
+          for f in install.sh dist/*.sh shared/bin/*.sh shared/lib/*.sh shared/lib/common/*.sh shared/install.sh shared/test/*.sh shared/test/common/*.sh cli/crew drill/*.sh fleet-floor/server/probe.sh fleet-floor/test/*.sh fleet-floor/test/stub-box shared/conf/fleet.defaults.conf examples/fleet.conf shared/conf/agents/*.conf shared/conf/roles/*.conf .github/ci/*.sh; do
             shellcheck -x "$f"
           done
-      - name: fixture tests
-        run: shared/test/run.sh
-      - name: install lifecycle (offline — layout, root-resolution, interrupt-safe reinstall)
-        run: shared/test/install-lifecycle.sh
-      - name: installer artifact (offline — checksum-before-unpack, byte-identical, generic)
-        run: shared/test/artifact.sh
-      - name: installer drill contract (offline — dry-run, interlock, no duplicated assertions)
-        run: shared/test/install-drill.sh
-      - name: drill teardown contract (offline — the refusal set, idempotence, confirmation)
-        run: shared/test/drill-teardown.sh
-      # The cheap half includes cli.sh, so cli/shared-only changes retain the
-      # runtime coverage that caught the populated-roster failures in #47/#48.
-      - name: fleet-floor tests (no browser)
-        run: fleet-floor/test/run.sh --no-browser
+      - name: the plan's own contract (offline)
+        run: .github/ci/plan.test.sh
+
+  suite:
+    name: ${{ matrix.suite }}
+    needs: plan
+    if: needs.plan.outputs.suites != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJSON(needs.plan.outputs.suites) }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - run: .github/ci/run-suite.sh "${{ matrix.suite }}"
+
+  ci-shell:
+    name: ci-shell
+    needs: [plan, lint, suite]
+    # Reads every leg, including a skipped matrix (a docs-only change) and a
+    # cancelled one; the draft gate above makes plan skip, and this with it.
+    if: ${{ !cancelled() && needs.plan.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: every leg green
+        run: |
+          echo "plan: ${{ needs.plan.result }} (full=${{ needs.plan.outputs.full }})"
+          echo "lint: ${{ needs.lint.result }}"
+          echo "suite: ${{ needs.suite.result }}"
+          case "${{ needs.plan.result }}/${{ needs.lint.result }}/${{ needs.suite.result }}" in
+            success/success/success|success/success/skipped) echo "ci-shell: green" ;;
+            *) echo "::error::ci-shell: a leg is not green"; exit 1 ;;
+          esac

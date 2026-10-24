@@ -669,6 +669,10 @@ WS_R="$(api POST /api/command '{"action":"wake-silent"}')"
 WS_EL=$(( $(date +%s) - WS_T0 ))
 FS_SEEN="$(fs_calls_since "$FS_M")"
 t "wake-silent: resumes a PAUSED box"   resumed "$(cat "$FLOOR_STATE/ff-paused.cron" 2>/dev/null)"
+# ...and lifts the host's pause marker with it (#763 re-review): left there,
+# the next host tick drained and stopped the box this action just woke.
+t "wake-silent: lifts the host's pause marker" absent \
+  "$([ -e "$CREW_CONFIG_DIR/store/paused/ff-paused" ] && echo present || echo absent)"
 t "wake-silent: leaves a DISARMED box alone" "" "$(cat "$FLOOR_STATE/ff-disarmed.cron" 2>/dev/null)"
 
 # #487 D3/D4 — the wake went to every box incus did not call `stopped`, which

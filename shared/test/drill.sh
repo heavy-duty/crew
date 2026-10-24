@@ -45,6 +45,12 @@ cp "$ROOT/drill/rehearsal-all.sh" "$ROOT/drill/rehearsal-notify.sh" \
   "$ROOT/drill/rehearsal-verdict.sh" "$ROOT/drill/rehearsal-hygiene.sh" \
   "$ROOT/drill/rehearsal-breaker.sh" "$ROOT/drill/rehearsal-safety.sh" \
   "$HARNESS/"
+# The orchestrator sources this one for fleet_worst_verdict. Without it in the
+# harness every fleet row would be produced by an UNDEFINED function, which
+# under `set -uo pipefail` is a stderr line and an empty verdict — a leg that
+# graded itself as "reached no case" for a reason that exists only in the
+# fixture (#656).
+cp "$ROOT/drill/fleet-lifecycle.sh" "$HARNESS/"
 cp "$ROOT/drill/rehearsal-report.sh" "$HARNESS/"
 cat >"$HARNESS/rehearsal.sh" <<'ROLE'
 #!/usr/bin/env bash
@@ -158,7 +164,7 @@ round_run() {  # <script> <roles> <ref>
     bash "$script" --remote "$REMOTE" --ref "$ref" --roles "$roles" \
       --keep --no-app --no-config-drill \
       --no-resume-drill --no-attention-drill --no-attention-audit-drill \
-      --no-hygiene-drill --no-breaker-drill --no-notify-drill 2>&1
+      --no-hygiene-drill --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1
 }
 
 # Resolve main once, then move it after the first role. Every role still gets
@@ -223,7 +229,7 @@ if tree_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer \
       --keep --no-app --no-config-drill --no-resume-drill \
       --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then tree_rc=0; else tree_rc=$?; fi
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then tree_rc=0; else tree_rc=$?; fi
 t drill-tree-round-rc 0 "$tree_rc"
 t drill-tree-role-ships-head "$SECOND" "$(awk '{print $4}' "$ROLE_LOG")"
 t drill-tree-installer-ships-head "$SECOND" "$(awk '{print $4}' "$INSTALL_LOG")"
@@ -231,7 +237,7 @@ t drill-tree-record-names-head 1 \
   "$(grep -cF "## drilled source: $SECOND (tree $SOURCE)" <<<"$tree_out")"
 t drill-tree-phase-zero-names-head 1 \
   "$(grep -cF "phase 0: crew at $SECOND (tree $SOURCE), static checks" <<<"$tree_out")"
-t drill-record-enumerates-all-declared-legs 12 \
+t drill-record-enumerates-all-declared-legs 13 \
   "$(grep -c '^## leg \(executed\|not-executed\) ' <<<"$tree_out")"
 t drill-record-names-browser-exclusion 1 \
   "$(grep -c '^## leg not-executed browser  (skip; --no-app)' <<<"$tree_out")"
@@ -257,7 +263,7 @@ if unwired_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG" \
     DRILL_REMOTE="$REMOTE" bash "$UNWIRED" --tree "$SOURCE" --roles reviewer \
       --no-app --no-config-drill --no-resume-drill \
       --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   unwired_rc=0
 else
   unwired_rc=$?
@@ -279,7 +285,7 @@ if undeclared_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG"
     DRILL_REMOTE="$REMOTE" bash "$UNDECLARED" --tree "$SOURCE" --roles reviewer \
       --keep --no-app --no-config-drill --no-resume-drill \
       --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   undeclared_rc=0
 else
   undeclared_rc=$?
@@ -298,7 +304,7 @@ if no_reason_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG" 
     DRILL_REMOTE="$REMOTE" bash "$NO_REASON" --tree "$SOURCE" --roles reviewer \
       --keep --no-app --no-config-drill --no-resume-drill \
       --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   no_reason_rc=0
 else
   no_reason_rc=$?
@@ -321,7 +327,7 @@ if phase2_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer \
       --keep --no-resume-drill --no-attention-drill \
       --no-attention-audit-drill --no-hygiene-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   phase2_rc=0
 else
   phase2_rc=$?
@@ -353,7 +359,7 @@ if armed_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG" \
     DRILL_SECTION_A_ARMED=1 bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" \
       --roles reviewer --keep --no-app --no-config-drill --no-resume-drill \
       --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   armed_rc=0
 else
   armed_rc=$?
@@ -368,7 +374,7 @@ if unreadable_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG"
     DRILL_SECTION_A_UNREADABLE=1 bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" \
       --roles reviewer --keep --no-app --no-config-drill --no-resume-drill \
       --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   unreadable_rc=0
 else
   unreadable_rc=$?
@@ -386,7 +392,7 @@ if browser_skip_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     DRILL_BROWSER_STATUS=skip DRILL_REMOTE="$REMOTE" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --no-resume-drill --no-attention-drill --no-attention-audit-drill \
-      --no-hygiene-drill --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-hygiene-drill --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   browser_skip_rc=0
 else
   browser_skip_rc=$?
@@ -409,7 +415,7 @@ if app_roster_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --app-roster "$TMP/armed.roster" --no-resume-drill \
       --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   app_roster_rc=0
 else
   app_roster_rc=$?
@@ -438,7 +444,7 @@ if app_roster_incomplete_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --app-roster "$TMP/armed.roster" --no-resume-drill \
       --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   app_roster_incomplete_rc=0
 else
   app_roster_incomplete_rc=$?
@@ -454,7 +460,7 @@ if app_roster_missing_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --app-roster "$TMP/armed.roster" --no-resume-drill \
       --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   app_roster_missing_rc=0
 else
   app_roster_missing_rc=$?
@@ -470,7 +476,7 @@ if app_failure_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --app-roster "$TMP/armed.roster" --no-resume-drill \
       --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   app_failure_rc=0
 else
   app_failure_rc=$?
@@ -490,7 +496,7 @@ if no_generated_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --app-roster "$TMP/armed.roster" --no-resume-drill \
       --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   no_generated_rc=0
 else
   no_generated_rc=$?
@@ -527,7 +533,7 @@ if disarmed_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     DRILL_APP_STATUS=could-not-compare DRILL_REMOTE="$REMOTE" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --no-resume-drill --no-attention-drill --no-attention-audit-drill \
-      --no-hygiene-drill --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-hygiene-drill --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   disarmed_rc=0
 else
   disarmed_rc=$?
@@ -558,7 +564,7 @@ if phase2_retained_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     DRILL_REMOTE="$REMOTE" DRILL_ROLE_STAGE=phase2 DRILL_ROLE_RC=1 \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer \
       --no-resume-drill --no-attention-drill --no-attention-audit-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   phase2_retained_rc=0
 else
   phase2_retained_rc=$?
@@ -579,7 +585,7 @@ if preinstall_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     DRILL_REMOTE="$REMOTE" DRILL_ROLE_STAGE=none DRILL_ROLE_RC=1 \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --no-resume-drill --no-attention-drill --no-attention-audit-drill \
-      --no-hygiene-drill --no-breaker-drill --no-notify-drill 2>&1)"; then
+      --no-hygiene-drill --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   preinstall_rc=0
 else
   preinstall_rc=$?
@@ -861,7 +867,7 @@ if tree_report_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --ref refs/pull/450/head \
       --roles reviewer --keep --no-app --no-config-drill --no-resume-drill \
       --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
-      --no-breaker-drill --no-notify-drill 2>&1)"; then :; fi
+      --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then :; fi
 t drill-report-tree-round-names-no-pr 0 \
   "$(grep -cE 'PR #[0-9]' <<<"$tree_report_out" || true)"
 t drill-report-tree-round-passes-no-source-ref '-' \
@@ -903,7 +909,7 @@ runbook_prose_legs() {  # the enumerating sentence, read to its blank line
     | grep -oE '`[a-z][a-z-]*`' | tr -d '`' | sort -u
 }
 
-t drill-runbook-harness-declares-legs 12 "$(runbook_harness_legs | n)"
+t drill-runbook-harness-declares-legs 13 "$(runbook_harness_legs | n)"
 t drill-runbook-documents-every-declared-leg '' \
   "$(comm -23 <(runbook_harness_legs) <(runbook_documented_legs) | paste -sd, -)"
 t drill-runbook-documents-no-undeclared-leg '' \
@@ -918,7 +924,7 @@ t drill-runbook-prose-list-matches-declaration '' \
 # this issue's own finding. Both the census and the runbook go stale silently,
 # so the assertion above has to red on a declaration it has never seen.
 MUTATED_ALL="$TMP/rehearsal-all-extra-leg.sh"
-sed 's/^  installer config app browser app-armed teardown$/  installer config app browser app-armed teardown newleg/' \
+sed 's/^  installer config app browser app-armed fleet teardown$/  installer config app browser app-armed fleet teardown newleg/' \
   "$ROOT/drill/rehearsal-all.sh" >"$MUTATED_ALL"
 t drill-runbook-extra-leg-mutation-applied 1 \
   "$(sed -n '/^declare -a DECLARED_LEGS=(/,/^)/p' "$MUTATED_ALL" \
@@ -2166,7 +2172,7 @@ bv_drive() {
 }
 
 # The phase-2 fixture path, in the drill's own order: the vocabulary, the
-# attention demand, the triage post-merge fixture, the builder's ready issue,
+# attention demand, the builder's ready issue,
 # the attention leg's claimed+flagged demand, the audit leg's two malformed
 # shapes, then both disarming cleanups. Every mint and every DELETE in one
 # trace, so a site left literal is visible as a wrong name rather than as a
@@ -2175,7 +2181,6 @@ bv_drive() {
 BV_PHASE2='
   rehearsal_mint_board_vocabulary owner/repo
   inum="$(rehearsal_mint_attention_demand owner/repo box-identity t b)"
-  rehearsal_mint_post_merge_fixture owner/repo t b >/dev/null
   rehearsal_mint_builder_ready_fixture owner/repo t b >/dev/null
   rehearsal_attention_file_fixture owner/repo box-identity t b
   rehearsal_attention_audit_file_fixtures owner/repo stamp
@@ -2198,11 +2203,11 @@ bv_box_conf 'LABEL_ATTENTION="needs-human"' 'LABEL_READY="queued"'
 # the path made, which is the only place a mint's label name is observable.
 bv_drive "$BV_PHASE2" >/dev/null
 t drill-board-vocab-moved-mint-names 1 \
-  "$(grep -c '^needs-human:d93f0b needs-triage:fbca04 queued:0e8a16 claimed:1d76db blocked:b60205 post-merge:006b75 epic:5319e7$' <<<"$(bv_vocab)" || true)"
-# ...and the FIXTURES, in order: the attention demand, post-merge, the ready
-# issue, the claimed+flagged demand, the audit's unassigned issue, its PR.
+  "$(grep -c '^needs-human:d93f0b needs-triage:fbca04 queued:0e8a16 claimed:1d76db blocked:b60205 epic:5319e7$' <<<"$(bv_vocab)" || true)"
+# ...and the FIXTURES, in order: the attention demand, the ready issue, the
+# claimed+flagged demand, the audit's unassigned issue, its PR.
 t drill-board-vocab-moved-fixture-labels 1 \
-  "$(grep -c '^needs-human post-merge queued claimed,needs-human needs-human,blocked$' <<<"$(bv_mints)" || true)"
+  "$(grep -c '^needs-human queued claimed,needs-human needs-human,blocked$' <<<"$(bv_mints)" || true)"
 t drill-board-vocab-moved-attention-demand 1 "$(bv_minted needs-human)"
 t drill-board-vocab-moved-ready-fixture 1 "$(bv_minted queued)"
 # The audit leg labels its PR through the add endpoint, not at creation.
@@ -2214,7 +2219,7 @@ t drill-board-vocab-moved-cleanup-deletes 1 \
   "$(grep -c '^needs-human$' <<<"$(bv_deletes)" || true)"
 # Not one request in the whole path spells either shipped name. Neither string
 # is a substring of any name this board resolves — needs-human, needs-triage,
-# queued, claimed, blocked, post-merge, epic — so a bare match is the assertion
+# queued, claimed, blocked, epic — so a bare match is the assertion
 # and needs no word boundary to be exact.
 t drill-board-vocab-moved-mints-no-shipped-name 0 \
   "$(grep -cE 'attention|ready' "$BV_TRACE" || true)"
@@ -2238,18 +2243,14 @@ bv_board_put 200 needs-human           # still flagged under the moved name
 bv_board_put 201 attention             # flagged under a name nobody moved to
 bv_board_put 202 queued                # the builder's issue, not yet claimed
 bv_board_put 203 ready                 # ...the shipped name, on a moved board
-bv_board_put 204 post-merge            # the terminal fixture, untouched
 bv_board_put 205 queued,needs-human    # ruled into the moved queue
 bv_board_put 206 ready                 # ruled into the SHIPPED queue name
-bv_board_put 207 post-merge,epic       # a label the session added
 # shellcheck disable=SC2016  # the snippet is eval'd by bv_drive, which is where it expands
 BV_PRED="$(bv_drive '
   rehearsal_attention_flag_cleared owner/repo 200 && echo cleared-200 || echo armed-200
   rehearsal_attention_flag_cleared owner/repo 201 && echo cleared-201 || echo armed-201
   rehearsal_builder_left_the_queue owner/repo 202 && echo off-202 || echo on-202
   rehearsal_builder_left_the_queue owner/repo 203 && echo off-203 || echo on-203
-  rehearsal_post_merge_labels_intact owner/repo 204 post-merge && echo intact-204 || echo moved-204
-  rehearsal_post_merge_labels_intact owner/repo 207 post-merge && echo intact-207 || echo moved-207
   rehearsal_load_installed_queue_labels
   echo "QUEUESET=$(paste -sd, - <<<"$REHEARSAL_QUEUE_LABELS")"
   rehearsal_stray_left_the_queue owner/repo 205 && echo ruled-205 || echo stray-205
@@ -2265,41 +2266,30 @@ t drill-board-vocab-flag-armed-under-moved-name 1 "$(grep -cx armed-200 <<<"$BV_
 t drill-board-vocab-flag-clear-ignores-shipped-name 1 "$(grep -cx cleared-201 <<<"$BV_PRED" || true)"
 t drill-board-vocab-queue-holds-under-moved-name 1 "$(grep -cx on-202 <<<"$BV_PRED" || true)"
 t drill-board-vocab-queue-off-ignores-shipped-name 1 "$(grep -cx off-203 <<<"$BV_PRED" || true)"
-t drill-board-vocab-post-merge-intact 1 "$(grep -cx intact-204 <<<"$BV_PRED" || true)"
-t drill-board-vocab-post-merge-touched-reds 1 "$(grep -cx moved-207 <<<"$BV_PRED" || true)"
 t drill-board-vocab-ready-swap-reads-moved-name 1 "$(grep -cx swapped-moved <<<"$BV_PRED" || true)"
 t drill-board-vocab-ready-swap-ignores-shipped-name 1 "$(grep -cx unswapped-shipped <<<"$BV_PRED" || true)"
 # ...and the swap is a SWAP: the moved ready set with claimed still standing is
 # not a release, which is the half that reads the claimed name.
 t drill-board-vocab-ready-swap-needs-claimed-gone 1 "$(grep -cx unswapped-half <<<"$BV_PRED" || true)"
 
-# The other two names a fixture sends, on a board that moved THEM: `post-merge`
-# is minted and read back by the triage terminal fixture, and `claimed` is half
+# The other name a fixture sends, on a board that moved IT: `claimed` is half
 # of both the attention leg's demand and the swap above. Moving LABEL_ATTENTION
-# and LABEL_READY leaves those two sites passing under the shipped names by
-# coincidence, so they get a board of their own.
-bv_box_conf 'LABEL_POST_MERGE="landed"' 'LABEL_CLAIMED="wip"'
-bv_board_put 208 landed
-bv_board_put 209 post-merge
+# and LABEL_READY leaves that site passing under the shipped name by
+# coincidence, so it gets a board of its own.
+bv_box_conf 'LABEL_CLAIMED="wip"'
 # shellcheck disable=SC2016  # the snippet is eval'd by bv_drive, which is where it expands
-BV_PM="$(bv_drive '
-  rehearsal_mint_post_merge_fixture owner/repo t b >/dev/null
+bv_drive '
   rehearsal_attention_file_fixture owner/repo box-identity t b
-  rehearsal_post_merge_labels_intact owner/repo 208 landed && echo intact-208 || echo moved-208
-  rehearsal_post_merge_labels_intact owner/repo 209 post-merge && echo intact-209 || echo moved-209
-')"
-t drill-board-vocab-moved-post-merge-mint 1 "$(bv_minted landed)"
+' >/dev/null
 t drill-board-vocab-moved-claimed-mint 1 "$(bv_minted wip,attention)"
-t drill-board-vocab-moved-post-merge-intact 1 "$(grep -cx intact-208 <<<"$BV_PM" || true)"
-t drill-board-vocab-moved-post-merge-shipped-name-reds 1 "$(grep -cx moved-209 <<<"$BV_PM" || true)"
 
 # (c) THE RESOLVED QUEUE SET CARRIES THE MOVED `ready`, and the stray assertion
 # grades against it: an issue ruled into `queued` has left the unlabelled
 # queue, and one carrying the shipped `ready` on this board has not.
 t drill-board-vocab-queue-labels-resolve-six 1 \
-  "$(grep -c '^ok triage: installed queue-label set resolves six names$' <<<"$BV_PRED" || true)"
+  "$(grep -c '^ok triage: installed queue-label set resolves five names$' <<<"$BV_PRED" || true)"
 t drill-board-vocab-queue-set-carries-moved-ready 1 \
-  "$(grep -cxF 'QUEUESET=blocked,claimed,epic,needs-triage,post-merge,queued' <<<"$BV_PRED" || true)"
+  "$(grep -cxF 'QUEUESET=blocked,claimed,epic,needs-triage,queued' <<<"$BV_PRED" || true)"
 t drill-board-vocab-stray-ruled-into-moved-queue 1 "$(grep -cx ruled-205 <<<"$BV_PRED" || true)"
 t drill-board-vocab-stray-shipped-name-is-still-stray 1 "$(grep -cx stray-206 <<<"$BV_PRED" || true)"
 
@@ -2309,7 +2299,7 @@ t drill-board-vocab-stray-shipped-name-is-still-stray 1 "$(grep -cx stray-206 <<
 bv_box_conf 'LABEL_READY="blocked"'
 BV_COLLIDED="$(bv_drive 'rehearsal_load_installed_queue_labels')"
 t drill-board-vocab-collided-queue-set-reds 1 \
-  "$(grep -c '^FAIL triage: installed queue-label set resolves six names$' <<<"$BV_COLLIDED" || true)"
+  "$(grep -c '^FAIL triage: installed queue-label set resolves five names$' <<<"$BV_COLLIDED" || true)"
 
 # (d) A BOX WITH NO fleet.conf MINTS AND MATCHES THE SHIPPED NAMES, exactly as
 # today. This is the configuration the defect is invisible under — every round
@@ -2318,9 +2308,9 @@ t drill-board-vocab-collided-queue-set-reds 1 \
 bv_box_conf
 bv_drive "$BV_PHASE2" >/dev/null   # driven for its trace, like the moved board
 t drill-board-vocab-shipped-mint-names 1 \
-  "$(grep -c '^attention:d93f0b needs-triage:fbca04 ready:0e8a16 claimed:1d76db blocked:b60205 post-merge:006b75 epic:5319e7$' <<<"$(bv_vocab)" || true)"
+  "$(grep -c '^attention:d93f0b needs-triage:fbca04 ready:0e8a16 claimed:1d76db blocked:b60205 epic:5319e7$' <<<"$(bv_vocab)" || true)"
 t drill-board-vocab-shipped-fixture-labels 1 \
-  "$(grep -c '^attention post-merge ready claimed,attention attention,blocked$' <<<"$(bv_mints)" || true)"
+  "$(grep -c '^attention ready claimed,attention attention,blocked$' <<<"$(bv_mints)" || true)"
 t drill-board-vocab-shipped-cleanup-deletes 1 \
   "$(grep -c '^attention$' <<<"$(bv_deletes)" || true)"
 bv_board_put 300 ready
@@ -2332,7 +2322,7 @@ BV_SHIPPED_PRED="$(bv_drive '
 ')"
 t drill-board-vocab-shipped-queue-holds 1 "$(grep -cx on-300 <<<"$BV_SHIPPED_PRED" || true)"
 t drill-board-vocab-shipped-queue-set 1 \
-  "$(grep -cxF 'QUEUESET=blocked,claimed,epic,needs-triage,post-merge,ready' <<<"$BV_SHIPPED_PRED" || true)"
+  "$(grep -cxF 'QUEUESET=blocked,claimed,epic,needs-triage,ready' <<<"$BV_SHIPPED_PRED" || true)"
 
 # ...and a box whose configuration resolves no usable name REFUSES, like the
 # census's own read and for the same reason: a vocabulary half-minted under
@@ -2374,9 +2364,9 @@ BV_HOME="$TMP/bv-box"
 bv_box_conf 'LABEL_READY="ready.v2"' "LABEL_ATTENTION='needs\"human'" "LABEL_CLAIMED='claimed+1'"
 bv_drive "$BV_PHASE2" >/dev/null
 t drill-board-vocab-meta-mint-names 1 \
-  "$(grep -cxF 'needs"human:d93f0b needs-triage:fbca04 ready.v2:0e8a16 claimed+1:1d76db blocked:b60205 post-merge:006b75 epic:5319e7' <<<"$(bv_vocab)" || true)"
+  "$(grep -cxF 'needs"human:d93f0b needs-triage:fbca04 ready.v2:0e8a16 claimed+1:1d76db blocked:b60205 epic:5319e7' <<<"$(bv_vocab)" || true)"
 t drill-board-vocab-meta-fixture-labels 1 \
-  "$(grep -cxF 'needs"human post-merge ready.v2 claimed+1,needs"human needs"human,blocked' <<<"$(bv_mints)" || true)"
+  "$(grep -cxF 'needs"human ready.v2 claimed+1,needs"human needs"human,blocked' <<<"$(bv_mints)" || true)"
 bv_board_put 400 readyXv2        # the near-match the ERE wildcard used to accept
 bv_board_put 401 ready.v2        # ...and the name the box actually resolved
 bv_board_put 402 'needs"human'   # flagged, under a name that is not a jq string
@@ -2393,7 +2383,7 @@ BV_META="$(bv_drive '
   rehearsal_builder_left_the_queue owner/repo 401 && echo off-401 || echo on-401
 ')"
 t drill-board-vocab-meta-queue-set-carries-the-dotted-ready 1 \
-  "$(grep -cxF 'QUEUESET=blocked,claimed+1,epic,needs-triage,post-merge,ready.v2' <<<"$BV_META" || true)"
+  "$(grep -cxF 'QUEUESET=blocked,claimed+1,epic,needs-triage,ready.v2' <<<"$BV_META" || true)"
 # THE ROW THE WILDCARD FAILS: `readyXv2` is not a label this board has, so the
 # issue carrying it has not left the unlabelled queue. Joined into an ERE, it
 # did.
@@ -2426,7 +2416,7 @@ BV_META_ALT="$(bv_drive '
 ')"
 # Six names still resolve: a `|` inside one of them is one name, not two.
 t drill-board-vocab-meta-alternation-resolves-six 1 \
-  "$(grep -c '^ok triage: installed queue-label set resolves six names$' <<<"$BV_META_ALT" || true)"
+  "$(grep -c '^ok triage: installed queue-label set resolves five names$' <<<"$BV_META_ALT" || true)"
 t drill-board-vocab-meta-alternation-fragment-is-stray 1 \
   "$(grep -cx stray-410 <<<"$BV_META_ALT" || true)"
 t drill-board-vocab-meta-alternation-whole-name-is-ruled 1 \
@@ -2494,14 +2484,14 @@ t drill-board-vocab-unresolved-swap-names-the-gap 1 \
 # (e5a) THE SILENT ONE. `-alert` parses as the bundle `-a -l -e`, and `-e` takes
 # the REST of the operand — newlines and all — as its pattern argument, so the
 # patterns actually compared are `rt`, `blocked`, `claimed`, `epic`,
-# `needs-triage`, `post-merge`. The exact name reads STRAY and the fragment `rt`
+# `needs-triage`. The exact name reads STRAY and the fragment `rt`
 # reads RULED, on a board that carries neither.
 bv_box_conf 'LABEL_READY="-alert"'
 bv_drive "$BV_PHASE2" >/dev/null
 t drill-board-vocab-dash-mint-names 1 \
-  "$(grep -cxF 'attention:d93f0b needs-triage:fbca04 -alert:0e8a16 claimed:1d76db blocked:b60205 post-merge:006b75 epic:5319e7' <<<"$(bv_vocab)" || true)"
+  "$(grep -cxF 'attention:d93f0b needs-triage:fbca04 -alert:0e8a16 claimed:1d76db blocked:b60205 epic:5319e7' <<<"$(bv_vocab)" || true)"
 t drill-board-vocab-dash-fixture-labels 1 \
-  "$(grep -cxF 'attention post-merge -alert claimed,attention attention,blocked' <<<"$(bv_mints)" || true)"
+  "$(grep -cxF 'attention -alert claimed,attention attention,blocked' <<<"$(bv_mints)" || true)"
 bv_board_put 430 '-alert'  # the exact name the box resolved
 bv_board_put 431 rt        # the `-e` argument fragment, which is no name at all
 bv_board_put 432 alert     # the dash-less near-miss
@@ -2520,7 +2510,7 @@ BV_DASH="$(bv_drive '
 ')"
 t drill-board-vocab-dash-name-sorts-first 1 "$(grep -c '^FIRST=-' <<<"$BV_DASH" || true)"
 t drill-board-vocab-dash-queue-set-carries-the-hyphen 1 \
-  "$(grep -cxF 'QUEUESET=-alert,blocked,claimed,epic,needs-triage,post-merge' <<<"$BV_DASH" || true)"
+  "$(grep -cxF 'QUEUESET=-alert,blocked,claimed,epic,needs-triage' <<<"$BV_DASH" || true)"
 # THE TWO ROWS THE OPTION BUNDLE FAILS.
 t drill-board-vocab-dash-exact-name-is-ruled 1 "$(grep -cx ruled-430 <<<"$BV_DASH" || true)"
 t drill-board-vocab-dash-fragment-is-stray 1 "$(grep -cx stray-431 <<<"$BV_DASH" || true)"
@@ -2568,18 +2558,18 @@ BV_CRLF=1
 bv_box_conf 'LABEL_ATTENTION="needs-human"' 'LABEL_READY="queued"'
 bv_drive "$BV_PHASE2" >/dev/null
 t drill-board-vocab-crlf-box-mints-the-moved-names 1 \
-  "$(grep -cxF 'needs-human:d93f0b needs-triage:fbca04 queued:0e8a16 claimed:1d76db blocked:b60205 post-merge:006b75 epic:5319e7' <<<"$(bv_vocab)" || true)"
+  "$(grep -cxF 'needs-human:d93f0b needs-triage:fbca04 queued:0e8a16 claimed:1d76db blocked:b60205 epic:5319e7' <<<"$(bv_vocab)" || true)"
 # The queue set too, which had no strip at all before this round: it was only
-# counted, and six names each ending in CR count as six.
+# counted, and five names each ending in CR count as five.
 # shellcheck disable=SC2016  # the snippet is eval'd by bv_drive, which is where it expands
 BV_CRLF_SET="$(bv_drive '
   rehearsal_load_installed_queue_labels
   echo "QUEUESET=$(paste -sd, - <<<"$REHEARSAL_QUEUE_LABELS")"
 ')"
 t drill-board-vocab-crlf-queue-set-resolves-six 1 \
-  "$(grep -c '^ok triage: installed queue-label set resolves six names$' <<<"$BV_CRLF_SET" || true)"
+  "$(grep -c '^ok triage: installed queue-label set resolves five names$' <<<"$BV_CRLF_SET" || true)"
 t drill-board-vocab-crlf-queue-set-carries-no-carriage-return 1 \
-  "$(grep -cxF 'QUEUESET=blocked,claimed,epic,needs-triage,post-merge,queued' <<<"$BV_CRLF_SET" || true)"
+  "$(grep -cxF 'QUEUESET=blocked,claimed,epic,needs-triage,queued' <<<"$BV_CRLF_SET" || true)"
 # ...and the other side of the line: an INTERIOR CR is the operator's, survives
 # the strip, and is refused as whitespace like any other. A literal CR inside
 # the quoted value, because that is how one gets into a sourced string.
@@ -2797,6 +2787,10 @@ brk_drive() {
   (
     export REHEARSAL_BREAKER_TICK_TRIES="$BRK_TRIES"
     export REHEARSAL_BREAKER_TICK_WAIT=0
+    # The breaker's label predicate is the shared one in rehearsal-fixtures.sh
+    # since #749, so the leg is sourced with it, as rehearsal.sh sources both.
+    # shellcheck source=drill/rehearsal-fixtures.sh
+    . "$ROOT/drill/rehearsal-fixtures.sh"
     # shellcheck source=drill/rehearsal-breaker.sh
     . "$ROOT/drill/rehearsal-breaker.sh"
     AGENT=kimi
@@ -2828,6 +2822,7 @@ brk_drive() {
     skip() { echo "skip $1"; }
     check()    { local n="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$n"; else fail "$n"; fi; }
     wait_for() { local n="$2"; shift 2; if "$@" >/dev/null 2>&1; then ok "$n"; else fail "$n"; fi; }
+    wait_for_lane() { shift; wait_for 0 "$@"; }
     rc=0
     rehearsal_breaker_drill owner/repo 1 reviewer || rc=$?
     printf 'RC=%s\nTICKS=%s\nREOPENS=%s\n' "$rc" "$BRK_TICK_N" "$BRK_REOPENS"
@@ -3453,6 +3448,381 @@ t w750-builder-row-grades-on-the-lane 1 \
   "$(grep -c 'wait_for_lane BUILD "builder: issue moved off ready (claimed)"' "$ROOT/drill/rehearsal.sh")"
 t w750-neither-row-carries-a-literal 0 \
   "$(grep -cE 'wait_for [0-9]+ "(attention: label removed|builder: issue moved off ready)' "$ROOT/drill/rehearsal.sh")"
+# shellcheck disable=SC2016  # the row's own text, $ included
+t w750-breaker-row-grades-on-the-lane 1 \
+  "$(grep -c 'wait_for_lane ATTENTION "breaker: \$REHEARSAL_BREAKER_LABEL label removed' "$ROOT/drill/rehearsal-breaker.sh")"
+t w750-breaker-row-carries-no-literal 0 \
+  "$(grep -cE 'wait_for [0-9]+ "breaker: .*label removed' "$ROOT/drill/rehearsal-breaker.sh")"
 unset -f w749_run w749_say w749_counted w749_grade w750_budget w750_lane
+
+# --- #656: the fleet-lifecycle leg's classifiers, and its row ---------------
+# The leg itself needs a box host, real boxes and an operator fleet definition.
+# What is testable here is the part that decides what a round SAW, and that is
+# deliberately all of it: every verdict the leg reaches comes out of
+# drill/fleet-lifecycle.sh, so these fixtures EXECUTE the classifiers against
+# the verbs' real line shapes rather than pinning the leg's source text — the
+# drill/agreement.sh precedent, which is what made #494's armed/skewed verdict
+# testable without a host.
+# shellcheck source=drill/fleet-lifecycle.sh
+. "$ROOT/drill/fleet-lifecycle.sh"
+
+# Case 1: a roster whose boxes report mixed states. Three boxes, three
+# different outcomes, in the shapes cli/crew actually prints.
+FLEET_RESTART_MIXED='restart plan (72h force-after): crew-drill-triage crew-drill-builder crew-drill-reviewer
+  crew-drill-triage: restarted; /tmp filesystem free 1048576 → 1310720 KiB (delta +262144 KiB)
+  crew-drill-builder: SKIPPED busy — duty lock held for 4m 10s
+  restart FAILED on crew-drill-reviewer — start command failed
+
+restart: 1 restarted, 1 skipped-busy, 1 failed
+  skipped: crew-drill-builder
+  failed: crew-drill-reviewer'
+t fleet-restart-names-the-cycled-box cycled \
+  "$(fleet_restart_outcome crew-drill-triage <<<"$FLEET_RESTART_MIXED")"
+t fleet-restart-names-the-busy-box skipped-busy \
+  "$(fleet_restart_outcome crew-drill-builder <<<"$FLEET_RESTART_MIXED")"
+t fleet-restart-names-the-failed-box failed \
+  "$(fleet_restart_outcome crew-drill-reviewer <<<"$FLEET_RESTART_MIXED")"
+# A box the verb never mentioned is `unknown` and never a pass. This is the
+# reading that stops a roster row silently dropping out of the table.
+t fleet-restart-unmentioned-box-is-unknown unknown \
+  "$(fleet_restart_outcome crew-drill-absent <<<"$FLEET_RESTART_MIXED")"
+# A box that was already stopped is still a cycle: `crew restart` documents
+# that state, and grading it `unknown` would red a round for a success.
+t fleet-restart-already-stopped-box-is-a-cycle cycled \
+  "$(fleet_restart_outcome crew-drill-triage <<<'  crew-drill-triage: already stopped; starting
+  crew-drill-triage: started from stopped; /tmp filesystem free 900000 KiB (no pre-stop reading)')"
+# A longer name sharing a prefix is a different box. Without the literal `: `
+# these two would fold into one row and the table would name an outcome the
+# verb gave to somebody else.
+t fleet-restart-prefix-name-does-not-fold unknown \
+  "$(fleet_restart_outcome crew-drill-build <<<"$FLEET_RESTART_MIXED")"
+
+# ...and the counts match the rows. The table IS the evidence: #642 and #652
+# each say a fleet-level summary line alone does not satisfy them.
+FLEET_RESTART_ROWS='crew-drill-triage cycled
+crew-drill-builder skipped-busy
+crew-drill-reviewer failed'
+t fleet-restart-table-agrees-with-the-summary agree \
+  "$(fleet_counts_agree restart 'restart: 1 restarted, 1 skipped-busy, 1 failed' \
+    <<<"$FLEET_RESTART_ROWS")"
+# A dropped row is the degenerate case of a summary-only reading, and it must
+# not be absorbed: the leg printed fewer boxes than the verb acted on.
+t fleet-restart-dropped-row-disagrees disagree:cycled=0/1 \
+  "$(fleet_counts_agree restart 'restart: 1 restarted, 1 skipped-busy, 1 failed' \
+    <<<'crew-drill-builder skipped-busy
+crew-drill-reviewer failed')"
+t fleet-restart-empty-table-against-a-real-summary-disagrees disagree:cycled=0/1 \
+  "$(fleet_counts_agree restart 'restart: 1 restarted, 1 skipped-busy, 1 failed' </dev/null)"
+t fleet-restart-invented-row-disagrees disagree:cycled=2/1 \
+  "$(fleet_counts_agree restart 'restart: 1 restarted, 1 skipped-busy, 1 failed' \
+    <<<'crew-drill-triage cycled
+crew-drill-extra cycled
+crew-drill-builder skipped-busy
+crew-drill-reviewer failed')"
+
+# Case 6, and it is the whole design rather than one assertion: a patch that
+# satisfied a criterion by reading the verb's EXIT CODE could not tell these
+# two rounds apart. `crew restart --all` returns 3 for both — one box skipped
+# and every box skipped are the same number — and they are materially
+# different rounds. The classifier separates them; an rc cannot.
+FLEET_RESTART_ALL_BUSY='  crew-drill-triage: SKIPPED busy — duty lock held for 1m 0s
+  crew-drill-builder: SKIPPED busy — duty lock held for 4m 10s
+  crew-drill-reviewer: SKIPPED busy — duty lock age unavailable
+
+restart: 0 restarted, 3 skipped-busy, 0 failed'
+t fleet-rc-identical-rounds-differ-in-the-table cycled/skipped-busy \
+  "$(printf '%s/%s' \
+    "$(fleet_restart_outcome crew-drill-triage <<<"$FLEET_RESTART_MIXED")" \
+    "$(fleet_restart_outcome crew-drill-triage <<<"$FLEET_RESTART_ALL_BUSY")")"
+# The mutation that proves the assertion above is discriminating: a classifier
+# collapsed to one constant — which is all an rc reading can be — stops
+# agreeing with the verb's own counts on the mixed round.
+fleet_restart_outcome_rc_only() { printf 'skipped-busy\n'; }
+FLEET_RC_ONLY_ROWS="$(for b in crew-drill-triage crew-drill-builder crew-drill-reviewer; do
+  printf '%s %s\n' "$b" "$(fleet_restart_outcome_rc_only)"
+done)"
+t fleet-rc-only-classifier-mutation-disagrees disagree:cycled=0/1 \
+  "$(fleet_counts_agree restart 'restart: 1 restarted, 1 skipped-busy, 1 failed' \
+    <<<"$FLEET_RC_ONLY_ROWS")"
+
+# Case 2, the other half of drain_probe()'s contract: `restart` SKIPS a busy
+# box and `down` WAITS for one. Proving one says nothing about the other, so
+# both are read, and `waited` outranks `stopped` — a box that was waited for
+# and then stopped must not become indistinguishable from an idle box that
+# stopped at once, or the assertion passes on a round where nothing was busy.
+FLEET_DOWN='  crew-drill-triage: stopped
+  crew-drill-builder: waiting for duty lock held 4m 10s; use crew down --force to stop without draining
+  crew-drill-builder: stopped
+  crew-drill-absent: not present, skipping
+  down FAILED on crew-drill-reviewer (stop command failed)
+
+down: 2 stopped, 1 waited, 1 absent, 1 failed'
+t fleet-down-waits-for-the-busy-box waited \
+  "$(fleet_down_outcome crew-drill-builder <<<"$FLEET_DOWN")"
+t fleet-down-names-the-idle-box stopped \
+  "$(fleet_down_outcome crew-drill-triage <<<"$FLEET_DOWN")"
+t fleet-down-names-the-absent-box absent \
+  "$(fleet_down_outcome crew-drill-absent <<<"$FLEET_DOWN")"
+t fleet-down-names-the-failed-box failed \
+  "$(fleet_down_outcome crew-drill-reviewer <<<"$FLEET_DOWN")"
+t fleet-down-unreadable-lock-still-counts-as-a-wait waited \
+  "$(fleet_down_outcome crew-drill-x <<<'  crew-drill-x: waiting because duty lock state is unreadable; use crew down --force to stop without draining
+  crew-drill-x: stopped')"
+# A box the verb waited for is also one it then stopped, so the table's waited
+# row counts into both columns. Reconciled rather than asserted loosely: both
+# of the verb's numbers stay checked.
+t fleet-down-table-agrees-with-the-summary agree \
+  "$(fleet_counts_agree down 'down: 2 stopped, 1 waited, 1 absent, 1 failed' \
+    <<<'crew-drill-triage stopped
+crew-drill-builder waited
+crew-drill-absent absent
+crew-drill-reviewer failed')"
+# Must fail: a leg that graded the busy box `stopped` — the collapse this
+# precedence exists to prevent — disagrees with the verb's own waited count.
+t fleet-down-busy-box-graded-stopped-disagrees disagree:waited=0/1 \
+  "$(fleet_counts_agree down 'down: 2 stopped, 1 waited, 1 absent, 1 failed' \
+    <<<'crew-drill-triage stopped
+crew-drill-builder stopped
+crew-drill-absent absent
+crew-drill-reviewer failed')"
+
+# Case 3: a refusal payload carrying only a percentage is graded `unanswered`,
+# never ok. #652's own test plan, in its own words.
+FLEET_CUT_COMPOSED='  crew-drill-triage: armed cut at crew@0.1.3; root filesystem 41% used
+  crew-drill-builder: SKIPPED busy — duty lock held for 4m 10s
+  crew-drill-reviewer: REFUSED — root filesystem 93% used after reclaiming, over the 85% ceiling
+      largest: /var/lib/incus 4.1G; /home/bot/duty/logs 900M
+      whatever is in an armed image is the floor every later reset returns to; clear it before cutting
+
+reset --cut: 1 cut, 1 skipped-busy, 1 failed
+  failed: crew-drill-reviewer'
+FLEET_CUT_PERCENTAGE_ONLY='  crew-drill-triage: armed cut at crew@0.1.3; root filesystem 41% used
+  crew-drill-builder: SKIPPED busy — duty lock held for 4m 10s
+  crew-drill-reviewer: REFUSED — root filesystem 93% used after reclaiming, over the 85% ceiling
+
+reset --cut: 1 cut, 1 skipped-busy, 1 failed'
+t fleet-cut-names-the-cut-box cut \
+  "$(fleet_cut_outcome crew-drill-triage <<<"$FLEET_CUT_COMPOSED")"
+t fleet-cut-names-the-busy-box skipped-busy \
+  "$(fleet_cut_outcome crew-drill-builder <<<"$FLEET_CUT_COMPOSED")"
+t fleet-cut-names-the-refused-box refused \
+  "$(fleet_cut_outcome crew-drill-reviewer <<<"$FLEET_CUT_COMPOSED")"
+t fleet-cut-table-agrees-with-the-summary agree \
+  "$(fleet_counts_agree cut 'reset --cut: 1 cut, 1 skipped-busy, 1 failed' \
+    <<<'crew-drill-triage cut
+crew-drill-builder skipped-busy
+crew-drill-reviewer refused')"
+t fleet-refusal-with-a-composition-is-composed composed \
+  "$(fleet_refusal_answer crew-drill-reviewer <<<"$FLEET_CUT_COMPOSED")"
+# MUST FAIL: the same refusal with the composition line gone.
+t fleet-refusal-percentage-only-is-unanswered unanswered \
+  "$(fleet_refusal_answer crew-drill-reviewer <<<"$FLEET_CUT_PERCENTAGE_ONLY")"
+# ...and an honest report that the composition could NOT be taken is still not
+# the reading #652 asked for. Grading this `composed` would let a host whose
+# boxes have no passwordless sudo tick the criterion forever without ever
+# producing the figure.
+t fleet-refusal-unavailable-composition-is-unanswered unanswered \
+  "$(fleet_refusal_answer crew-drill-reviewer <<<'  crew-drill-reviewer: REFUSED — root filesystem 93% used after reclaiming, over the 85% ceiling
+      largest: unavailable (no passwordless sudo in the box to read / as root)')"
+# A refusal that names its cause in words carries its own composition.
+t fleet-refusal-worded-cause-is-composed composed \
+  "$(fleet_refusal_answer crew-drill-builder <<<'  crew-drill-builder: REFUSED — not logged in to GitHub (an armed checkpoint of a box without credentials restores to a box that cannot work); log it in with: box shell crew-drill-builder')"
+# The backstop, on a payload that was only ever a figure.
+t fleet-refusal-bare-figure-is-unanswered unanswered \
+  "$(fleet_refusal_answer crew-drill-builder <<<'  crew-drill-builder: REFUSED — 93% (85%)')"
+t fleet-refusal-absent-is-reported-as-such no-refusal \
+  "$(fleet_refusal_answer crew-drill-triage <<<"$FLEET_CUT_COMPOSED")"
+# A composition belonging to ANOTHER box cannot answer this one's refusal: the
+# block ends at the next box line.
+t fleet-refusal-does-not-borrow-a-neighbours-composition unanswered \
+  "$(fleet_refusal_answer crew-drill-reviewer <<<'  crew-drill-reviewer: REFUSED — root filesystem 93% used after reclaiming, over the 85% ceiling
+  crew-drill-triage: REFUSED — root filesystem 91% used after reclaiming, over the 85% ceiling
+      largest: /var/lib/incus 4.1G')"
+
+# Case 4: a restore that lands on `bootstrapped` MUST FAIL. #589 D4 — both
+# fallbacks return a creds-free, unhired box, which is a bootstrap and not a
+# maintenance, and the failure mode is that it happens SILENTLY.
+t fleet-restore-to-armed-is-a-restore restored \
+  "$(fleet_restore_landing crew-drill-triage armed \
+    <<<'  crew-drill-triage: restored to armed (crew@0.1.3) and started')"
+t fleet-restore-to-bootstrapped-fails wrong-label \
+  "$(fleet_restore_landing crew-drill-triage armed \
+    <<<'  crew-drill-triage: restored to bootstrapped (crew@0.1.3) and started')"
+t fleet-restore-to-pristine-fails wrong-label \
+  "$(fleet_restore_landing crew-drill-triage armed \
+    <<<'  crew-drill-triage: restored to pristine (crew@0.1.3) and started')"
+t fleet-restore-refusal-is-not-a-restore refused \
+  "$(fleet_restore_landing crew-drill-triage armed \
+    <<<'  crew-drill-triage: REFUSED — no armed checkpoint (crew reset --cut crew-drill-triage takes one); it is NOT rolled back to any other label')"
+t fleet-restore-failure-is-not-a-restore failed \
+  "$(fleet_restore_landing crew-drill-triage armed \
+    <<<'  crew-drill-triage: FAILED — restore failed; the box is stopped and NOT started')"
+t fleet-restore-silence-is-not-a-restore unknown \
+  "$(fleet_restore_landing crew-drill-triage armed </dev/null)"
+
+# The restored box's own first-tick evidence. Two files, because neither
+# answers it alone: duty.log carries the gate's verdict and boot-check.log the
+# probe it was taken from.
+FLEET_BOOT_OK='== boot check 2026-09-11T12:00:00+00:00 ==
+github.com
+  ✓ Logged in to github.com account claude-bot
+/dev/sda1  20G  8.1G  11G  43% /
+cli probe: ok'
+t fleet-boot-gate-passes passing \
+  "$(fleet_boot_gate_reading 'boot gate: new boot id 1a2b3c4d — the box restarted since the last tick' "$FLEET_BOOT_OK")"
+t fleet-boot-gate-first-tick-shape-passes passing \
+  "$(fleet_boot_gate_reading 'boot gate: first tick on this box (boot id 1a2b3c4d)' "$FLEET_BOOT_OK")"
+t fleet-boot-gate-auth-failure-is-a-failure failing \
+  "$(fleet_boot_gate_reading 'boot gate: auth probe failed — duty continues degraded, re-checking every tick' "$FLEET_BOOT_OK")"
+t fleet-boot-gate-cli-probe-failure-is-a-failure failing \
+  "$(fleet_boot_gate_reading 'boot gate: new boot id 1a2b3c4d — the box restarted since the last tick' \
+    '== boot check 2026-09-11T12:00:00+00:00 ==
+cli probe: FAILED')"
+# A gate that never ran on this boot is `unreadable` and NOT a pass: a restored
+# box that never reached its gate has proved nothing, and D4 asks for the
+# reading on the FIRST tick.
+t fleet-boot-gate-never-ran-is-unreadable unreadable \
+  "$(fleet_boot_gate_reading 'boot gate: new boot id 1a2b3c4d — the box restarted since the last tick' '')"
+t fleet-boot-gate-without-a-duty-log-verdict-is-unreadable unreadable \
+  "$(fleet_boot_gate_reading '' "$FLEET_BOOT_OK")"
+
+# The leg's own fold. An empty input stays empty so the caller can say "the leg
+# reached no case" rather than reporting a pass over zero assertions.
+t fleet-verdict-fold-is-worst-first FAIL \
+  "$(fleet_worst_verdict 'ok a
+skip b
+FAIL c
+ok d' | awk '{print $1}')"
+t fleet-verdict-fold-prefers-skip-over-ok skip \
+  "$(fleet_worst_verdict 'ok a
+skip b' | awk '{print $1}')"
+t fleet-verdict-fold-of-nothing-is-empty '' "$(fleet_worst_verdict '')"
+
+# --- #656: the leg's row in the round's record ------------------------------
+# Case 5: a leg that returns early out of a block must report `not-executed`,
+# never an absence that looks like coverage. The stub writes whatever the case
+# needs to the status channel and the round's own agreement check does the rest.
+cat >"$HARNESS/rehearsal-fleet.sh" <<'FLEET'
+#!/usr/bin/env bash
+printf 'fleet\n' >>"${DRILL_SECTION_LOG:-/dev/null}"
+[ -z "${DRILL_FLEET_LOG:-}" ] || printf '%s\n' "$*" >>"$DRILL_FLEET_LOG"
+[ -z "${REHEARSAL_FLEET_STATUS:-}" ] || [ -z "${DRILL_FLEET_VERDICT:-}" ] \
+  || printf '%s\n' "$DRILL_FLEET_VERDICT" >>"$REHEARSAL_FLEET_STATUS"
+exit "${DRILL_FLEET_RC:-0}"
+FLEET
+chmod +x "$HARNESS/rehearsal-fleet.sh"
+
+fleet_round() {  # <verdict> <rc> [extra args...]
+  local verdict="$1" rc="$2"; shift 2
+  DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG" \
+    DRILL_SECTION_LOG="$SECTION_LOG" DRILL_REMOTE="$REMOTE" \
+    DRILL_FLEET_VERDICT="$verdict" DRILL_FLEET_RC="$rc" \
+    DRILL_FLEET_LOG="${DRILL_FLEET_LOG:-}" \
+    bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
+      --no-app --no-config-drill --no-resume-drill --no-attention-drill \
+      --no-attention-audit-drill --no-hygiene-drill --no-breaker-drill \
+      --no-notify-drill "$@" 2>&1
+}
+
+: >"$ROLE_LOG"
+: >"$INSTALL_LOG"
+: >"$SECTION_LOG"
+FLEET_OK_OUT="$(fleet_round 'ok per-box outcomes' 0)"; FLEET_OK_RC=$?
+t fleet-leg-green-round-rc 0 "$FLEET_OK_RC"
+t fleet-leg-green-row-is-executed 1 \
+  "$(grep -c '^## leg executed fleet  (ok; per-box outcomes on restart/down/cut + restore and canary-first upgrade)' \
+    <<<"$FLEET_OK_OUT")"
+t fleet-leg-produces-exactly-one-result-row 1 \
+  "$(grep -c '^##   .*  fleet  ' <<<"$FLEET_OK_OUT")"
+t fleet-leg-is-declared 1 \
+  "$(sed -n '/^declare -a DECLARED_LEGS=(/,/^)/p' "$ROOT/drill/rehearsal-all.sh" \
+    | grep -cw fleet)"
+
+# Case 5 proper: the leg ran, returned early, and wrote no verdict. The round
+# must record `not-executed` with the blocker named, and must not be green.
+FLEET_EARLY_OUT="$(fleet_round '' 0)"; FLEET_EARLY_RC=$?
+t fleet-leg-early-return-is-incomplete 2 "$FLEET_EARLY_RC"
+t fleet-leg-early-return-is-not-executed 1 \
+  "$(grep -c '^## leg not-executed fleet  (INCOMPLETE; the leg reached no case — per-box outcomes UNPROVEN)' \
+    <<<"$FLEET_EARLY_OUT")"
+
+# A reading the round could not take is INCOMPLETE and never an `ok`: the
+# mechanism is what this leg exists to prove, so a round that skipped a busy-box
+# reading has not proved it.
+FLEET_SKIP_OUT="$(fleet_round 'skip no box was held busy' 0)"; FLEET_SKIP_RC=$?
+t fleet-leg-skipped-reading-is-incomplete 2 "$FLEET_SKIP_RC"
+t fleet-leg-skipped-reading-names-what-was-skipped 1 \
+  "$(grep -c '^## leg not-executed fleet  (INCOMPLETE; leg skipped a reading: no box was held busy)' \
+    <<<"$FLEET_SKIP_OUT")"
+
+FLEET_FAIL_OUT="$(fleet_round 'FAIL crew-drill-builder read cycled, not skipped-busy' 1)"
+FLEET_FAIL_RC=$?
+t fleet-leg-failure-reds-the-round 1 "$FLEET_FAIL_RC"
+t fleet-leg-failure-names-the-box 1 \
+  "$(grep -c '^## leg executed fleet  (FAIL; crew-drill-builder read cycled, not skipped-busy)' \
+    <<<"$FLEET_FAIL_OUT")"
+# A leg whose script died without a verdict is still a FAIL and not an
+# INCOMPLETE: the difference is whether the round DISCOVERED a blocker or the
+# leg fell over, and collapsing them would hide the second.
+FLEET_CRASH_OUT="$(fleet_round '' 1)"; FLEET_CRASH_RC=$?
+t fleet-leg-crash-without-a-verdict-reds 1 "$FLEET_CRASH_RC"
+t fleet-leg-crash-is-recorded-as-a-failure 1 \
+  "$(grep -c '^## leg executed fleet  (FAIL; the leg exited 1)' <<<"$FLEET_CRASH_OUT")"
+
+# The operator's own exclusion is a `skip` row, and it is the ONLY shape that
+# is one — the partition every other leg in this file keeps.
+# The section log is reset first: it accumulates across every round above, so
+# a count taken over the whole file would be answering a different question.
+: >"$SECTION_LOG"
+FLEET_OPTOUT_OUT="$(fleet_round 'ok unused' 0 --no-fleet-drill)"; FLEET_OPTOUT_RC=$?
+t fleet-leg-opt-out-round-rc 0 "$FLEET_OPTOUT_RC"
+t fleet-leg-opt-out-is-named 1 \
+  "$(grep -c '^## leg not-executed fleet  (skip; --no-fleet-drill)' <<<"$FLEET_OPTOUT_OUT")"
+# An opt-out that still RAN the leg would be a skip row over a real mutation of
+# the host's boxes — the one row in this file where that is not merely wrong.
+t fleet-leg-opt-out-does-not-invoke-the-leg 0 \
+  "$(grep -cx fleet "$SECTION_LOG" || true)"
+
+# The leg is driven from the round's OWN roster, and it runs after the app
+# phase. Both are read from what the orchestrator actually passed.
+DRILL_FLEET_LOG="$TMP/fleet-args.log"
+: >"$DRILL_FLEET_LOG"
+: >"$SECTION_LOG"
+FLEET_ARGS_OUT="$(DRILL_FLEET_LOG="$DRILL_FLEET_LOG" fleet_round 'ok per-box outcomes' 0)"
+t fleet-leg-is-driven-from-the-drilled-roster 1 \
+  "$(grep -cFx -- '--boxes crew-drill-reviewer --agent claude --roles reviewer' "$DRILL_FLEET_LOG")"
+# Exactly once. A leg invoked twice would produce two result rows, which the
+# round's own agreement check reds — but it would also have cut two snapshots.
+t fleet-leg-runs-exactly-once-per-round 1 "$(wc -l <"$DRILL_FLEET_LOG" | tr -d ' ')"
+t fleet-leg-green-round-with-args-row 1 \
+  "$(grep -c '^## leg executed fleet  (ok; ' <<<"$FLEET_ARGS_OUT")"
+
+# No role reached a box: the leg has no roster to drive the verbs over, and
+# that is a blocker the round DISCOVERED rather than one anybody asked for.
+: >"$ROLE_LOG"
+: >"$INSTALL_LOG"
+if FLEET_NOBOX_OUT="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG" \
+    DRILL_SECTION_LOG="$SECTION_LOG" DRILL_REMOTE="$REMOTE" \
+    DRILL_ROLE_STAGE=pre-install DRILL_ROLE_RC=1 \
+    DRILL_FLEET_VERDICT='ok unused' \
+    bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
+      --no-app --no-config-drill --no-resume-drill --no-attention-drill \
+      --no-attention-audit-drill --no-hygiene-drill --no-breaker-drill \
+      --no-notify-drill 2>&1)"; then
+  FLEET_NOBOX_RC=0
+else
+  FLEET_NOBOX_RC=$?
+fi
+t fleet-leg-without-a-box-is-blocked-not-skipped 1 \
+  "$(grep -c '^## leg not-executed fleet  (SKIPPED; blocked by role install: no installed drill box)' \
+    <<<"$FLEET_NOBOX_OUT")"
+t fleet-leg-without-a-box-keeps-the-round-red 1 "$FLEET_NOBOX_RC"
+
+# The runbook documents it, in both directions, through the same derivation the
+# #497 guard above uses rather than a third list maintained here.
+t fleet-leg-is-documented-in-the-runbook 1 \
+  "$(runbook_documented_legs | grep -cx fleet)"
+t fleet-leg-is-in-the-runbook-prose 1 \
+  "$(runbook_prose_legs | grep -cx fleet)"
 
 suite_finish

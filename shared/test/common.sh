@@ -801,6 +801,7 @@ breaker_hooked_out="$({
   fail() { FAILS+=("$1"); }
   skip() { :; }
   check() { printf 'check %s\n' "$1"; return 0; }
+  # shellcheck disable=SC2317  # invoked indirectly by the code under test
   wait_for() { return 0; }
   breaker_rc=0
   rehearsal_breaker_drill owner/repo 1 reviewer || breaker_rc=$?
@@ -2604,7 +2605,7 @@ else
   r1=MISSING
 fi
 t attention-audit-helper-sourced-in-triage-block wired "$r1"
-AUD_PM_LINE="$(grep -nF 'triage: post-merge-only tick launched no session' \
+AUD_PM_LINE="$(grep -nF 'triage: quiet-board tick launched no session' \
   "$ROOT/drill/rehearsal.sh" | head -1 | cut -d: -f1)"
 # shellcheck disable=SC2016  # match the literal call site in rehearsal.sh
 AUD_LEG_LINE="$(grep -nF 'rehearsal_attention_audit_drill "$SANDBOX"' \
@@ -3921,7 +3922,7 @@ git -C "$AGG/source" config user.name fixture
 git -C "$AGG/source" config user.email fixture@example.invalid
 git -C "$AGG/source" commit -qm fixture --allow-empty
 cp "$ROOT/drill/rehearsal-all.sh" "$ROOT/drill/rehearsal-notify.sh" \
-  "$ROOT/drill/rehearsal-verdict.sh" \
+  "$ROOT/drill/rehearsal-verdict.sh" "$ROOT/drill/fleet-lifecycle.sh" \
   "$ROOT/drill/rehearsal-hygiene.sh" "$ROOT/drill/rehearsal-breaker.sh" "$AGG/"
 # These aggregation cases stub the role drill and grade only summary folding.
 # Give that copied orchestrator a local tree so the real phase-0 resolver does
@@ -3969,7 +3970,7 @@ agg_run() {  # $1 roles, then extra flags
   # own case below, with the hygiene leg deliberately left on.
   AGG_DIR="$AGG" bash "$AGG/rehearsal-all.sh" --roles "$roles" \
     --no-app --no-config-drill --no-install-drill --no-resume-drill \
-    --no-attention-drill --no-attention-audit-drill \
+    --no-attention-drill --no-attention-audit-drill --no-fleet-drill \
     --no-hygiene-drill --no-breaker-drill ${1+"$@"} 2>&1
 }
 
@@ -3979,7 +3980,7 @@ agg_run() {  # $1 roles, then extra flags
 agg_breaker_run() {
   AGG_DIR="$AGG" bash "$AGG/rehearsal-all.sh" --roles '' \
     --no-app --no-config-drill --no-install-drill --no-resume-drill \
-    --no-attention-drill --no-attention-audit-drill \
+    --no-attention-drill --no-attention-audit-drill --no-fleet-drill \
     --no-hygiene-drill --no-notify-drill ${1+"$@"} 2>&1
 }
 if agg_out="$(agg_breaker_run)"; then agg_rc=0; else agg_rc=$?; fi
@@ -3996,7 +3997,7 @@ printf 'claude profile missing bot_session_terminal\n' \
 if agg_out="$(AGG_DIR="$AGG" bash "$AGG/rehearsal-all.sh" \
     --roles reviewer --no-app --no-config-drill --no-install-drill \
     --no-resume-drill --no-attention-drill --no-attention-audit-drill \
-    --no-hygiene-drill --no-notify-drill 2>&1)"; then
+    --no-fleet-drill --no-hygiene-drill --no-notify-drill 2>&1)"; then
   agg_rc=0
 else
   agg_rc=$?
@@ -4083,7 +4084,7 @@ resume_agg_run() {  # $1 roles, then extra flags
   local roles="$1"; shift
   AGG_DIR="$AGG" bash "$AGG/rehearsal-all.sh" --roles "$roles" \
     --no-app --no-config-drill --no-install-drill --no-hygiene-drill \
-    --no-attention-drill --no-attention-audit-drill \
+    --no-attention-drill --no-attention-audit-drill --no-fleet-drill \
     --no-breaker-drill --no-notify-drill ${1+"$@"} 2>&1
 }
 
@@ -4141,7 +4142,8 @@ agg_hygiene_run() {  # $1 roles, $2 the hygiene result the role box records
   local roles="$1" hyg="$2"
   AGG_DIR="$AGG" AGG_HYGIENE="$hyg" bash "$AGG/rehearsal-all.sh" --roles "$roles" \
     --no-app --no-config-drill --no-install-drill --no-resume-drill \
-    --no-attention-drill --no-attention-audit-drill --no-breaker-drill 2>&1
+    --no-attention-drill --no-attention-audit-drill --no-breaker-drill \
+    --no-fleet-drill 2>&1
 }
 # The stub writes the hygiene result the way the live leg does — into the file
 # rehearsal-all.sh hands it, per role — on top of the notify verdict it already
@@ -4503,7 +4505,6 @@ printf '%s\n' \
   'LABEL_READY=ready' \
   'LABEL_CLAIMED=claimed' \
   'LABEL_BLOCKED=blocked' \
-  'LABEL_POST_MERGE=post-merge' \
   'LABEL_EPIC=epic' \
   'LABEL_NEEDS_TRIAGE=needs-triage' \
   >"$QUEUE_LABEL_SIX_HOME/duty/conf/fleet.defaults.conf"
@@ -4511,7 +4512,6 @@ printf '%s\n' \
   'LABEL_READY=ready' \
   'LABEL_CLAIMED=claimed' \
   'LABEL_BLOCKED=blocked' \
-  'LABEL_EPIC=epic' \
   'LABEL_NEEDS_TRIAGE=needs-triage' \
   >"$QUEUE_LABEL_FIVE_HOME/duty/conf/fleet.defaults.conf"
 printf '%s\n' 'MARK_ANSWERED="fixture answered at head"' \
@@ -4529,7 +4529,7 @@ else
 fi
 t rehearsal-queue-label-six-rc 0 "$queue_label_six_rc"
 t rehearsal-queue-label-six-records-ok 1 \
-  "$(grep -cFx 'ok   triage: installed queue-label set resolves six names' \
+  "$(grep -cFx 'ok   triage: installed queue-label set resolves five names' \
     <<<"$queue_label_six_out")"
 
 QUEUE_LABEL_FIXTURE_HOME="$QUEUE_LABEL_FIVE_HOME"
@@ -4540,9 +4540,9 @@ else
 fi
 t rehearsal-queue-label-five-rc 1 "$queue_label_five_rc"
 t rehearsal-queue-label-five-records-fail 1 \
-  "$(grep -cFx 'FAIL triage: installed queue-label set resolves six names' \
+  "$(grep -cFx 'FAIL triage: installed queue-label set resolves five names' \
     <<<"$queue_label_five_out")"
-t rehearsal-queue-label-five-names-values 'blocked claimed epic needs-triage ready' \
+t rehearsal-queue-label-five-names-values 'blocked claimed needs-triage ready' \
   "$(sed -n 's/^  //p' <<<"$queue_label_five_out" | paste -sd' ' -)"
 QUEUE_LABEL_FIXTURE_HOME="$ANSWER_MARK_HOME"
 if rehearsal_load_installed_answer_mark >/dev/null; then
@@ -4746,8 +4746,8 @@ t rehearsal-builder-fork-gate-precedes-first-tick 1 "$builder_fork_gate_precedes
 t rehearsal-common-attention-fixture-is-recorded 1 \
   "$(grep -A3 'inum=.*rehearsal_mint_attention_demand' "$ROOT/drill/rehearsal.sh" | grep -c 'rehearsal_fixture_record_issue' | tr -d ' ')"
 # shellcheck disable=SC2016  # matching literal rehearsal variable references
-t rehearsal-triage-fixtures-are-recorded 2 \
-  "$(grep -Ec 'rehearsal_fixture_record_issue "\$SANDBOX" "\$(t|p)num"' "$ROOT/drill/rehearsal.sh")"
+t rehearsal-triage-fixtures-are-recorded 1 \
+  "$(grep -Ec 'rehearsal_fixture_record_issue "\$SANDBOX" "\$tnum"' "$ROOT/drill/rehearsal.sh")"
 # shellcheck disable=SC2016  # matching literal rehearsal variable references
 t rehearsal-builder-fixtures-are-recorded 2 \
   "$(( $(grep -c 'rehearsal_fixture_record_builder_issue "\$SANDBOX" "\$ME2" "\$bnum"' "$ROOT/drill/rehearsal.sh") + $(grep -c 'rehearsal_fixture_record_pr "\$SANDBOX" "\$bpr"' "$ROOT/drill/rehearsal.sh") ))"
@@ -6867,7 +6867,7 @@ t survival-borrowed-box-unchanged-log-now-reds red "$r1"
 t survival-borrowed-box-unchanged-log-names-tick tick "$(survival_surfaces)"
 t survival-borrowed-box-unchanged-log-waits-the-budget 390 "$SURVIVAL_CLOCK"
 case "$INSTALL_SURVIVAL_DETAIL" in
-  *"2026-08-03T15:14:01Z duty run end"*"box arrived with"*) r1=names-arrival-tick ;; *) r1=OPAQUE ;;
+  *"2026-08-03T15:14:01Z duty run end"*"box arrived with"*) r1="names-arrival-tick" ;; *) r1=OPAQUE ;;
 esac
 t survival-borrowed-box-failure-retains-pre-removal-tick names-arrival-tick "$r1"
 
@@ -6954,7 +6954,7 @@ t survival-cron-removed-says-what-it-read says-what-it-read "$r1"
 t survival-borrowed-box-cron-removed-does-not-wait 0 "$SURVIVAL_CLOCK"
 case "$INSTALL_SURVIVAL_DETAIL" in *"tick: not waited for"*) r1=says-no-wait ;; *) r1=OPAQUE ;; esac
 t survival-borrowed-box-cron-removed-says-no-wait says-no-wait "$r1"
-case "$INSTALL_SURVIVAL_DETAIL" in *"2026-08-03T15:14:01Z duty run end"*) r1=names-arrival-tick ;; *) r1=OPAQUE ;; esac
+case "$INSTALL_SURVIVAL_DETAIL" in *"2026-08-03T15:14:01Z duty run end"*) r1="names-arrival-tick" ;; *) r1=OPAQUE ;; esac
 t survival-borrowed-box-cron-removed-retains-pre-removal-tick names-arrival-tick "$r1"
 
 # The same removal on a fresh box: no boundary can strike, so the wait is not
@@ -7280,6 +7280,116 @@ t blockers-none "" "$(jq -r --argjson S "$S" -f "$BJQ" <<<"$b6")"
 b7='[{"number":28,"body":"Blocked by #5."},{"number":29,"body":"Blocked by #7."}]'
 t blockers-mixed "28" "$(jq -r --argjson S "$S" -f "$BJQ" <<<"$b7")"
 
+# --- #632: a cross-repo blocker is a member keyed by its whole token ------
+# The member set itself, read through the file's own `def blockers` (the same
+# extraction the (e)/(f) byte-identity assertion makes), so each grammar rule
+# below is pinned on what reaches $b rather than only on the verdict.
+BJQ_DEF="$(sed -n '/^def blockers:/,/;$/p' "$BJQ")"
+bjq_set() { jq -nc --arg b "$1" "$BJQ_DEF"' ($b | blockers)'; }
+
+# heavy-duty/landing-site#40's declaration verbatim: the locals landed and the
+# cross-repo gate still standing. Its bare number is ABSENT from $S, which is
+# the live shape — $S is built from this repository's board. Under the grammar
+# as shipped the qualified reference was dropped before the state test, `all`
+# ran over the two survivors and emitted 40: the false lead that fired twice.
+S632='{"38":"CLOSED","39":"CLOSED"}'
+LS40='Blocked by #38, #39, heavy-duty/incubator#421.'
+b8="$(jq -nc --arg b "$LS40" '[{number:40,body:$b}]')"
+t blockers-crossrepo-mixed-holds "" "$(jq -r --argjson S "$S632" -f "$BJQ" <<<"$b8")"
+t blockers-crossrepo-member-is-whole-token \
+  '["38","39","heavy-duty/incubator#421"]' "$(bjq_set "$LS40")"
+
+# The wrong-repo collision: the cross-repo number PRESENT in $S as CLOSED —
+# this repository's own #421. A naive bare-#N widening resolves
+# incubator#421 against it and emits 40 by the same false lead; keyed by the
+# whole token the member can never resolve, reads OPEN, and holds.
+S632C='{"38":"CLOSED","39":"CLOSED","421":"CLOSED"}'
+t blockers-crossrepo-collision-holds "" "$(jq -r --argjson S "$S632C" -f "$BJQ" <<<"$b8")"
+
+# The unowned form `repo#N` (TRIAGE.md's other spelling) is a member too, and
+# holds the same way against a CLOSED local of the same number.
+b9='[{"number":41,"body":"Blocked by box#236."}]'
+t blockers-unowned-crossrepo-holds "" "$(jq -r --argjson S '{"236":"CLOSED"}' -f "$BJQ" <<<"$b9")"
+t blockers-unowned-member-is-whole-token '["box#236","7"]' "$(bjq_set 'Blocked by box#236 and #7.')"
+
+# A closed same-repo blocker beside the cross-repo one is still NOT what holds
+# the issue: drop the cross-repo member and the same locals release it. This
+# is the control that the hold above is the reference's and not the locals'.
+b10='[{"number":42,"body":"Blocked by #38, #39."}]'
+t blockers-crossrepo-control-locals-release "42" "$(jq -r --argjson S "$S632" -f "$BJQ" <<<"$b10")"
+
+# The alternation is ordered so a bare #N is keyed by its NUMBER, never
+# captured with its "#": an all-optional owner prefix also matches a bare
+# reference, after which $S misses and every local blocker silently reads
+# OPEN — blockers-landed and blockers-mixed red the moment that happens, and
+# this pins the member itself.
+t blockers-bare-member-is-bare-number '["5"]' "$(bjq_set 'Blocked by #5.')"
+
+# --- #632: the clause ends at a sentence boundary, not the first literal "."
+# A qualified token carries no "." of its own, so the stop that closes the
+# sentence after it ends the clause and the token stays whole.
+t blockers-clause-ends-after-qualified-token \
+  '["heavy-duty/la-familia-site#5"]' "$(bjq_set 'Blocked by heavy-duty/la-familia-site#5. Part of #9.')"
+# A "." followed by a letter or digit is inside a token, not a terminator, so
+# a parenthesised aside naming a version no longer truncates the declaration
+# at its dot — under the literal-"." span this read ["5"] and dropped #6.
+t blockers-dot-inside-token-keeps-clause '["5","6"]' \
+  "$(bjq_set 'Blocked by #5 (see v1.2 notes), #6. Blocks #7.')"
+# ";" terminates too, as ceremony's reconciler reads it.
+t blockers-semicolon-ends-clause '["5"]' "$(bjq_set 'Blocked by #5; #6 is only prose.')"
+# A soft-wrapped declaration continues across its newline (ceremony's own
+# fixture shape): a newline is not a sentence end.
+t blockers-soft-wrap-continues '["12","7"]' \
+  "$(bjq_set $'Blocked by #12 (first),\n#7 (soft-wrapped second). Blocks #44.')"
+
+# --- #632: a quoted marker is a quotation, not a declaration -------------
+# crew#642's shape: a body quoting ANOTHER issue's hold clause in prose, in a
+# code span, followed by a sentence listing stranded numbers before the first
+# "." — this parsed to a six-member phantom set and was repaired by hand with
+# a hyphen. The issue's own Dependencies line declares nothing.
+B642=$'> [#589](https://github.com/o/r/issues/589) declares `Blocked by #588` and is open and `blocked`, so the blocker parse over every open `blocked` body finds this number: *"an issue that strands nothing is `post-merge` working as intended"* — this one stranded #589, and #590, #607, #624 and #632 behind it.\n\n**Blocked by: nothing.** No file is touched.'
+t blockers-quoted-clause-in-prose-is-not-declared '[]' "$(bjq_set "$B642")"
+# ...and with every number of that phantom set CLOSED, the issue is not a
+# lead: no member, no nomination.
+b11="$(jq -nc --arg b "$B642" '[{number:642,body:$b}]')"
+S642='{"588":"CLOSED","589":"CLOSED","590":"CLOSED","607":"CLOSED","624":"CLOSED","632":"CLOSED"}'
+t blockers-quoted-clause-no-phantom-lead "" "$(jq -r --argjson S "$S642" -f "$BJQ" <<<"$b11")"
+# crew#602's shape: the two-word phrase in backticks ending a paragraph, a
+# table of issue links right after it. The span used to run through the
+# table into [#240].
+t blockers-quoted-phrase-before-table-is-not-declared '[]' \
+  "$(bjq_set $'The paragraph ends on `Blocked by`\n\n| issue | why |\n|---|---|\n| [#240](https://github.com/o/r/issues/240) | prose |')"
+# A quotation in double quotes is a quotation too.
+t blockers-quoted-clause-in-quotes-is-not-declared '[]' \
+  "$(bjq_set '*"Blocked by #5"* is how #9 reads its gate.')"
+# A live declaration beside a quoted one keeps exactly its own members.
+# A `.` or `;` INSIDE PARENTHESES never ends the clause (#763 review): the
+# parenthetical is prose about a member, and the members after it are still
+# declared. Outside parentheses the `; ` terminator stands.
+t blockers-a-semicolon-inside-parentheses-does-not-end-the-clause '["5","7"]' \
+  "$(bjq_set 'Blocked by #5 (the step; see logs) and #7.')"
+t blockers-a-dot-inside-parentheses-does-not-end-the-clause '["5","7"]' \
+  "$(bjq_set 'Blocked by #5 (see the log. it is long) and #7.')"
+t blockers-a-semicolon-outside-parentheses-still-ends-it '["5"]' \
+  "$(bjq_set 'Blocked by #5; #7 is unrelated.')"
+t blockers-a-dotted-repository-inside-parentheses-survives '["foo.js/bar#3","9"]' \
+  "$(bjq_set 'Blocked by foo.js/bar#3 (upstream) and #9.')"
+# Every level of parentheses, and a parenthesis never closed: the aside runs
+# to the end of its line (#763 re-review).
+t blockers-nested-parentheses-do-not-end-the-clause '["5","7"]' \
+  "$(bjq_set 'Blocked by #5 (see (the step); logs) and #7.')"
+t blockers-an-unclosed-parenthesis-runs-to-the-end-of-its-line '["5","7"]' \
+  "$(bjq_set 'Blocked by #5 (the step; see logs and #7.')"
+t blockers-an-unclosed-parenthesis-does-not-swallow-the-next-line '["5"]' \
+  "$(bjq_set $'Blocked by #5 (the step; see logs.\n\nUnrelated: #7 is closed.')"
+# shellcheck disable=SC2016  # the backticks are the fixture body's own prose
+t blockers-live-clause-beside-quote '["5"]' \
+  "$(bjq_set 'Blocked by #5. The sibling declares `Blocked by #7` and holds.')"
+# A struck-through or emphasised marker still declares: markup around the
+# marker is not quotation.
+t blockers-struck-and-bold-markers-still-declare '["5","6"]' \
+  "$(bjq_set '~~Blocked by #5.~~ **Blocked by #6.** Collision, measured per file.')"
+
 # --- converged.jq: handoff predicate ------------------------------------
 CJQ="$SHARED/lib/jq/converged.jq"
 PANEL='["rev-a","rev-b"]'
@@ -7309,8 +7419,10 @@ CJ_T_SIG_NEW="2026-08-11T11:00:00Z"
 # never declared a round answered on this PR, and the default here because most
 # of these fixtures are indifferent to it.
 CJ_NO_SIG='{"sha":"","createdAt":""}'
+CJ_ME="builder-me"
+CJ_MARK="🤝 handed off at head"   # MARK_HANDOFF, the wire string (fleet.defaults.conf)
 cj() {  # cj [signal-json] [panel-json] [human]
-  jq -r --argjson panel "${2:-$PANEL}" --arg needs_human state:needs-human \
+  jq -r --argjson panel "${2:-$PANEL}" --argjson roster "${4:-${2:-$PANEL}}" --arg me "$CJ_ME" --arg mark_handoff "$CJ_MARK" \
     --arg human "${3-$CJ_HUMAN}" --argjson signal "${1:-$CJ_NO_SIG}" -f "$CJQ"
 }
 
@@ -7322,7 +7434,13 @@ t converged-offpanel-req-ignored true \
   "$(mk_pr "$H" MERGEABLE '[]' '["danmt"]' "$REVS_OK" | cj)"
 t converged-stale-approval false \
   "$(mk_pr "$H" MERGEABLE '[]' '[]' "$REVS_STALE" | cj)"
-t converged-already-handed false \
+# The refire guard is the engine's own mark since #535, never the label: a
+# head carrying my `MARK_HANDOFF <head>` comment is handed-off, and the label
+# alone changes nothing in either direction.
+t converged-already-handed handed-off \
+  "$(mk_pr "$H" MERGEABLE '[]' '[]' "$REVS_OK" \
+     | jq --arg me "$CJ_ME" --arg body "$CJ_MARK $H" '.data.repository.pullRequest.comments = {nodes:[{author:{login:$me},body:$body}]}' | cj)"
+t converged-label-alone-is-not-handed true \
   "$(mk_pr "$H" MERGEABLE '["state:needs-human"]' '[]' "$REVS_OK" | cj)"
 t converged-unknown-mergeable defer-unknown \
   "$(mk_pr "$H" UNKNOWN '[]' '[]' "$REVS_OK" | cj)"
@@ -8667,7 +8785,7 @@ CROSS_PR="$(jq -cn --argjson reviews "$CEREMONY_207" '{
   }}}
 }')"
 t round-siblings-addressing true \
-  "$(printf '%s' "$CROSS_PR" | jq -r --argjson panel '["p1","p2","p3"]' \
+  "$(printf '%s' "$CROSS_PR" | jq -r --argjson panel '["p1","p2","p3"]' --argjson roster '["p1","p2","p3"]' \
     --arg addressing state:addressing -f "$SHARED/lib/jq/addressing.jq")"
 t round-siblings-round-owed owed \
   "$(hc '["p1","p2","p3"]' "$(mk_prc "$CHK_OK" "$CEREMONY_207")" | cut -f5)"
@@ -8702,7 +8820,7 @@ t round-siblings-281-requests-none "" \
 t round-siblings-281-round-owed owed \
   "$(hc "$PR281_PANEL" "$(mk_prc "$CHK_OK" "$PR281_REVIEWS")" | cut -f5)"
 t round-siblings-281-addressing true \
-  "$(printf '%s' "$PR281_GQL" | jq -r --argjson panel "$PR281_PANEL" \
+  "$(printf '%s' "$PR281_GQL" | jq -r --argjson panel "$PR281_PANEL" --argjson roster "$PR281_PANEL" \
     --arg addressing state:addressing -f "$SHARED/lib/jq/addressing.jq")"
 t round-siblings-281-converged false \
   "$(printf '%s' "$PR281_GQL" | cj "$PR281_SIG" "$PR281_PANEL")"
@@ -8714,7 +8832,7 @@ PR281_MID="$(printf '%s' "$PR281_GQL" \
   | jq -c '.data.repository.pullRequest.reviewRequests.nodes
              = [{requestedReviewer:{login:"p2"}}]')"
 t round-siblings-281-mid-round-addressing false \
-  "$(printf '%s' "$PR281_MID" | jq -r --argjson panel "$PR281_PANEL" \
+  "$(printf '%s' "$PR281_MID" | jq -r --argjson panel "$PR281_PANEL" --argjson roster "$PR281_PANEL" \
     --arg addressing state:addressing -f "$SHARED/lib/jq/addressing.jq")"
 t round-siblings-281-mid-round-requests-none "" \
   "$(mk_rp abc1234 '["p2"]' "$PR281_REVIEWS" '[]' \
@@ -10205,9 +10323,14 @@ ci_paths_line() {
 # to ci-shell so edits to that workflow run the assertions below; it is the one
 # intentional overlap. Explicitly naming .ceremony/** prevents two
 # mutually-agreeing filters from dropping the path that caught #363.
+# Since #756 the shell side also routes its own planner and map (.github/ci/**),
+# and the floor side's push filter is the floor's own paths: the browser walk
+# runs when the floor moves, weekly, and by hand on a candidate — not on every
+# engine merge. The union a pull request sees is unchanged.
 CI_EXPECTED="$(printf '%s\n' \
-  '.ceremony/**' '.github/workflows/ci-floor.yml' '.github/workflows/ci-shell.yml' \
+  '.ceremony/**' '.github/ci/**' '.github/workflows/ci-floor.yml' '.github/workflows/ci-shell.yml' \
   'cli/**' 'dist/**' 'drill/**' 'examples/**' 'fleet-floor/**' 'install.sh' 'shared/**' | sort)"
+CI_FLOOR_PUSH_EXPECTED="$(printf '%s\n' '.github/workflows/ci-floor.yml' 'fleet-floor/**' | sort)"
 CI_SHELL_PR_PATHS="$(ci_paths pull_request "$CI_SHELL")"
 CI_FLOOR_PR_PATHS="$(ci_paths pull_request "$CI_FLOOR")"
 CI_SHELL_PR_PATH_LINE="$(ci_paths_line pull_request "$CI_SHELL")"
@@ -10236,7 +10359,10 @@ case "$CI_FLOOR_PR_PATHS" in *'fleet-floor/**'*) r1=floor ;; *) r1=MISSING ;; es
 t ci-fleet-floor-routes-to-floor floor "$r1"
 case "$CI_SHELL_PR_PATHS" in *'fleet-floor/**'*) r1=whole-tree ;; *) r1=MISSING ;; esac
 t ci-fleet-floor-whole-tree-routes-to-shell whole-tree "$r1"
-if grep -q 'fleet-floor/test/run.sh --no-browser' "$CI_SHELL"; then r1=covered; else r1=DROPPED; fi
+# The headless floor suite is a matrix leg since #756: the planner names it
+# and the runner executes it.
+if grep -q 'fleet-floor/test/run.sh" --no-browser' "$ROOT/.github/ci/run-suite.sh" \
+   && grep -q 'floor-no-browser' <<<"$("$ROOT/.github/ci/plan.sh" --all)"; then r1=covered; else r1=DROPPED; fi
 t ci-shell-runs-floor-cli-fixtures covered "$r1"
 if grep -Eq 'paths-filter|filter-changes|changes:' "$CI_SHELL" "$CI_FLOOR"; then r1=BILLED; else r1=native; fi
 t ci-routing-uses-native-paths native "$r1"
@@ -10250,7 +10376,9 @@ for ci_yml in "$CI_SHELL" "$CI_FLOOR"; do
     case "$ci_types" in *",$ev,"*) r1=present ;; *) r1=MISSING ;; esac
     t "$ci_name-trigger-fires-on[$ev]" present "$r1"
   done
-  ci_if="$(awk '/^  check:/{p=1} p && /^    if:/{print; exit}' "$ci_yml")"
+  # The draft gate sits on the first job of each workflow — `plan` on the
+  # shell side since #756, `check` on the floor's.
+  ci_if="$(awk '/^  [a-z-]+:$/{p=1} p && /^    if:/{print; exit}' "$ci_yml")"
   case "$ci_if" in *github.event.pull_request.draft*) r1=payload ;; *) r1=MISSING ;; esac
   t "$ci_name-gates-on-draft-payload" payload "$r1"
   case "$ci_if" in *state:*|*label*) r1=LABEL ;; *) r1="payload-only" ;; esac
@@ -10258,7 +10386,11 @@ for ci_yml in "$CI_SHELL" "$CI_FLOOR"; do
   case "$ci_if" in *github.event_name*) r1=explicit ;; *) r1=COERCION ;; esac
   t "$ci_name-push-exemption-is-explicit" explicit "$r1"
   t "$ci_name-pushes-run-on-main" 1 "$(grep -c '^    branches: \[main\]$' "$ci_yml")"
-  t "$ci_name-push-preserves-union-filter" "$CI_EXPECTED" "$(ci_paths push "$ci_yml")"
+  if [ "$ci_name" = ci-shell ]; then
+    t "$ci_name-push-preserves-union-filter" "$CI_EXPECTED" "$(ci_paths push "$ci_yml")"
+  else
+    t "$ci_name-push-is-the-floors-own-paths" "$CI_FLOOR_PUSH_EXPECTED" "$(ci_paths push "$ci_yml")"
+  fi
   ci_group="$(sed -n 's/^  group: *//p' "$ci_yml")"
   # shellcheck disable=SC2016  # Match the literal GitHub expression in YAML.
   case "$ci_group" in *'${{ github.ref }}'*) r1=per-ref ;; *) r1=TOO-COARSE ;; esac
@@ -10267,13 +10399,21 @@ for ci_yml in "$CI_SHELL" "$CI_FLOOR"; do
 done
 
 # Every old step is routed. The expensive browser invocation exists only on
-# the floor side; the cheap side still executes the headless floor/CLI suite.
+# the floor side; the cheap side runs every suite as a matrix leg (#756): the
+# planner's full plan names each one, and the runner maps the id to its file.
 t ci-check-names-are-distinct 2 \
   "$(sed -n 's/^    name: \(ci-.*\)$/\1/p' "$CI_SHELL" "$CI_FLOOR" | sort -u | wc -l | tr -d ' ')"
-for command in 'shared/test/run.sh' 'shared/test/install-lifecycle.sh' \
-  'shared/test/artifact.sh' 'shared/test/install-drill.sh'; do
-  t "ci-shell-keeps[$command]" 1 "$(grep -Fc "run: $command" "$CI_SHELL")"
+CI_PLAN_ALL="$("$ROOT/.github/ci/plan.sh" --all | sed -n 's/^suites=//p' | jq -r '.[]')"
+for suite_id in install-lifecycle artifact install-drill drill-teardown floor-no-browser; do
+  t "ci-shell-keeps[$suite_id]" 1 "$(grep -cx "$suite_id" <<<"$CI_PLAN_ALL")"
 done
+# ...and every engine suite run.sh loops is a leg too, so the split loses none.
+ci_suites_missing=""
+while IFS= read -r suite_id; do
+  grep -qx "$suite_id" <<<"$CI_PLAN_ALL" || ci_suites_missing="$ci_suites_missing $suite_id"
+done < <(sed -n '/^SUITES=(/,/)/p' "$ROOT/shared/test/lib.sh" | tr -d '()' | sed 's/^SUITES=//' | tr -s ' \n' '\n' | sed '/^$/d')
+t ci-shell-matrix-covers-every-run-sh-suite "" "$ci_suites_missing"
+t ci-shell-runs-the-matrix-through-the-runner 1 "$(grep -Fc 'run: .github/ci/run-suite.sh' "$CI_SHELL")"
 t ci-floor-keeps-python-syntax 1 "$(grep -Fc 'python3 -m py_compile fleet-floor/server/floor.py' "$CI_FLOOR")"
 t ci-floor-keeps-browser-gate 1 "$(grep -Fc 'FLOOR_TEST_REQUIRE_BROWSER=1 fleet-floor/test/run.sh' "$CI_FLOOR")"
 t ci-floor-keeps-built-page-check 1 "$(grep -Fc 'git diff --exit-code -- fleet-floor/index.html' "$CI_FLOOR")"
@@ -10288,8 +10428,8 @@ CI_CREW="$ROOT/cli/crew"
 CI_FLOOR_FN="$(sed -n '/^cmd_floor()/,/^}/p' "$CI_CREW")"
 case "$CI_FLOOR_FN" in *'fleet-floor/index.html'*'CREW_FLOOR_PORT='*'CREW_FLOOR_BIND='*'CREW_FLOOR_USER='*'CREW_FLOOR_PASS='*'CREW_FLOOR_INTERVAL='*'CREW_FLOOR_ROSTER='*'fleet-floor/server/floor.py'*) r1=bridged ;; *) r1=BROKEN ;; esac
 t cli-floor-server-contract bridged "$r1"
-CI_CONSOLE_VERBS='down floor hire init new profiles status up upgrade'
-CI_CONSOLE_PROSE_VERBS='and cut hangs makes on reads stopped would'
+CI_CONSOLE_VERBS='down drain floor hire init new pause profiles status up upgrade usage'
+CI_CONSOLE_PROSE_VERBS='and cut hangs makes on reads sources stopped would'
 CI_CONSOLE_CANDIDATES="$(grep -ohE 'crew [a-z][a-z-]*' \
   "$ROOT/fleet-floor/server/floor.py" "$ROOT"/fleet-floor/server/floor/*.py \
   "$ROOT/fleet-floor/src/app.js" \
@@ -10947,5 +11087,41 @@ t common-module-suite-registered "" "$mirror_unregistered"
 
 if "$SHARED/test/claim.test.sh"; then r1=0; else r1=$?; fi
 t claim-regression-suite 0 "$r1"
+
+# ── #759 — duty.sh consumes the wake reason, publishes the identity, counts idle ticks ──
+W759_DUTY="$SHARED/bin/duty.sh"
+# shellcheck disable=SC2016  # the pin quotes the engine's source line verbatim
+t duty-reads-the-wake-reason 1 "$(grep -c 'WAKE_REASON="$(head -c 200 "$DUTY_DIR/.wake-reason"' "$W759_DUTY")"
+# shellcheck disable=SC2016  # the pin quotes the engine's source line verbatim
+t duty-consumes-the-wake-reason 1 "$(grep -c '^rm -f "$DUTY_DIR/.wake-reason"$' "$W759_DUTY")"
+t duty-exports-the-reason-to-sessions 1 "$(grep -c '^export WAKE_REASON$' "$W759_DUTY")"
+# shellcheck disable=SC2016  # the pin quotes the engine's source line verbatim
+t duty-publishes-the-identity 1 "$(grep -c 'printf .%s.n. "$ME" >"$DUTY_DIR/.identity"' "$W759_DUTY")"
+# The idle counter is written on every exit path: as many accountings as
+# `duty run end` lines, and each immediately after one (the reaper's own
+# adjacency pin reads the line before the end).
+t duty-idle-accounts-on-every-exit "$(grep -cE '^[[:space:]]*log "duty run end"$' "$W759_DUTY")" \
+  "$(grep -A1 -E '^[[:space:]]*log "duty run end"$' "$W759_DUTY" | grep -cE '^[[:space:]]*idle_ticks_account$')"
+W759_HOME="$TMP/idle-home"; mkdir -p "$W759_HOME"
+eval "$(sed -n '/^idle_ticks_account() {/,/^}/p' "$SHARED/lib/common/session.sh")"
+( DUTY_DIR="$W759_HOME"; rm -f "$DUTY_DIR/.tick-acted"; idle_ticks_account; idle_ticks_account; cat "$DUTY_DIR/.idle-ticks" ) >"$TMP/idle-out"
+t duty-idle-ticks-count-up 2 "$(cat "$TMP/idle-out")"
+( DUTY_DIR="$W759_HOME"; : >"$DUTY_DIR/.tick-acted"; idle_ticks_account; cat "$DUTY_DIR/.idle-ticks" ) >"$TMP/idle-out"
+t duty-a-session-resets-the-count 0 "$(cat "$TMP/idle-out")"
+( DUTY_DIR="$W759_HOME"; rm -f "$DUTY_DIR/.tick-acted"; printf 'junk\n' >"$DUTY_DIR/.idle-ticks"; idle_ticks_account; cat "$DUTY_DIR/.idle-ticks" ) >"$TMP/idle-out"
+t duty-a-corrupt-count-restarts-at-one 1 "$(cat "$TMP/idle-out")"
+unset -f idle_ticks_account
+
+# ── #761 — the box-side installer records the member's pool ───────────────
+P761_HOME="$TMP/pool-home"; mkdir -p "$P761_HOME"
+env HOME="$P761_HOME" DUTY_DIR="$P761_HOME/duty" PATH="$ISHIM" CRON_STATE="$CRON_STATE" \
+  /bin/bash "$SHARED/install.sh" --agent claude --role reviewer --pool claude-max-1 >/dev/null 2>&1
+t install-pool-is-written-to-instance-conf 1 "$(grep -c '^SESSION_CREDENTIAL_POOL="claude-max-1"$' "$P761_HOME/duty/conf/instance.conf")"
+env HOME="$P761_HOME" DUTY_DIR="$P761_HOME/duty" PATH="$ISHIM" CRON_STATE="$CRON_STATE" \
+  /bin/bash "$SHARED/install.sh" --agent claude --role reviewer >/dev/null 2>&1
+t install-a-re-install-keeps-the-pool 1 "$(grep -c '^SESSION_CREDENTIAL_POOL="claude-max-1"$' "$P761_HOME/duty/conf/instance.conf")"
+env HOME="$P761_HOME" DUTY_DIR="$P761_HOME/duty" PATH="$ISHIM" CRON_STATE="$CRON_STATE" \
+  /bin/bash "$SHARED/install.sh" --agent claude --role reviewer --pool claude-max-2 >/dev/null 2>&1
+t install-a-new-pool-replaces-the-old 1 "$(grep -c '^SESSION_CREDENTIAL_POOL="claude-max-2"$' "$P761_HOME/duty/conf/instance.conf")"
 
 suite_finish

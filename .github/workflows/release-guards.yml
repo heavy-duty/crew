@@ -24,7 +24,7 @@ jobs:
   guards:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           # changelog-monotonic and changelog-assembled compare HEAD against
           # the merge base; a checkout that cannot resolve it is a hard failure
@@ -34,23 +34,27 @@ jobs:
       # changelog-armed: the version-keyed arming rule — a -dev tree keeps its
       # fragments in changelog.d/, a release tree has consumed them into a
       # stamped section.
-      - uses: heavy-duty/ceremony/actions/changelog-armed@0.7.7
+      - uses: heavy-duty/ceremony/actions/changelog-armed@0.7.11
       # changelog-monotonic: no shipped release heading deleted or duplicated.
       # Strict by default: an unresolvable base ref is red, never a quiet skip —
       # hence fetch-depth: 0 above.
-      - uses: heavy-duty/ceremony/actions/changelog-monotonic@0.7.7
+      - uses: heavy-duty/ceremony/actions/changelog-monotonic@0.7.11
       # changelog-assembled: a release's stamped section must exactly match the
       # fragments it consumed. Vacuous on non-release PRs.
-      - uses: heavy-duty/ceremony/actions/changelog-assembled@0.7.7
+      - uses: heavy-duty/ceremony/actions/changelog-assembled@0.7.11
       # drill-recorded: a release version carries drills/<version>.md (crew's
       # drill meaning: drills/README.md). Vacuous on -dev trees.
-      - uses: heavy-duty/ceremony/actions/drill-recorded@0.7.7
+      - uses: heavy-duty/ceremony/actions/drill-recorded@0.7.11
       # runner-isolated: no pull_request-triggered workflow runs unreviewed
       # branch code on a self-hosted runner. crew runs only ubuntu-latest.
-      - uses: heavy-duty/ceremony/actions/runner-isolated@0.7.7
+      - uses: heavy-duty/ceremony/actions/runner-isolated@0.7.11
       # docs-sync: the .ceremony/ doctrine mirror is byte-identical to the pin
       # read from release.yml — a hand edit or a half-done pin bump goes red.
-      - uses: heavy-duty/ceremony/actions/docs-sync@0.7.7
+      - uses: heavy-duty/ceremony/actions/docs-sync@0.7.11
+      # The seventh guard (#581): every third-party action and reusable workflow
+      # is pinned to a full commit SHA with a version comment; first-party
+      # (heavy-duty) references stay release-tagged so one ceremony pin governs.
+      - uses: heavy-duty/ceremony/actions/sha-pinned@0.7.11
       # stamps-only: crew's own gate on the rc ladder — a final release tree
       # differs from its last candidate by stamps only (#506). Repo-owned
       # script and not an action, for drills/README.md's reason: what it
@@ -66,10 +70,16 @@ jobs:
       # checkout safe.
       - name: bash -n (the suite)
         run: bash -n .github/stamps-only.test.sh
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+        id: shellcheck-cache
+        with:
+          path: ~/.local/bin/shellcheck
+          key: shellcheck-v0.10.0-linux-x86_64
+      - if: steps.shellcheck-cache.outputs.cache-hit != 'true'
+        run: .github/ci/fetch-shellcheck.sh
+      - run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: shellcheck (the suite)
-        run: |
-          sudo apt-get install -y shellcheck >/dev/null
-          shellcheck -x .github/stamps-only.test.sh
+        run: shellcheck -x .github/stamps-only.test.sh
       - name: python syntax (the guard)
         run: python3 -m py_compile .github/stamps-only.py
       # The suite's first case runs the guard over this checkout, so a red tree

@@ -327,7 +327,7 @@ session_reconcile_orphans() {
     # against `run_session`'s own line. That costs the order guard nothing:
     # `started` is this writer's alone, so it is not in the observed token list
     # the comparison walks.
-    log "SESSION END kind=$kind key=$key rc=- dur=- outcome=$SESSION_ORPHAN_OUTCOME acted=unknown reply_tail= log=- left=- tier=unknown peak_rss=- oom=- input_tokens=- output_tokens=- cache_creation_input_tokens=- cache_read_input_tokens=- cost_usd=- session_id=unknown model=unknown models=- pool=unknown started=$started sid=unknown" >>"$logfile"
+    log "SESSION END kind=$kind key=$key rc=- dur=- outcome=$SESSION_ORPHAN_OUTCOME acted=unknown reply_tail= log=- left=- tier=unknown peak_rss=- oom=- input_tokens=- output_tokens=- cache_creation_input_tokens=- cache_read_input_tokens=- cost_usd=- session_id=unknown model=unknown models=- why=- pool=unknown started=$started sid=unknown" >>"$logfile"
     # D3: the same per-kind counter an observed TERMINAL feeds, and no second
     # mechanism. A box that kills itself on every review session has a dead
     # review lane, whether the vendor said so or the kernel did.
