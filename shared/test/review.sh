@@ -717,6 +717,18 @@ t review-mutation-cleanup-preserves-review-worktree present \
 t review-mutation-cleanup-preserves-verdict-file present \
   "$([ -e "$D605_PARENT/verdict-8-deadbeef.md" ] && printf present || printf MISSING)"
 
+# A detached fixture command stays `running` for exactly as long as its
+# liveness assertions need: it blocks on a release file the test creates right
+# before the completion loop, never on a `sleep 1` a loaded runner outlasts
+# (#647). The bound — 600 polls of 0.1 s, so 60 s — is the fixture's own, two
+# orders above the window the assertions need and two below the engine's
+# DETACHED_RUN_TIMEOUT_SECONDS: a broken fixture fails in a minute, not an
+# hour. `$0` is the release file; the command's own arguments follow it.
+# shellcheck disable=SC2016  # expanded by the detached bash, not here
+RV_HOLD='i=0; while [ ! -e "$0" ]; do i=$((i + 1)); [ "$i" -le 600 ] || exit 1; sleep 0.1; done'
+RV_RELEASE="$TMP/review-detached-release"
+mkdir -p "$RV_RELEASE"
+
 # A parked mutation probe still owns its copy after the launching session
 # returns. The same helper removes it on the first tick after the run completes.
 D606_LIVE_HEAD="eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
@@ -725,7 +737,7 @@ touch "$D605_PARENT/mutation-9/broken-copy"
 (
   cd "$D605_PARENT/mutation-9" || exit
   run_detached fixture/repo 9 "$D606_LIVE_HEAD" -- \
-    bash -c 'sleep 1; test -f broken-copy'
+    bash -c "$RV_HOLD; test -f broken-copy" "$RV_RELEASE/mutation-9"
 ) >"$D605_PARENT/mutation-9.digest"
 D606_LIVE_DIGEST="$(cat "$D605_PARENT/mutation-9.digest")"
 D606_LIVE_OUT="$(review_cleanup_mutation_copies "$D605_PARENT" fixture/repo)"
@@ -733,6 +745,7 @@ t review-mutation-live-run-preserves-copy present \
   "$([ -e "$D605_PARENT/mutation-9/broken-copy" ] && printf present || printf MISSING)"
 t review-mutation-live-run-logs-protector 1 \
   "$(grep -cF "protected by active detached run fixture/repo#9@$D606_LIVE_HEAD" <<<"$D606_LIVE_OUT")"
+: >"$RV_RELEASE/mutation-9"
 for _ in 1 2 3 4 5; do
   detached_run_read fixture/repo 9 "$D606_LIVE_HEAD" "$D606_LIVE_DIGEST" >/dev/null
   [ "$DETACHED_RUN_STATE" = complete ] && break
@@ -809,10 +822,15 @@ t review-reclaim-noop-preserves-branch present \
 
 # D1 amended by triage 2026-09-02 (#606): the PR's state is NO PART of the
 # predicate, so a numbered review worktree is reclaimed on #597's rule alone.
-# The `gh` shim below still answers exactly as the retired gate's queries did —
-# review-41's PR is OPEN, review-42's history is all CLOSED — precisely so that
-# a reinstated gate would preserve review-41 and this fixture would red. Under
-# the amended rule both go, and the shim is never reached at all: an open PR on
+# The `gh` shim below still answers the retired gate's two queries — the PR's
+# head identity, then that head's PR history — so a reinstated gate has real
+# answers to read. review-41, -43 and -44 share the head fork-a:build/shared,
+# whose history holds an OPEN PR; review-42 alone has the head
+# fork-b:build/closed, whose history the shim answers as closed and nothing
+# else (#641). So a reinstated gate preserves review-41 and reds the open arm,
+# and reclaims review-42 and leaves the closed arm green: the pair says "the
+# predicate reads PR state again", not just "something broke". Under the
+# amended rule both go, and the shim is never reached at all: an open PR on
 # the review side does not mean "still in use", it means "this PR will be
 # reviewed again", which is exactly when the fixed review-<N> path must be free.
 git -C "$RW/work/repo" worktree add --detach "$RW/trees/repo/review-41" "$RW_HEAD" >/dev/null 2>&1
@@ -841,13 +859,15 @@ gh() {
   printf '%s\n' "$*" >>"$RW_GH_CALLS"
   if [ "$1" = api ] && [[ "$2" == repos/fixture/repo/pulls/* ]]; then
     case "${2##*/}" in
-      41|42|43|44) printf 'fork-a\tbuild/shared\n' ;;
+      41|43|44) printf 'fork-a\tbuild/shared\n' ;;
+      42) printf 'fork-b\tbuild/closed\n' ;;
     esac
     return 0
   fi
   if [ "$1 $2 $3" = "api --method GET" ]; then
     case "$*" in
       *'-f head=fork-a:build/shared'*) printf 'closed\nopen\n' ;;
+      *'-f head=fork-b:build/closed'*) printf 'closed\nclosed\n' ;;
     esac
     return 0
   fi
@@ -984,7 +1004,7 @@ RBO_BEFORE="$(git -C "$RBO_CLONE" status --porcelain)"
 RBO_OLD_WORK="$WORK_DIR"
 WORK_DIR="$RBO_WORK"
 RBO_HEAD="$(git -C "$RBO_CLONE" rev-parse HEAD)"
-RBO_DIGEST="$(run_detached fixture/output 8 "$RBO_HEAD" -- sleep 1)"
+RBO_DIGEST="$(run_detached fixture/output 8 "$RBO_HEAD" -- bash -c "$RV_HOLD" "$RV_RELEASE/output-8")"
 RBO_LIVE_OUT="$(review_cleanup_stale_build_outputs)"
 t review-build-output-live-run-preserves-ignored-products present \
   "$([ -e "$RBO_CLONE/node_modules/pkg/index.js" ] \
@@ -992,6 +1012,7 @@ t review-build-output-live-run-preserves-ignored-products present \
       && printf present || printf MISSING)"
 t review-build-output-live-run-logs-protector 1 \
   "$(grep -cF "protected by active detached run fixture/output#8@$RBO_HEAD" <<<"$RBO_LIVE_OUT")"
+: >"$RV_RELEASE/output-8"
 for _ in 1 2 3 4 5; do
   detached_run_read fixture/output 8 "$RBO_HEAD" "$RBO_DIGEST" >/dev/null
   [ "$DETACHED_RUN_STATE" = complete ] && break
@@ -1022,8 +1043,8 @@ git -C "$RW/work/repo" worktree add --detach "$RW/trees/repo/base-aux" "$RW_HEAD
 (
   cd "$RW/work/repo" || exit
   RW_LIVE_DIGEST="$(run_detached fixture/repo 7 "$RW_LIVE_HEAD" -- \
-    bash -c "sleep 1; [ -d \"\$1\" ] && [ -d \"\$2\" ] && : > \"\$1/review-finished\"" \
-      _ "$RW/trees/repo/review-live" "$RW/trees/repo/base-aux")"
+    bash -c "$RV_HOLD; [ -d \"\$1\" ] && [ -d \"\$2\" ] && : > \"\$1/review-finished\"" \
+      "$RV_RELEASE/repo-7" "$RW/trees/repo/review-live" "$RW/trees/repo/base-aux")"
   printf '%s' "$RW_LIVE_DIGEST" >"$RW/live.digest"
 )
 TREES_DIR="$RW/trees"
@@ -1053,6 +1074,7 @@ fi
 t review-reclaim-different-head-next-dispatch-suppressed suppressed \
   "$RW_DIFFERENT_HEAD_DECISION"
 RW_LIVE_DIGEST="$(cat "$RW/live.digest")"
+: >"$RV_RELEASE/repo-7"
 for _ in 1 2 3 4 5; do
   detached_run_read fixture/repo 7 "$RW_LIVE_HEAD" "$RW_LIVE_DIGEST" >/dev/null
   [ "$DETACHED_RUN_STATE" = complete ] && break

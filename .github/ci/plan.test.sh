@@ -51,6 +51,18 @@ while IFS= read -r id; do
   [ -f "$HERE/../../shared/test/$id.sh" ] || bad="$bad $id"
 done < <(grep -v '^#' "$HERE/suites.map" | cut -f2 | tr ',' '\n' | grep -v -E '^(full|none)$' | sort -u)
 t plan-every-mapped-id-is-a-suite "" "$bad"
+# The aggregate entrypoint, shared/test/run.sh, EXECUTES each of lib.sh's
+# SUITES rather than handing it to bash, so a suite committed without its
+# mode bit is a `rc=126` there and nowhere in CI, whose run-suite.sh calls
+# bash (#767 review: release, cli-store and credentials were 100644).
+noexec=""
+# shellcheck disable=SC1091  # the suite list, read for its SUITES array only
+SUITES_LIST="$(bash -c '. "$1" >/dev/null 2>&1; printf "%s\n" "${SUITES[@]}"' _ "$HERE/../../shared/test/lib.sh")"
+while IFS= read -r id; do
+  [ -n "$id" ] || continue
+  [ -x "$HERE/../../shared/test/$id.sh" ] || noexec="$noexec $id"
+done <<<"$SUITES_LIST"
+t plan-every-aggregate-suite-is-executable "" "$noexec"
 # --all and a PR read that fails both run everything.
 t plan-all-is-full 1 "$("$PLAN" --all | grep '^full=' | cut -d= -f2)"
 stub="$(mktemp -d)"; printf '#!/usr/bin/env bash\nexit 1\n' >"$stub/gh"; chmod +x "$stub/gh"

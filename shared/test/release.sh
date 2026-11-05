@@ -262,6 +262,15 @@ t every-prompt-slot-is-filled 0 "$(grep -c '{{' "$TMP/prompt" || true)"
 for needle in "cutting the release of the track at apps/site" "tags site-X.Y.Z" "since site-2.1.45" "feat(site): page (#2)" "changelog.d are: 2.md" "armed 2.1.46-dev" "pin 0.7.11" "$DUTY_DIR/work/.ceremony-0.7.11/bin/changelog-assemble 2.1.46" "Create branch release/site-2.1.46" "git push -u fork release/site-2.1.46" "--head dan-claude-bot:release/site-2.1.46 --label release" "$TREES_DIR/acme__site/" "(5) STOP"; do
   t "prompt-names-${needle//[^a-zA-Z0-9]/-}" 1 "$(grep -cF -- "$needle" "$TMP/prompt" || true)"
 done
+# The assembler's --check runs BEFORE the assembly, never after it: ceremony
+# 0.7.11's changelog-assemble refuses "zero fragments" once the fragments are
+# consumed, so a prompt that asks for --check after the write asks for a step
+# that always fails, and "if any step fails … open nothing" then opens nothing
+# on every final cut (#767 review). Read as an order, not as two needles.
+t the-prompt-checks-before-it-assembles 1 "$(awk '{
+    c = index($0, "FIRST with --check"); w = index($0, "without --check, which stamps")
+    print (c > 0 && w > c) ? 1 : 0; exit }' < <(tr '\n' ' ' <"$TMP/prompt"))"
+t the-prompt-never-asks-for-check-after-the-write 0 "$(grep -cF 'then run the same command with --check' "$TMP/prompt" || true)"
 SITE_TREE2="$(git -C "$CLONE" rev-parse "origin/main:apps/site")"
 t the-cut-is-remembered-per-track "91 release/site-2.1.46 $HEAD2" "$(cat "$DUTY_DIR/.release-cut-acme_site-site-")"
 t the-tracks-tree-is-in-the-seen-ledger 1 "$(grep -c "^acme/site:apps/site#$SITE_TREE2 " "$DUTY_DIR/.seen-release")"

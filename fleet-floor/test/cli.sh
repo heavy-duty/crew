@@ -12,7 +12,14 @@ set -uo pipefail
 CL_HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CL_FLOOR="$(dirname "$CL_HERE")"
 CL_ROOT="$(dirname "$CL_FLOOR")"
-
+# Every port this file binds sits in the suite's own band, FLOOR_TEST_PORT+5
+# to +25 (run.sh binds +0 to +4; roster.sh's +5 is gone before this file
+# runs), so two runs on bases more than 25 apart
+# never meet, and run.sh refuses to start beside a live run whose band could
+# overlap. With fixed literals here two runs' version collectors answered each
+# other's requests (#767 review, the #626 load run); with a plain offset of an
+# 88xx band, bases 84-108 apart still crossed (#767 round 2).
+CL_PORT_BASE="${FLOOR_TEST_PORT:-8791}"
 if ! declare -F ok >/dev/null; then
   PASS=0 SKIP=0
   declare -a FAILS=()
@@ -58,6 +65,63 @@ fi
 
 echo
 echo "== crew floor CLI"
+# A case that starts the floor without --port would bind crew floor's own
+# default, 8420 (an operator's real console), for as long as it lived: while
+# this file runs the default is the band's one unused offset, and run.sh's own
+# value comes back at the end (#767 round 6).
+CL_PRIOR_FLOOR_PORT="${CREW_FLOOR_PORT-__unset__}"
+export CREW_FLOOR_PORT=$((CL_PORT_BASE + 15))
+# Pinned, below the standalone block so a hand run has its `t`. Outside
+# comments, (a) no literal in the floor's 8600-8999 port range appears at all
+# (any shape: --port, a probe argument, a URL, /dev/tcp, a bind tuple), and
+# (b) every use of CL_PORT_BASE is exactly $((CL_PORT_BASE + N)) with N in
+# 5..25, neither preceded nor followed by a digit nor nested in more arithmetic, (c)
+# run.sh's own PORT and FLOOR_TEST_PORT never appear as a word (the help
+# text's "IP:PORT" is the one exemption), and (d) no --port or *PORT= takes a
+# number literally, in any quoting. A bare literal outside 8600-8999 that is
+# not a --port or *PORT= argument is not refused: a port built on them lands in run.sh's +0..4 or past the
+# band (#767 round 5: `(( p = PORT + 3 ))` got past an operand-only match;
+# rounds 3 and 4: a PORT-line filter missed
+# `cl_refuses … 8880` and `$((CL_PORT_BASE+30))`, a CL_PORT_BASE-only count
+# missed `$((PORT + 3))`). The definition line is the one exception. The census
+# does not follow arithmetic through a variable that holds a port: such a
+# variable is assigned from an exact $((CL_PORT_BASE + N)), which (b) checks.
+# shellcheck disable=SC2016  # the patterns are literal text, matched, never expanded
+cl_port_census() { # FILE -> "<floor-range literals> <port bases or offsets off the band>"
+  local code
+  # The census and its own self-test below are not ports; everything else is.
+  code="$(sed '/^cl_port_census() {/,/^t "cli: the port census reds/d' "$1" \
+    | grep -vE '^[[:space:]]*#' | grep -vF 'CL_PORT_BASE="${FLOOR_TEST_PORT:-8791}"')"
+  printf '%s %s\n' \
+    "$(grep -oE '(^|[^0-9])8[6-9][0-9]{2}([^0-9]|$)' <<<"$code" | wc -l | tr -d ' ')" \
+    "$(( $(grep -oE 'CL_PORT_BASE' <<<"$code" | wc -l) \
+       - $(grep -oE '\$\(\(CL_PORT_BASE \+ ([5-9]|1[0-9]|2[0-5])\)\)([^0-9]|$)' <<<"$code" | wc -l) \
+       + $(grep -vF '"IP:PORT"' <<<"$code" | grep -oE '(^|[^A-Za-z0-9_])(PORT|FLOOR_TEST_PORT)([^A-Za-z0-9_]|$)' | wc -l) \
+       + $(grep -oE '(\(\(|[-+*/])[[:space:]]*\$\(\(CL_PORT_BASE' <<<"$code" | wc -l) \
+       + $(grep -oE 'CL_PORT_BASE \+ [0-9]+\)\)[[:space:]]*[-+*/][[:space:]]*[0-9$(]' <<<"$code" | wc -l) \
+       + $(grep -oE '[0-9]\$\(\(CL_PORT_BASE' <<<"$code" | wc -l) \
+       + $(grep -oE "(--port[= ]+|PORT=)[\"']?[0-9]" <<<"$code" | wc -l) ))"
+}
+t "cli: no floor-range port literal, and every CL_PORT_BASE use is + 5..25" "0 0" "$(cl_port_census "$CL_HERE/cli.sh")"
+CL_PC_TMP="$(mktemp)"
+# shellcheck disable=SC2016,SC1003  # each shape is literal source text, never run
+for cl_bad in 'cl_refuses "x" 8880 \' 'cl_listening 8880' 'curl http://localhost:8880/' \
+              'exec 3<>/dev/tcp/127.0.0.1/8880' 's.bind(("127.0.0.1", 8880))' \
+              'crew_floor --port $((CL_PORT_BASE+30))' 'crew_floor --port $((CL_PORT_BASE + 5 + 30))' \
+              'crew_floor --port $((CL_PORT_BASE + 26))' 'crew_floor --port $((CL_PORT_BASE + 4))' \
+              'crew_floor --port $((PORT + 3))' 'crew_floor --port $((FLOOR_TEST_PORT + 30))' \
+              'crew_floor --port "${PORT}"' 'crew_floor --port $((8 + PORT))' \
+              '(( p = PORT + 3 ))' 'let p=PORT+3' 'x=$((CL_X=PORT+3))' 'x=$(( (PORT + 3) ))' \
+              'x=$(( 1 ? PORT+3 : 0 ))' 'x=$(( $((CL_PORT_BASE + 5)) + 30 ))' \
+              'crew_floor --port 8591' 'CREW_FLOOR_PORT=9100 python3 x' \
+              "crew_floor --port '9100'" "CREW_FLOOR_PORT='9100' python3 x" \
+              'x=$(( 30 + $((CL_PORT_BASE + 5)) ))' 'expr $((CL_PORT_BASE + 5)) + 30' \
+              'cl_listening 1$((CL_PORT_BASE + 5))' 'crew_floor --port "$((CL_PORT_BASE + 5))0"'; do
+  { cat "$CL_HERE/cli.sh"; printf '%s\n' "$cl_bad"; } >"$CL_PC_TMP"
+  [ "$(cl_port_census "$CL_PC_TMP")" != "0 0" ] || CL_PC_MISSED="${CL_PC_MISSED:-}${CL_PC_MISSED:+ | }$cl_bad"
+done
+rm -f "$CL_PC_TMP"
+t "cli: the port census reds on each shape a port could enter by" "" "${CL_PC_MISSED:-}"
 
 # crew_floor ARGS... — runs a short-lived `crew floor`, leaving its combined
 # output in $CL_TMP/out and its exit status in $CL_RC.
@@ -103,8 +167,8 @@ if grep -q "^cmd_floor" <<<"$CL_OUT"; then
 else ok "cli: --help stops before the code"; fi
 
 # --- the banner an operator reads -----------------------------------------
-crew_floor --local --port 8899; CL_OUT="$(cl_out)"
-if grep -q "http://127.0.0.1:8899/" <<<"$CL_OUT"; then ok "cli: --local prints a loopback URL"
+crew_floor --local --port $((CL_PORT_BASE + 25)); CL_OUT="$(cl_out)"
+if grep -q "http://127.0.0.1:$((CL_PORT_BASE + 25))/" <<<"$CL_OUT"; then ok "cli: --local prints a loopback URL"
 else fail "cli: --local prints a loopback URL" "$CL_OUT"; fi
 if grep -qi "loopback only" <<<"$CL_OUT"; then ok "cli: --local says it is loopback only"
 else fail "cli: --local says it is loopback only" "$CL_OUT"; fi
@@ -112,7 +176,7 @@ if grep -q "plain HTTP" <<<"$CL_OUT"; then
   fail "cli: no cleartext warning on loopback" "warned about the network for a loopback bind"
 else ok "cli: no cleartext warning on loopback"; fi
 
-crew_floor --port 8898; CL_OUT="$(cl_out)"
+crew_floor --port $((CL_PORT_BASE + 24)); CL_OUT="$(cl_out)"
 if grep -q "plain HTTP" <<<"$CL_OUT"; then ok "cli: warns that a bound port sends the password in clear"
 else fail "cli: warns that a bound port sends the password in clear" "$CL_OUT"; fi
 
@@ -124,7 +188,7 @@ mkdir -p "$CL_VERSION_ROOT/cli"
 cp "$CL_ROOT/cli/crew" "$CL_VERSION_ROOT/cli/crew"
 ln -s "$CL_ROOT/shared" "$CL_VERSION_ROOT/shared"
 ln -s "$CL_ROOT/fleet-floor" "$CL_VERSION_ROOT/fleet-floor"
-CL_VERSION_PORT=8879
+CL_VERSION_PORT=$((CL_PORT_BASE + 5))
 cl_start_version_floor() {
   PATH="$CL_TMP/bin:$PATH" CREW_CONFIG_DIR="$CREW_CONFIG_DIR" \
   CREW_FLOOR_ROSTER="$CL_HERE/fixtures/roster.txt" CREW_FLOOR_PASS=version-test \
@@ -192,9 +256,9 @@ fi
 
 # --- the auth decision -----------------------------------------------------
 # A generated password must be generated, not a constant: two runs, two values.
-crew_floor --local --port 8897
+crew_floor --local --port $((CL_PORT_BASE + 23))
 CL_P1="$(cl_out | sed -n 's/^  password  \([^ ]*\) .*/\1/p')"
-crew_floor --local --port 8896
+crew_floor --local --port $((CL_PORT_BASE + 22))
 CL_P2="$(cl_out | sed -n 's/^  password  \([^ ]*\) .*/\1/p')"
 if [ -n "$CL_P1" ] && [ -n "$CL_P2" ] && [ "$CL_P1" != "$CL_P2" ]; then
   ok "cli: generated passwords differ between runs"
@@ -204,14 +268,14 @@ fi
 if [ "${#CL_P1}" -ge 16 ]; then ok "cli: generated password is long enough (${#CL_P1})"
 else fail "cli: generated password is long enough" "${#CL_P1} chars"; fi
 
-crew_floor --local --port 8895 --pass hunter2; CL_OUT="$(cl_out)"
+crew_floor --local --port $((CL_PORT_BASE + 21)) --pass hunter2; CL_OUT="$(cl_out)"
 if grep -q "hunter2" <<<"$CL_OUT"; then
   fail "cli: an explicit password is not echoed" "the password was printed back"
 else ok "cli: an explicit password is not echoed"; fi
 
 # The collector itself must refuse to serve without one, whatever starts it.
 CL_RC2=0
-CREW_FLOOR_PASS="" CREW_FLOOR_PORT=8894 timeout 5 python3 "$CL_FLOOR/server/floor.py" \
+CREW_FLOOR_PASS="" CREW_FLOOR_PORT=$((CL_PORT_BASE + 20)) timeout 5 python3 "$CL_FLOOR/server/floor.py" \
   > "$CL_TMP/nopass.out" 2>&1 || CL_RC2=$?
 if [ "$CL_RC2" -ne 0 ] && grep -q "refusing to serve" "$CL_TMP/nopass.out"; then
   ok "collector: refuses to serve with no password"
@@ -223,7 +287,7 @@ fi
 # A missing index.html must be named, not surfaced as a stack trace or a 500
 # on first request.
 CL_RC3=0
-CREW_FLOOR_PASS=x CREW_FLOOR_PORT=8893 CREW_FLOOR_INDEX=/nonexistent/index.html \
+CREW_FLOOR_PASS=x CREW_FLOOR_PORT=$((CL_PORT_BASE + 19)) CREW_FLOOR_INDEX=/nonexistent/index.html \
   timeout 5 python3 -c "
 import os, sys
 sys.argv = ['floor.py']
@@ -2213,19 +2277,19 @@ fi
 echo
 echo "== roster overrides (drilling without touching fleet.roster)"
 
-crew_floor --local --port 8892 --roster "$CL_CREW_ROSTER"; CL_OUT="$(cl_out)"
+crew_floor --local --port $((CL_PORT_BASE + 18)) --roster "$CL_CREW_ROSTER"; CL_OUT="$(cl_out)"
 if grep -qF "$CL_CREW_ROSTER" <<<"$CL_OUT"; then
   ok "cli: crew floor --roster is echoed in the banner"
 else
   fail "cli: crew floor --roster is echoed in the banner" "$CL_OUT"
 fi
-crew_floor --local --port 8891 --roster /nonexistent/roster.txt; CL_OUT="$(cl_out)"
+crew_floor --local --port $((CL_PORT_BASE + 17)) --roster /nonexistent/roster.txt; CL_OUT="$(cl_out)"
 if [ "$CL_RC" -ne 0 ] && grep -q "no roster at" <<<"$CL_OUT"; then
   ok "cli: a missing --roster is named at startup"
 else
   fail "cli: a missing --roster is named at startup" "rc=$CL_RC out=$CL_OUT"
 fi
-crew_floor --local --port 8890; CL_OUT="$(cl_out)"
+crew_floor --local --port $((CL_PORT_BASE + 16)); CL_OUT="$(cl_out)"
 if grep -q '^  roster ' <<<"$CL_OUT"; then
   ok "cli: crew floor always prints the roster it watches"
 else
@@ -3163,6 +3227,7 @@ cl_listening() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && { exec 3<&- 3>
 # belt-and-braces: `kill $!` reaches the job this shell started, which for a
 # regressed refusal is not always the python3 that ended up holding the port.
 # The first must-fail run of these cases left five collectors alive on 8880-8884
+# (now CL_PORT_BASE + 6..10)
 # and the NEXT run reported "it served instead of refusing" for a tree that
 # refuses correctly. A leaked server poisons the machine, so the cap belongs
 # inside the process being tested, not around this shell's idea of it.
@@ -3205,10 +3270,10 @@ case "$CL_FB_PROOF" in
 esac
 t "floor fallback: the fixture really reaches the fallback" fallback "$CL_R1"
 
-cl_refuses "floor fallback: crew floor refuses and binds nothing" 8880 \
-  cl_fb timeout 6 "$CL_ROOT/cli/crew" floor --port 8880
-cl_refuses "floor fallback: floor.py refuses the same way, run directly" 8881 \
-  cl_fb env CREW_FLOOR_PORT=8881 CREW_FLOOR_PASS=x timeout 6 python3 "$CL_FLOOR/server/floor.py"
+cl_refuses "floor fallback: crew floor refuses and binds nothing" $((CL_PORT_BASE + 6)) \
+  cl_fb timeout 6 "$CL_ROOT/cli/crew" floor --port $((CL_PORT_BASE + 6))
+cl_refuses "floor fallback: floor.py refuses the same way, run directly" $((CL_PORT_BASE + 7)) \
+  cl_fb env CREW_FLOOR_PORT=$((CL_PORT_BASE + 7)) CREW_FLOOR_PASS=x timeout 6 python3 "$CL_FLOOR/server/floor.py"
 
 # The refusal is a WORLD fault: `crew floor` under the fallback exits 1, and
 # floor.py matches it, so a caller of either reads the same status. Both are
@@ -3218,9 +3283,9 @@ cl_refuses "floor fallback: floor.py refuses the same way, run directly" 8881 \
 # "address already in use" traceback stand in for the refusal and report 1 for
 # the wrong reason.
 CL_RC=0
-cl_fb timeout 10 "$CL_ROOT/cli/crew" floor --port 8887 >"$CL_TMP/fb-cli.out" 2>&1 || CL_RC=$?
+cl_fb timeout 10 "$CL_ROOT/cli/crew" floor --port $((CL_PORT_BASE + 13)) >"$CL_TMP/fb-cli.out" 2>&1 || CL_RC=$?
 CL_RC2=0
-cl_fb env CREW_FLOOR_PORT=8888 CREW_FLOOR_PASS=x timeout 10 python3 "$CL_FLOOR/server/floor.py" \
+cl_fb env CREW_FLOOR_PORT=$((CL_PORT_BASE + 14)) CREW_FLOOR_PASS=x timeout 10 python3 "$CL_FLOOR/server/floor.py" \
   >"$CL_TMP/fb-py.out" 2>&1 || CL_RC2=$?
 t "floor fallback: the refusal is a world fault (exit 1)" 1 "$CL_RC"
 t "floor fallback: both processes exit the same way" "$CL_RC" "$CL_RC2"
@@ -3228,13 +3293,13 @@ t "floor fallback: both processes exit the same way" "$CL_RC" "$CL_RC2"
 # A roster is not a fleet definition. Both spellings of the override must
 # leave the refusal standing, or "but the operator passed a roster" quietly
 # reopens the whole path.
-cl_refuses "floor fallback: --roster does not lift the refusal" 8882 \
-  cl_fb timeout 6 "$CL_ROOT/cli/crew" floor --port 8882 --roster "$CL_HERE/fixtures/roster.txt"
-cl_refuses "floor fallback: CREW_FLOOR_ROSTER does not lift the refusal" 8883 \
+cl_refuses "floor fallback: --roster does not lift the refusal" $((CL_PORT_BASE + 8)) \
+  cl_fb timeout 6 "$CL_ROOT/cli/crew" floor --port $((CL_PORT_BASE + 8)) --roster "$CL_HERE/fixtures/roster.txt"
+cl_refuses "floor fallback: CREW_FLOOR_ROSTER does not lift the refusal" $((CL_PORT_BASE + 9)) \
   cl_fb env CREW_FLOOR_ROSTER="$CL_HERE/fixtures/roster.txt" \
-    timeout 6 "$CL_ROOT/cli/crew" floor --port 8883
-cl_refuses "floor fallback: floor.py refuses with CREW_FLOOR_ROSTER set" 8884 \
-  cl_fb env CREW_FLOOR_ROSTER="$CL_HERE/fixtures/roster.txt" CREW_FLOOR_PORT=8884 \
+    timeout 6 "$CL_ROOT/cli/crew" floor --port $((CL_PORT_BASE + 9))
+cl_refuses "floor fallback: floor.py refuses with CREW_FLOOR_ROSTER set" $((CL_PORT_BASE + 10)) \
+  cl_fb env CREW_FLOOR_ROSTER="$CL_HERE/fixtures/roster.txt" CREW_FLOOR_PORT=$((CL_PORT_BASE + 10)) \
     CREW_FLOOR_PASS=x timeout 6 python3 "$CL_FLOOR/server/floor.py"
 
 # The invocation fault is still diagnosed first: a malformed `crew floor` on an
@@ -3265,7 +3330,7 @@ fi
 # fleet outage; the bug it replaces is a console nobody should have had.
 CL_RC=0
 PATH="$CL_TMP/bin:$PATH" CREW_CONFIG_DIR="$CL_OPCONF" \
-  env -u CREW_FLOOR_ROSTER timeout 4 "$CL_ROOT/cli/crew" floor --local --port 8885 \
+  env -u CREW_FLOOR_ROSTER timeout 4 "$CL_ROOT/cli/crew" floor --local --port $((CL_PORT_BASE + 11)) \
   </dev/null >"$CL_TMP/op-floor.out" 2>&1 || CL_RC=$?
 if grep -q 'refuses under the shipped example' "$CL_TMP/op-floor.out"; then
   fail "floor: an operator config dir is not refused" "$(cat "$CL_TMP/op-floor.out")"
@@ -3287,7 +3352,7 @@ t "floor: --help still exits 0 with an operator config dir" 0 "$CL_RC"
 CL_RC=0
 (cd "$CL_OPCONF" && env -u CREW_CONFIG_DIR -u XDG_CONFIG_HOME -u CREW_ROSTER \
    -u CREW_FLOOR_ROSTER HOME="$CL_FB_HOME" PATH="$CL_TMP/bin:$PATH" \
-   timeout 4 "$CL_ROOT/cli/crew" floor --local --port 8886 </dev/null) \
+   timeout 4 "$CL_ROOT/cli/crew" floor --local --port $((CL_PORT_BASE + 12)) </dev/null) \
    >"$CL_TMP/pwd-floor.out" 2>&1 || CL_RC=$?
 if grep -q 'refuses under the shipped example' "$CL_TMP/pwd-floor.out"; then
   fail "floor: \$PWD discovery still counts as an operator definition" \
@@ -3528,6 +3593,7 @@ else
 fi
 
 rm -rf "$CL_TMP"
+if [ "$CL_PRIOR_FLOOR_PORT" = __unset__ ]; then unset CREW_FLOOR_PORT; else export CREW_FLOOR_PORT="$CL_PRIOR_FLOOR_PORT"; fi
 
 if [ -n "${CL_STANDALONE:-}" ]; then
   # The header's "runnable standalone" sentence, asserted (#664): a helper

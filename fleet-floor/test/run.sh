@@ -40,18 +40,24 @@ command -v python3 >/dev/null || { echo "python3 required"; exit 1; }
 # which reads like the collector is broken rather than like another copy of
 # this suite is already running. Say so plainly, and name the way out.
 port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null && { exec 3<&- 3>&-; return 0; }; return 1; }
-# Every port this suite binds: the main collector, the collector-death one, the
-# fast-polling churn one, and #204's empty-floor one. Checked up front, because
-# a busy port discovered four minutes in reads as a broken collector.
-for _p in "${FLOOR_TEST_PORT:-8791}" $(( ${FLOOR_TEST_PORT:-8791} + 1 )) \
-          $(( ${FLOOR_TEST_PORT:-8791} + 2 )) $(( ${FLOOR_TEST_PORT:-8791} + 3 )) \
-          $(( ${FLOOR_TEST_PORT:-8791} + 4 )); do
+# Every port this suite binds is its band, FLOOR_TEST_PORT+0 to +25: the main
+# collector, the collector-death one, the fast-polling churn one and #204's
+# empty-floor one at +0..+4, roster.sh's editor collector at +5 (killed at the
+# end of its own block, before cli.sh starts), and cli.sh's at +5..+25. A second run overlaps
+# that band only from a base within 25 of this one, and its main collector
+# holds its base for its whole run, so +-25 is probed up front: a busy port
+# discovered four minutes in reads as a broken collector, and a band shared
+# with a live run reads as a collector answering the wrong suite (#767).
+_base="${FLOOR_TEST_PORT:-8791}"
+for _p in $(seq $((_base - 25)) $((_base + 25))); do
   if port_busy "$_p"; then
-    echo "port $_p is already in use — another run of this suite is probably still going." >&2
-    echo "  re-run with a different base:  FLOOR_TEST_PORT=8891 $0 $*" >&2
+    echo "port $_p is already in use — another run of this suite is probably still going," >&2
+    echo "  and this suite's ports are FLOOR_TEST_PORT+0..25, so a base within 25 of it meets it." >&2
+    echo "  re-run with a different base:  FLOOR_TEST_PORT=$((_base + 200)) $0 $*" >&2
     exit 1
   fi
 done
+unset _base _p   # no later file may build a port on them (#767 round 6)
 
 TMP="$(mktemp -d)"
 unset CREW_CONFIG_DIR CREW_EXPECT_OPERATOR_CONFIG DUTY_DIR
@@ -66,7 +72,20 @@ PASSWD="test-$$"
 FLOOR_TEST_PING_INTERVAL="${FLOOR_TEST_PING_INTERVAL:-2}"
 FLOOR_TEST_PING_TIMEOUT="${FLOOR_TEST_PING_TIMEOUT:-4}"
 FLOOR_TEST_PING_FAILS="${FLOOR_TEST_PING_FAILS:-2}"
-export FLOOR_TEST_PING_INTERVAL FLOOR_TEST_PING_TIMEOUT FLOOR_TEST_PING_FAILS
+# The staleness bound, DERIVED from the tier's resolved timeout (#626). The
+# collector's default, PING_INTERVAL_S * (PING_FAILS_TO_WEDGE + 2), is safe
+# only while the interval dominates the timeout, which production's 10 s / 5 s
+# satisfies and this tier inverts: at 2 s / 4 s the default is 8 s while a
+# round can take PING_TIMEOUT + 5 and a ping lives its own round plus one
+# period, so `ff-wedged`'s served age reached 10–11 s and its wedge verdict
+# flipped stale between a block's read and its POST. The worst case is
+# 2 * (PING_TIMEOUT + 5) + 2 — the per-round bound twice, plus the sleep
+# floor — so a changed timeout moves the bound with it. Exported, because
+# every module suite that imports floor.ping must resolve the same number as
+# the running collector; a suite that needs a SHORT bound sets it locally.
+FLOOR_TEST_PING_STALE_AFTER="${FLOOR_TEST_PING_STALE_AFTER:-$(( 2 * (FLOOR_TEST_PING_TIMEOUT + 5) + 2 ))}"
+export FLOOR_TEST_PING_INTERVAL FLOOR_TEST_PING_TIMEOUT FLOOR_TEST_PING_FAILS FLOOR_TEST_PING_STALE_AFTER
+export CREW_FLOOR_PING_STALE_AFTER="$FLOOR_TEST_PING_STALE_AFTER"
 
 export FLOOR_FIXTURE="$HERE/fixtures/fleet.txt"
 # The fleet under the page is the fixture, so the walk may demand the states
@@ -306,6 +325,68 @@ source "$HERE/boxside.sh"
 source "$HERE/cli.sh"
 
 # ---- browser -------------------------------------------------------------
+# walk_count_verdict LOG RECORDED — the browser walk's assertion count against
+# the EXACT green count recorded at its call site below. One of:
+#   missing        the log carries no '-- browser: N ok' line
+#   below N        a block returned early: N checks ran, fewer than recorded
+#   above N        the walk gained checks and the literal was not moved
+#   exact N
+# Both directions red (#655). Below is the drain this number exists to catch;
+# above is not a defect in the change that grew the walk, it is the
+# maintenance the number requires, and staying green on it is how the literal
+# sat at 96 while the walk asserted 153. Kept outside the browser branch so the
+# rows under it run in --no-browser too, on fake logs, never a real walk.
+walk_count_verdict() {
+  local n
+  n="$(sed -n 's/.*-- browser: \([0-9]*\) ok.*/\1/p' "$1" | tail -1)"
+  if [ -z "$n" ]; then echo missing
+  elif [ "$n" -lt "$2" ]; then echo "below $n"
+  elif [ "$n" -gt "$2" ]; then echo "above $n"
+  else echo "exact $n"
+  fi
+}
+# walk_count_report LABEL VERDICT RECORDED — the row walk() prints for a verdict.
+walk_count_report() {
+  local label="$1" verdict="$2" recorded="$3"
+  case "$verdict" in
+    missing) fail "$label: reported its assertion count" "no '-- browser: N ok' line; the walk exited 0 without a summary" ;;
+    below\ *) fail "$label: asserted enough to be meaningful" "only ${verdict#below } checks ran, expected >= $recorded — a block returned early" ;;
+    above\ *) fail "$label: asserted exactly the recorded count" "the walk asserted ${verdict#above } checks and run.sh records $recorded: set the literal at this walk's call site to ${verdict#above } and add its ledger line. This is the upkeep the exact count asks for, not a defect in your change" ;;
+    *) ok "$label: asserted ${verdict#exact } checks (exactly the recorded $recorded)" ;;
+  esac
+}
+echo
+echo "== browser walk count (#655)"
+WC_LOG="$TMP/walk-count.log"
+printf '  -- browser: 153 ok, 0 skipped, 0 failed\n' >"$WC_LOG"
+t "walk count: the recorded count passes" "exact 153" "$(walk_count_verdict "$WC_LOG" 153)"
+t "walk count: one above the recorded count reds" "above 153" "$(walk_count_verdict "$WC_LOG" 152)"
+t "walk count: one below the recorded count reds" "below 153" "$(walk_count_verdict "$WC_LOG" 154)"
+printf 'ok  something\n' >"$WC_LOG"
+t "walk count: a log with no summary line reds" "missing" "$(walk_count_verdict "$WC_LOG" 153)"
+printf '  -- browser: 9 ok\n  -- browser: 153 ok, 0 skipped, 0 failed\n' >"$WC_LOG"
+t "walk count: the last summary line is the one read" "exact 153" "$(walk_count_verdict "$WC_LOG" 153)"
+# The rows walk() prints, captured with ok/fail that only print, so they do
+# not count here: the above arm names the observed count and the edit it asks for, and
+# the below arm keeps the message it always had.
+wc_row() (
+  ok()   { echo "ok   $1"; }
+  fail() { echo "FAIL $1${2:+  — $2}"; }
+  walk_count_report "w" "$1" "$2"
+)
+case "$(wc_row "above 154" 153)" in
+  FAIL*"asserted 154 checks and run.sh records 153"*"set the literal"*"ledger line"*) ok "walk count: the above-count row names the count, the literal and the ledger line" ;;
+  *) fail "walk count: the above-count row names the count, the literal and the ledger line" "$(wc_row "above 154" 153)" ;;
+esac
+case "$(wc_row "below 150" 153)" in
+  "FAIL w: asserted enough to be meaningful  — only 150 checks ran, expected >= 153 — a block returned early") ok "walk count: the below-count row keeps its message" ;;
+  *) fail "walk count: the below-count row keeps its message" "$(wc_row "below 150" 153)" ;;
+esac
+case "$(wc_row "exact 153" 153)" in
+  ok*) ok "walk count: the exact row is an ok" ;;
+  *) fail "walk count: the exact row is an ok" "$(wc_row "exact 153" 153)" ;;
+esac
+
 if [ "$BROWSER" -eq 1 ]; then
   echo
   echo "== page"
@@ -336,11 +417,12 @@ if [ "$BROWSER" -eq 1 ]; then
     # or returns early from a block, exits 0 having asserted a fraction of what
     # it claims to cover — which is how a suite goes green while the coverage
     # quietly drains out of it. The walk's own tail line reports its count, so
-    # hold it to a floor. Raise these when the walk gains permanent checks;
-    # they are a tripwire, not a target.
-    walk() { # walk <label> <floor> <args...>
-      local label="$1" floor="$2"; shift 2
-      local log rc n
+    # hold it to the count recorded here, EXACTLY (walk_count_verdict above):
+    # a walk that gains or loses a permanent check moves the literal in the
+    # same change, with its ledger line.
+    walk() { # walk <label> <recorded-count> <args...>
+      local label="$1" recorded="$2"; shift 2
+      local log rc
       log="$TMP/walk-$(printf '%s' "$label" | tr -cd '[:alnum:]').log"
       node "$HERE/browser.js" "$@" 2>&1 | tee "$log"; rc="${PIPESTATUS[0]}"
       if [ "$rc" -ne 0 ]; then
@@ -348,14 +430,7 @@ if [ "$BROWSER" -eq 1 ]; then
         return
       fi
       ok "$label"
-      n="$(sed -n 's/.*-- browser: \([0-9]*\) ok.*/\1/p' "$log" | tail -1)"
-      if [ -z "$n" ]; then
-        fail "$label: reported its assertion count" "no '-- browser: N ok' line; the walk exited 0 without a summary"
-      elif [ "$n" -lt "$floor" ]; then
-        fail "$label: asserted enough to be meaningful" "only $n checks ran, expected >= $floor — a block returned early"
-      else
-        ok "$label: asserted $n checks (>= $floor)"
-      fi
+      walk_count_report "$label" "$(walk_count_verdict "$log" "$recorded")" "$recorded"
     }
     # 30 -> 40 with the heartbeat/stuck/renew assertions, then -> 38 when the
     # renewal countdown was dropped and its four checks went with it, then -> 39
@@ -371,14 +446,16 @@ if [ "$BROWSER" -eq 1 ]; then
     # boxes, and the guard that keeps the rescoped gh check from retiring
     # itself — the gh check is rescoped, not added, so it counts zero.
     #
-    # Seven added to 53 is 60, and this says 61: the number is now the walk's
-    # EXACT green count, measured, and the one check of slack the old floor
-    # carried is spent on purpose. A tripwire a check can be deleted under is
-    # not one — with slack, removing an assertion still clears the floor, which
-    # is precisely the silent drain this number exists to catch (#190's test
-    # plan asks for that case by name). The count is deterministic in a green
-    # run: every conditional block here is guarded by a check that fails when
-    # its box is unreachable, so a run that asserts fewer than 61 is already red.
+    # Seven added to 53 is 60, and this said 61: the number was meant as the
+    # walk's EXACT green count, measured, with the old floor's one check of
+    # slack spent on purpose. A tripwire a check can be deleted under is not
+    # one — with slack, removing an assertion still clears the floor, which is
+    # precisely the silent drain this number exists to catch (#190's test plan
+    # asks for that case by name). Until #655 the comparison was `-lt`, so the
+    # "exact" was advisory and drifted (below); it is enforced now, both ways.
+    # The count is deterministic in a green run: every conditional block here
+    # is guarded by a check that fails when its box is unreachable, so a run
+    # that asserts fewer than the recorded count is already red.
     # 61 -> 65 with #347's API-to-canvas exact-version pair, its two-width
     # cross-layer collision guard, and the room-HUD exact-version assertion.
     # 65 -> 74 with #204's nine: the hired tile's count and its command, the two
@@ -416,10 +493,18 @@ if [ "$BROWSER" -eq 1 ]; then
     # and then could not start it saying so, a gentle failure claiming no kill,
     # and a force stop that itself failed not being reported as one. All nine
     # are inside `if (LIVE)`, so the DEMO floor below is again unmoved.
-    walk "browser walk" 96 "http://127.0.0.1:$PORT/" "$TMP/shots" "$USER" "$PASSWD"
+    #
+    # 96 -> 153 with #655, and no coverage is added by it: the walk had been
+    # asserting 153 while the `-lt` floor sat at 96, fifty-seven checks
+    # accumulated across the landings since #486's round 2 that never moved
+    # the literal. #655 makes the comparison exact, so the next one must.
+    # Measured on main at abf6d68 (ci-floor run 41882224938) and again on the
+    # PR head; browser.js is unchanged by #655.
+    walk "browser walk" 153 "http://127.0.0.1:$PORT/" "$TMP/shots" "$USER" "$PASSWD"
     # DEMO is a shipped mode, not a fallback: `open index.html` must still work
     # with no collector, no network and every control visibly disabled.
-    walk "browser walk (DEMO mode)" 14 "file://$FLOOR/index.html" "$TMP/shots-demo"
+    # 14 -> 21 with #655, the same accumulated drift as the live walk's.
+    walk "browser walk (DEMO mode)" 21 "file://$FLOOR/index.html" "$TMP/shots-demo"
 
     # The #226 acceptance criteria: deterministic stills (zero steady-state
     # builds), bounded portrait motion, reproducible dev renders, reduced

@@ -85,9 +85,29 @@ export CREW_YES=1 HOME="$WORK"
 export CREW_HOME="$WORK/share" CREW_BIN="$WORK/bin"
 
 VA=0.0.0-lifecycle-a VB=0.0.0-lifecycle-b
+# The copy carries only tracked content (#536 D1): the files git tracks, as
+# they stand in the working tree, so an uncommitted edit is still the thing
+# under test; a new file is under test once it is `git add`ed. A plain filesystem copy also carried ignored paths — a real
+# fleet-floor/server/floor/__pycache__/ or a node_modules/ — into every
+# fixture, and the refusal case below, which disables pruning on purpose, then
+# refused the developer's path instead of the one it planted. CI's fresh
+# checkout never has one, so only a human running the suite ever saw that red.
+# A source that is not a git work tree (an unpacked tarball) has no ignored
+# paths to leak, and is copied whole.
 mk_src() {  # <dir> <version> — the tree under test, with VERSION rewritten
   mkdir -p "$1"
-  tar -C "$SRC" --exclude=.git -cf - . | tar -xf - -C "$1"
+  if git -C "$SRC" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    # Tracked files only (#536 D1), as they are on disk, uncommitted edits
+    # included. --ignore-failed-read covers a tracked file deleted in the work
+    # tree and nothing else: any other failure of the three stops the suite.
+    git -C "$SRC" ls-files -z --cached \
+      | tar -C "$SRC" --null --ignore-failed-read -T - -cf - \
+      | tar -xf - -C "$1"
+    local st="${PIPESTATUS[*]}"
+    [ "$st" = "0 0 0" ] || { echo "mk_src: copying $SRC's tracked files into $1 failed (status $st)" >&2; exit 1; }
+  else
+    tar -C "$SRC" --exclude=.git -cf - . | tar -xf - -C "$1"
+  fi
   printf '%s\n' "$2" > "$1/VERSION"
   # A stand-in for the VCS state a real checkout carries. Without it the
   # fixture is the one tree install.sh's oldest exclusion could never be
@@ -95,6 +115,23 @@ mk_src() {  # <dir> <version> — the tree under test, with VERSION rewritten
   # below would pass whether or not the installer still excludes it.
   mkdir -p "$1/.git" && : > "$1/.git/HEAD"
 }
+# #536's regression, in the suite and not only on a developer's checkout: a
+# source tree carrying an ignored __pycache__/ and node_modules/ beside its
+# tracked files. CI's clean checkout has neither, so without this case a
+# reverted mk_src (a filesystem copy again) stays green everywhere.
+MK536="$WORK/mk536-src"
+mkdir -p "$MK536/lib/__pycache__" "$MK536/lib/node_modules/x"
+printf '__pycache__/\nnode_modules/\n' >"$MK536/.gitignore"
+printf 'tracked\n' >"$MK536/lib/kept.sh"
+: >"$MK536/lib/__pycache__/m.cpython-311.pyc"; : >"$MK536/lib/node_modules/x/index.js"
+printf 'stray\n' >"$MK536/lib/untracked.sh"
+git -C "$MK536" init -q && git -C "$MK536" add .gitignore lib/kept.sh \
+  && git -C "$MK536" -c user.name=t -c user.email=t@t commit -qm seed
+MK536_KEEP="$SRC"; SRC="$MK536"; mk_src "$WORK/mk536-out" 0.0.0-mk536; SRC="$MK536_KEEP"
+MK536_SEEN="$(cd "$WORK/mk536-out" && find . -path ./.git -prune -o -type f -print | LC_ALL=C sort | paste -sd' ')"
+same mk-src-copies-tracked-files-only "./.gitignore ./VERSION ./lib/kept.sh" "$MK536_SEEN"
+rm -rf "$MK536" "$WORK/mk536-out"
+
 SA="$WORK/src-a"; SB="$WORK/src-b"; SC="$WORK/src-clean"
 mk_src "$SA" "$VA"
 mk_src "$SB" "$VB"

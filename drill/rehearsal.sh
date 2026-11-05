@@ -258,6 +258,9 @@ cleanup_all() {
     if declare -F rehearsal_attention_audit_cleanup >/dev/null 2>&1; then
       rehearsal_attention_audit_cleanup || true
     fi
+    if declare -F rehearsal_release_cleanup >/dev/null 2>&1; then
+      rehearsal_release_cleanup || true
+    fi
     rehearsal_cleanup_owned_fixtures || true
     # The cleanup's own verdict, not just the run's: it compares both
     # registries against their pre-drill contents and returns non-zero when a
@@ -851,6 +854,8 @@ else
   if [ "$ROLE" = "triage" ]; then
   # shellcheck source=drill/rehearsal-attention-audit.sh
   . "$ROOT/drill/rehearsal-attention-audit.sh"
+  # shellcheck source=drill/rehearsal-release.sh
+  . "$ROOT/drill/rehearsal-release.sh"
   if ! rehearsal_load_installed_queue_labels \
       && [ -z "$REHEARSAL_QUEUE_LABELS" ]; then
     echo "triage: installed queue-label set is empty — refusing before the fixture wait" >&2
@@ -900,6 +905,13 @@ else
   # the board invariant calls malformed, which every assertion above would
   # otherwise have to be read against.
   rehearsal_attention_audit_drill "$SANDBOX" "$ME2"
+
+  # -- the release cut (#762): one cut per tick on a fresh track, held, refused --
+  # After the audit, for the audit's reason: its fixtures are a pull request
+  # and a branch, and this leg's are a track, a tag and a release pull request
+  # that every assertion above would otherwise have to be read against. The
+  # duty is triage-only (duty.sh), so this is the one block it can run in.
+  rehearsal_release_drill "$SANDBOX" "$ME2" || true
 
   elif [ "$ROLE" = "builder" ]; then
   # shellcheck source=drill/rehearsal-resume.sh

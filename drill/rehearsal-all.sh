@@ -76,6 +76,9 @@ ATTENTION_DRILL=1
 # it belongs to is triage-only (duty.sh), so its aggregate row is gated on the
 # triage role having run, never the builder's.
 ATTENTION_AUDIT_DRILL=1
+# The release-cut leg (#762) is TRIAGE-role for the same reason: the duty is
+# triage-only (duty.sh), so its row is gated on the triage role having run.
+RELEASE_DRILL=1
 HYGIENE_DRILL=1
 BREAKER_DRILL=1
 # The notifier union leg runs inside every role's phase 2, so its verdict is
@@ -93,6 +96,7 @@ NOTIFY_STATUS=""
 RESUME_STATUS=""
 ATTENTION_STATUS=""
 ATTENTION_AUDIT_STATUS=""
+RELEASE_STATUS=""
 # Roles whose drill actually reached a box, for the app phase.
 DRILLED=""
 
@@ -115,6 +119,7 @@ while [ $# -gt 0 ]; do
     --no-resume-drill) RESUME_DRILL=0; shift ;;
     --no-attention-drill) ATTENTION_DRILL=0; shift ;;
     --no-attention-audit-drill) ATTENTION_AUDIT_DRILL=0; shift ;;
+    --no-release-drill) RELEASE_DRILL=0; shift ;;
     --no-hygiene-drill) HYGIENE_DRILL=0; shift ;;
     --no-breaker-drill) BREAKER_DRILL=0; shift ;;
     --no-notify-drill) NOTIFY_DRILL=0; shift ;;
@@ -124,7 +129,7 @@ while [ $# -gt 0 ]; do
     --app-roster) APP_ROSTER="$2"; shift 2 ;;
     --app-shots) APP_ARGS+=(--shots "$2"); shift 2 ;;
     *) echo "usage: drill/rehearsal-all.sh [--agent <name>] [--roles \"triage builder reviewer\"] [--tree <path>] [--remote <url>] [--ref <git-ref>] [--quick]"
-       echo "         [--reuse] [--keep] [--no-app] [--no-config-drill] [--no-install-drill] [--no-resume-drill] [--no-attention-drill] [--no-attention-audit-drill] [--no-hygiene-drill] [--no-notify-drill] [--no-breaker-drill] [--no-fleet-drill] [--app-boxes \"a b\"] [--app-allow-control]"
+       echo "         [--reuse] [--keep] [--no-app] [--no-config-drill] [--no-install-drill] [--no-resume-drill] [--no-attention-drill] [--no-attention-audit-drill] [--no-release-drill] [--no-hygiene-drill] [--no-notify-drill] [--no-breaker-drill] [--no-fleet-drill] [--app-boxes \"a b\"] [--app-allow-control]"
        echo "         [--app-roster <path>] [--app-shots <dir>]"; exit 1 ;;
   esac
 done
@@ -201,6 +206,7 @@ NOTIFY_STATUS="$(mktemp)"
 RESUME_STATUS="$(mktemp)"
 ATTENTION_STATUS="$(mktemp)"
 ATTENTION_AUDIT_STATUS="$(mktemp)"
+RELEASE_STATUS="$(mktemp)"
 APP_AGREEMENT_STATUS="$(mktemp)"
 APP_OUTPUT="$(mktemp)"
 FLEET_STATUS="$(mktemp)"
@@ -208,7 +214,7 @@ FLEET_STATUS="$(mktemp)"
 # this list before it is printed: adding a leg here without wiring a result is
 # therefore a visible red row, never an absence that looks like coverage.
 declare -a DECLARED_LEGS=(
-  hygiene breaker resume attention attention-audit notify
+  hygiene breaker resume attention attention-audit release notify
   installer config app browser app-armed fleet teardown
 )
 
@@ -261,6 +267,7 @@ cleanup_role_hygiene_files() {
   [ -z "${RESUME_STATUS:-}" ] || rm -f -- "$RESUME_STATUS"
   [ -z "${ATTENTION_STATUS:-}" ] || rm -f -- "$ATTENTION_STATUS"
   [ -z "${ATTENTION_AUDIT_STATUS:-}" ] || rm -f -- "$ATTENTION_AUDIT_STATUS"
+  [ -z "${RELEASE_STATUS:-}" ] || rm -f -- "$RELEASE_STATUS"
   [ -z "${APP_AGREEMENT_STATUS:-}" ] || rm -f -- "$APP_AGREEMENT_STATUS"
   [ -z "${APP_OUTPUT:-}" ] || rm -f -- "$APP_OUTPUT"
   [ -z "${FLEET_STATUS:-}" ] || rm -f -- "$FLEET_STATUS"
@@ -289,6 +296,8 @@ for role in $ROLES; do
   REHEARSAL_ATTENTION_STATUS="$ATTENTION_STATUS" \
   REHEARSAL_ATTENTION_AUDIT_DRILL="$ATTENTION_AUDIT_DRILL" \
   REHEARSAL_ATTENTION_AUDIT_STATUS="$ATTENTION_AUDIT_STATUS" \
+  REHEARSAL_RELEASE_DRILL="$RELEASE_DRILL" \
+  REHEARSAL_RELEASE_STATUS="$RELEASE_STATUS" \
   REHEARSAL_HYGIENE_DRILL="$HYGIENE_DRILL" \
   REHEARSAL_HYGIENE_RESULT_FILE="$role_hygiene_file" \
   REHEARSAL_BREAKER_DRILL="$BREAKER_DRILL" \
@@ -429,6 +438,29 @@ elif [ "$ATTENTION_AUDIT_VERDICT" = skip ]; then
   [ "$overall" -eq 1 ] || overall=2
 else
   SUMMARY+=("FAIL       attention-audit  ($ATTENTION_AUDIT_WHY)")
+  overall=1
+fi
+
+# The triage-role release-cut leg (#762), on the same partition.
+RELEASE_VERDICT="$(rehearsal_worst_verdict "$(cat "$RELEASE_STATUS" 2>/dev/null)")" \
+  || RELEASE_VERDICT=""
+RELEASE_WHY="${RELEASE_VERDICT#* }"
+RELEASE_VERDICT="${RELEASE_VERDICT%% *}"
+if [ "$RELEASE_DRILL" -eq 0 ]; then
+  SUMMARY+=("skip       release  (--no-release-drill)")
+elif [[ " $ROLES " != *" triage "* ]]; then
+  SUMMARY+=("INCOMPLETE release  (triage role omitted)")
+  [ "$overall" -eq 1 ] || overall=2
+elif [ -z "$RELEASE_VERDICT" ]; then
+  SUMMARY+=("INCOMPLETE release  (triage phase 2 never reached the leg)")
+  [ "$overall" -eq 1 ] || overall=2
+elif [ "$RELEASE_VERDICT" = ok ]; then
+  SUMMARY+=("ok         release  (one cut per tick on a fresh track, held by its open PR, refused when closed)")
+elif [ "$RELEASE_VERDICT" = skip ]; then
+  SUMMARY+=("INCOMPLETE release  (leg skipped: $RELEASE_WHY)")
+  [ "$overall" -eq 1 ] || overall=2
+else
+  SUMMARY+=("FAIL       release  ($RELEASE_WHY)")
   overall=1
 fi
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression for #44: one slow box must not serialize a fleet-wide action."""
 
+import itertools
 import os
 import sys
 import threading
@@ -293,6 +294,11 @@ class RestartFleet(Fleet):
 def restart(box, unreachable, mode, refuses=None, state="running"):
     """One restart. `refuses` is the argv fragment the host rejects, or None.
 
+    Its `calls` are asserted in EXACT order, unlike wake-silent's (#604): one
+    box's restart runs its verbs one after another on one thread, stop before
+    start, and that sequence is the behaviour under test. Order there is the
+    contract; across a fleet fan-out it is only scheduling.
+
     `state` is what `box list` says about the box, because the graceful path
     now reads it: `box down` is not idempotent, so a box already stopped is one
     the verb must not be fired at (round 1, claude-bot).
@@ -432,9 +438,29 @@ status, payload = floor.do_command(WakeFleet(WAKE_UNITS), {"action": "wake-silen
 # merely NAMES it is what the timed-out row already did.
 assert not any("wake-wedged" in call for call in wake_calls), wake_calls
 # The calls run on the action's threads, so they land in any order; the
-# REPLY's order is the stable one, asserted below.
-assert sorted(wake_calls) == sorted(["box start wake-stopped", "box exec wake-unmeasured",
-                                     "box exec wake-answering"]), wake_calls
+# REPLY's order is the stable one, asserted below. The call log is judged by
+# one rule no interleaving can change (#604): the decisive assertion above,
+# kept standalone and untouched, and exactly one verb per woken box, the verb
+# its state calls for.
+WAKE_EXPECTED = ["box start wake-stopped", "box exec wake-unmeasured",
+                 "box exec wake-answering"]
+
+
+def wake_calls_ok(calls):
+    return (not any("wake-wedged" in call for call in calls)
+            and sorted(calls) == sorted(WAKE_EXPECTED))
+
+
+assert wake_calls_ok(wake_calls), wake_calls
+# Proved order-free by feeding it every order of the three calls, not by
+# re-running and getting lucky; and still precise — each of these must fail.
+for order in itertools.permutations(WAKE_EXPECTED):
+    assert wake_calls_ok(list(order)), order
+for wrong in (WAKE_EXPECTED + ["box exec wake-wedged"],
+              ["box start wake-stopped", "box start wake-unmeasured", "box exec wake-answering"],
+              ["box exec wake-stopped", "box exec wake-unmeasured", "box exec wake-answering"],
+              WAKE_EXPECTED[:2]):
+    assert not wake_calls_ok(wrong), wrong
 assert [r["box"] for r in payload["results"]] == [u["box"] for u in WAKE_UNITS], payload
 assert [r["step"] for r in payload["results"]] == [
     "start", "resume", "escalate", "resume"], payload

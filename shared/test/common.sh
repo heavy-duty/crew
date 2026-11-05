@@ -3962,15 +3962,15 @@ agg_run() {  # $1 roles, then extra flags
   local roles="$1"; shift
   # Every sibling leg the notify fold is not under test with is switched off,
   # --no-hygiene-drill (#422), --no-breaker-drill (#424),
-  # --no-attention-drill (#440) and --no-attention-audit-drill (#441)
-  # included: these
+  # --no-attention-drill (#440), --no-attention-audit-drill (#441) and
+  # --no-release-drill (#762) included: these
   # cases assert what the NOTIFY
   # verdict does to `overall`, and a neighbour's row moving it would red them
   # for a reason that is not theirs. The composition of the two folds gets its
   # own case below, with the hygiene leg deliberately left on.
   AGG_DIR="$AGG" bash "$AGG/rehearsal-all.sh" --roles "$roles" \
     --no-app --no-config-drill --no-install-drill --no-resume-drill \
-    --no-attention-drill --no-attention-audit-drill --no-fleet-drill \
+    --no-attention-drill --no-attention-audit-drill --no-release-drill --no-fleet-drill \
     --no-hygiene-drill --no-breaker-drill ${1+"$@"} 2>&1
 }
 
@@ -3980,7 +3980,7 @@ agg_run() {  # $1 roles, then extra flags
 agg_breaker_run() {
   AGG_DIR="$AGG" bash "$AGG/rehearsal-all.sh" --roles '' \
     --no-app --no-config-drill --no-install-drill --no-resume-drill \
-    --no-attention-drill --no-attention-audit-drill --no-fleet-drill \
+    --no-attention-drill --no-attention-audit-drill --no-release-drill --no-fleet-drill \
     --no-hygiene-drill --no-notify-drill ${1+"$@"} 2>&1
 }
 if agg_out="$(agg_breaker_run)"; then agg_rc=0; else agg_rc=$?; fi
@@ -3996,7 +3996,7 @@ printf 'claude profile missing bot_session_terminal\n' \
   >"$AGG/reviewer.breaker-reason"
 if agg_out="$(AGG_DIR="$AGG" bash "$AGG/rehearsal-all.sh" \
     --roles reviewer --no-app --no-config-drill --no-install-drill \
-    --no-resume-drill --no-attention-drill --no-attention-audit-drill \
+    --no-resume-drill --no-attention-drill --no-attention-audit-drill --no-release-drill \
     --no-fleet-drill --no-hygiene-drill --no-notify-drill 2>&1)"; then
   agg_rc=0
 else
@@ -4084,7 +4084,7 @@ resume_agg_run() {  # $1 roles, then extra flags
   local roles="$1"; shift
   AGG_DIR="$AGG" bash "$AGG/rehearsal-all.sh" --roles "$roles" \
     --no-app --no-config-drill --no-install-drill --no-hygiene-drill \
-    --no-attention-drill --no-attention-audit-drill --no-fleet-drill \
+    --no-attention-drill --no-attention-audit-drill --no-release-drill --no-fleet-drill \
     --no-breaker-drill --no-notify-drill ${1+"$@"} 2>&1
 }
 
@@ -4142,7 +4142,7 @@ agg_hygiene_run() {  # $1 roles, $2 the hygiene result the role box records
   local roles="$1" hyg="$2"
   AGG_DIR="$AGG" AGG_HYGIENE="$hyg" bash "$AGG/rehearsal-all.sh" --roles "$roles" \
     --no-app --no-config-drill --no-install-drill --no-resume-drill \
-    --no-attention-drill --no-attention-audit-drill --no-breaker-drill \
+    --no-attention-drill --no-attention-audit-drill --no-release-drill --no-breaker-drill \
     --no-fleet-drill 2>&1
 }
 # The stub writes the hygiene result the way the live leg does — into the file

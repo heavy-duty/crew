@@ -165,10 +165,23 @@ t "roster-set: a new line naming an existing off-roster box is refused" "400 1" 
 # only on the etag the editor opened with (#763 round 4: that window was the
 # list's whole timeout, and the edit was rewritten away and journalled as a
 # removal). The stub lands the edit from inside its own `list`.
-printf '#!/usr/bin/env bash\nprintf "rs-late        kimi    reviewer\\n" >>"%s"\n' "$RS_ROSTER" >"$RS_STATE/on-list"
+# The hook is one-shot and the fleet's poll asks the same `box list`, so the
+# etag is read BEFORE it is armed: a poll that takes the edit first leaves the
+# save stale on the editor's etag, refused by the first check rather than the
+# one pinned here, and that try is undone and run again. Only a save that
+# lands (200) is the bug; it can no longer come from the poll (a poll taking
+# the edit before the etag read made one, 1 run in 40 under #626's load).
 RS_FRESH="${RS_MEMBERS4%]*},{\"box\":\"rs-fresh\",\"agent\":\"claude\",\"roles\":[\"builder\"],\"from\":\"\"}]"
 RS_JOURNAL_N="$(wc -l <"$RS_JOURNAL")"
-RS_LATE="$(rs_set "$RS_FRESH")"
+for _ in 1 2 3 4 5; do
+  RS_LATE_ETAG="$(rs_etag)"
+  rm -f "$RS_STATE/on-list.ran"
+  printf '#!/usr/bin/env bash\nprintf "rs-late        kimi    reviewer\\n" >>"%s"\n' "$RS_ROSTER" >"$RS_STATE/on-list"
+  RS_LATE="$(rs_set "$RS_FRESH" "$RS_LATE_ETAG")"
+  grep -q 'since the editor opened it' <<<"$RS_LATE" || break
+  sed -i '/^rs-late /d' "$RS_ROSTER"
+done
+rm -f "$RS_STATE/on-list"
 t "roster-set: a hand edit landing during the box list is caught before the write" "ran 409" \
   "$([ -f "$RS_STATE/on-list.ran" ] && echo ran || echo not-run) $(printf '%s\n' "$RS_LATE" | tail -1)"
 t "roster-set: the late edit is still in the file and nothing was journalled" "1 $RS_JOURNAL_N" \

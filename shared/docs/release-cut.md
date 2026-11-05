@@ -79,8 +79,10 @@ pin, the branch — and does the half that needs a toolchain and judgment:
 2. `apps/site/VERSION` → `X.Y.Z`;
 3. for a final version, ceremony's own `bin/changelog-assemble` at the
    consumer's pin (`0.7.11`, checked out under `~/duty/work/.ceremony-0.7.11`),
-   with `--changelog apps/site/CHANGELOG.md --dir apps/site/changelog.d`, then
-   `--check`; a candidate (`-rcN`) is tag-only and assembles nothing;
+   with `--changelog apps/site/CHANGELOG.md --dir apps/site/changelog.d`,
+   first with `--check` (it prints the section and writes nothing), then
+   without it — never `--check` after the write, which refuses once the
+   fragments are consumed; a candidate (`-rcN`) is tag-only and assembles nothing;
 4. `apps/site/drills/X.Y.Z.md`, as `apps/site/drills/README.md` defines the
    record: the candidate pinned, what the session exercised in the box
    (the tree's install, build, guards and tests, with results), the waiver

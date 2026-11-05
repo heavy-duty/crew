@@ -2343,10 +2343,16 @@ cat >"$MEM_ESCAPE_STUB" <<'STUB'
 #!/usr/bin/env bash
 # $1 — where to record the replacement's pid; $2 — the readiness file.
 # The escape, exactly as both reviewers drove it: handle TERM by forking a
-# replacement and exiting. The replacement is reparented to PID 1 the moment
-# this shell goes, and it never calls setsid(), so the session's GROUP is the
-# only identity that still holds it.
-trap 'sleep 30 & printf "%s\n" "$!" >"$1"; exit 0' TERM
+# replacement and exiting. The replacement is DOUBLE-forked: it starts inside
+# a subshell that exits at once, so it is orphaned to PID 1 by that subshell's
+# own exit and is out of the session's tree from that instant, whatever this
+# shell does next (#653). Forked straight from here it stayed a descendant
+# until this shell exited, and on a loaded runner that was after the
+# terminator's one-second grace: the second tree walk found it and the
+# no-group-pass mutant printed `reaped`. It still never calls setsid(), so the
+# session's GROUP is the only identity that holds it. The `wait` is on the
+# subshell, not the replacement: the pid file is written before this goes on.
+trap '( sleep 30 & printf "%s\n" "$!" >"$1" ) & wait $!; exit 0' TERM
 printf ready >"$2"
 # `wait` and not a bare `sleep`: bash runs a trap when a foreground `wait` is
 # interrupted, which is what makes the handler above reachable at all.
@@ -2354,7 +2360,10 @@ sleep 30 &
 wait $!
 STUB
 # mem_escape MUTANT|- — start a session-shaped tree, terminate it, and say
-# whether the replacement outlived the terminator. Prints the verdict.
+# whether the replacement outlived the terminator. Prints "PREMISE VERDICT":
+# the premise is `forked`, or the reason there is no replacement to judge
+# (FIXTURE-NEVER-READY, NO-REPLACEMENT-FORKED(...)), and the verdict is
+# SURVIVED or reaped, or `-` when the premise failed (#653 D3).
 # shellcheck disable=SC2030,SC2031,SC2317
 mem_escape() (
   local pidfile="$TMP/escape-$RANDOM$RANDOM.pid" ready="$TMP/escape-$RANDOM$RANDOM.ready"
@@ -2368,27 +2377,34 @@ mem_escape() (
   timeout -k 60 30 bash "$MEM_ESCAPE_STUB" "$pidfile" "$ready" >/dev/null 2>&1 &
   root=$!
   for i in $(seq 1 100); do [ -s "$ready" ] && break; sleep 0.1; done
-  [ -s "$ready" ] || { printf 'FIXTURE-NEVER-READY'; kill -KILL "$root" 2>/dev/null; return 0; }
+  [ -s "$ready" ] || { printf 'FIXTURE-NEVER-READY -'; kill -KILL "$root" 2>/dev/null; return 0; }
   _session_mem_terminate "$root"
   wait "$root" 2>/dev/null || :
   rep="$(cat "$pidfile" 2>/dev/null)"
-  case "$rep" in '' | *[!0-9]*) printf 'NO-REPLACEMENT-FORKED(%s)' "$rep"; return 0 ;; esac
+  case "$rep" in '' | *[!0-9]*) printf 'NO-REPLACEMENT-FORKED(%s) -' "$rep"; return 0 ;; esac
   if kill -0 "$rep" 2>/dev/null; then
     kill -KILL "$rep" 2>/dev/null || :
-    printf 'SURVIVED'
+    printf 'forked SURVIVED'
   else
-    printf reaped
+    printf 'forked reaped'
   fi
 )
-t mem-a-term-handler-that-forks-does-not-outlive-the-terminator reaped "$(mem_escape -)"
+MEM_ESCAPE_CONTROL="$(mem_escape -)"
+t mem-a-term-handler-that-forks-does-not-outlive-the-terminator reaped "${MEM_ESCAPE_CONTROL#* }"
 # MUST FAIL (round 1): the group pass removed. One line — the collector made to
 # return nothing — which is "forgetting the group" in its smallest form, and
 # under it the very same replacement survives the terminator. This is the case
 # that reds against the head this round was opened on.
 # shellcheck disable=SC2016  # the sed matches the module's literal assignment
 mem_mutant no-group-pass 's/^  self="\$(_session_proc_pgid "\$\$")"$/  return 0/'
-t mem-mutation-no-group-pass-lets-the-replacement-survive SURVIVED \
-  "$(mem_escape "$TMP/session-mem-mutant-no-group-pass.sh")"
+MEM_ESCAPE_MUTANT="$(mem_escape "$TMP/session-mem-mutant-no-group-pass.sh")"
+# The fixture's premise, under its own name and ahead of the row it serves: a
+# handler that never reached its fork leaves nothing to survive, and that red
+# must say "fixture premise", never speak in the group pass's name (#653 D3).
+t mem-mutation-fixture-forked-a-replacement forked "${MEM_ESCAPE_MUTANT%% *}"
+t mem-mutation-no-group-pass-lets-the-replacement-survive \
+  "$([ "${MEM_ESCAPE_MUTANT%% *}" = forked ] && printf SURVIVED || printf -- -)" \
+  "${MEM_ESCAPE_MUTANT#* }"
 
 # The grace between TERM and KILL is validated like every other numeric in the
 # module. An unvalidated one makes `sleep` fail instantly and collapses the

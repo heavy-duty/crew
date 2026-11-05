@@ -99,6 +99,7 @@ any of them does not cover that leg's contract.
 | `--no-breaker-drill` | the terminal-failure `breaker` leg |
 | `--no-notify-drill` | the operator-notification `notify` leg |
 | `--no-fleet-drill` | the fleet-lifecycle `fleet` leg |
+| `--no-release-drill` | the triage `release` leg |
 | `--keep` | teardown: boxes and sandboxes are retained deliberately |
 
 ## Phase 0 — acquire the exact tree, then run static checks
@@ -337,8 +338,8 @@ row. So the record answers "did this leg run?" without anyone diffing the tree
 against it.
 
 The declared legs are: `hygiene`, `breaker`, `resume`, `attention`,
-`attention-audit`, `notify`, `installer`, `config`, `app`, `browser`,
-`app-armed`, `fleet`, `teardown`. Each has an entry below, headed by its row name —
+`attention-audit`, `release`, `notify`, `installer`, `config`, `app`,
+`browser`, `app-armed`, `fleet`, `teardown`. Each has an entry below, headed by its row name —
 that heading IS the leg's name, and CI diffs the set of them against the
 harness's own declaration in both directions, so this runbook cannot fall a
 release behind the harness again without a red check.
@@ -491,6 +492,52 @@ becomes non-empty, ✅ when it clears, silence in between).
 - **A failure means** a misplaced `attention` — the incident this audit exists
   for — is either invisible to the operator, or worse, silently "repaired" by
   a sweep that is not allowed to move labels.
+
+### release — `drill/rehearsal-release.sh`
+
+The triage-only release cut (#762), live: on a FRESH track the leg plants in
+the triage sandbox — `release-drill/<stamp>/`, tagged `drill<stamp>-0.0.1`,
+armed `0.0.2-dev`, one fragment merged — one run of `duty_release` buys one
+session that opens exactly one release pull request, a second run opens
+nothing because the engine's own open cut holds the track, and a person
+closing the pull request unmerged is recorded as refused, with the cut's
+branch deleted on the fork and the track not cut again. The leg runs the duty
+directly with `RELEASE_QUIET_S=0` and `RELEASE_CI_GRACE_S=0` — both clocks are
+pinned by `shared/test/release.sh` — and the sandbox's release caller is
+dispatch-only, so nothing ever runs on it.
+
+- **Needs** `triage` in `--roles`, that box's phase 2, and a triage identity
+  that is NOT the sandbox's owner: the cut is pushed from a fork the identity
+  owns, which the leg resolves or creates. The ceremony pin is crew's own,
+  read from `.github/workflows/release.yml`, and every round syncs the
+  sandbox's caller and doctrine to it: a file already carrying crew's current
+  content is left alone, one from a round at another pin is rewritten. The HOST
+  identity (the sandbox's owner) seeds the track through the contents API, and
+  a seed that writes `.github/workflows/release.yml` (the first round, or the
+  first after crew's pin moved) needs workflow permission: GitHub refuses a write under
+  `.github/workflows/` from a token without workflow permission (a classic
+  token lacking the `workflow` scope, a fine-grained one lacking *Workflows:
+  write*), so check that identity's `gh auth status` and add it with `gh auth
+  refresh -s workflow` if missing. Without it the row reads `the track could
+  not be seeded`.
+- **Produces** the `release` row: `ok (one cut per tick on a fresh track, held
+  by its open PR, refused when closed)`, `FAIL`, `INCOMPLETE (triage role
+  omitted)`, `INCOMPLETE (triage phase 2 never reached the leg)`, `INCOMPLETE
+  (leg skipped: <reason>)` — the identity owning the sandbox is one — or
+  `skip (--no-release-drill)`.
+- **A failure means** the duty that ends at a person's door does not hold on a
+  real repository: no cut, a second cut on the next tick, a pull request that
+  is not the cut (label, base, fork, its file set), or a refusal the engine
+  forgets. The record is graded present, never its prose; the consumer's own
+  approval door is the seven-day run's reading, not this leg's.
+- **Cleans up** its pull request, fork branch, tag, track files and the
+  box's per-track memory (`.release-cut-`, `.release-tried-`, `.release-due-`
+  for the round's slug). What stays, on purpose: the shared release caller,
+  `.ceremony/RELEASES.md` and `AGENTS.md`, which the next round re-syncs to
+  crew's pin and doctrine rather than trusting; the
+  identity's fork of the sandbox, which the builder block owns and reuses; and
+  the round's row in the box's `.seen-release` ledger, keyed by the stamped
+  track path and so never matching a later round's track.
 
 ### notify — `drill/rehearsal-notify.sh`
 

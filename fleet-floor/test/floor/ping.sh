@@ -13,6 +13,57 @@
 # Round: the 60s evidence poll answered three questions at one cadence, one of
 # them over the network. These assert the three now arrive separately.
 
+# The bound the collector resolved is the one run.sh derived from the tier's
+# timeout, not the interval-based default this tier's 2 s / 4 s inverts (#626),
+# and it moves WITH the timeout: a 9 s timeout resolves 2 * (9 + 5) + 2.
+t "ping: floor.ping resolves the suite's derived stale bound" \
+  "$CREW_FLOOR_PING_STALE_AFTER" \
+  "$(CREW_FLOOR_PING_INTERVAL="$FLOOR_TEST_PING_INTERVAL" CREW_FLOOR_PING_FAILS="$FLOOR_TEST_PING_FAILS" \
+     PYTHONPATH="$FLOOR/server" python3 -c 'from floor.ping import PING_STALE_AFTER_S as s; print(s)')"
+t "ping: the suite's stale bound clears the tier's worst published age" True \
+  "$([ "$CREW_FLOOR_PING_STALE_AFTER" -ge $(( 2 * (FLOOR_TEST_PING_TIMEOUT + 5) + 2 )) ] && echo True || echo False)"
+# The force-stop block's flake, on the product's own predicate rather than on
+# the clock (#626's must-fail, #757 AC3's second arm): a wedged heartbeat as
+# old as the tier ever publishes one, 2 * (PING_TIMEOUT + 5) + 2, is still
+# wedged under the bound the suite runs with, so restart's force POST cannot
+# read it as stale and refuse. Under main's interval default of 8 the same
+# heartbeat is not wedged, which is the refusal the block met ~2 runs in 20.
+fs_wedged_at_worst() { # [CREW_FLOOR_PING_STALE_AFTER] -> True/False
+  CREW_FLOOR_PING_STALE_AFTER="${1:-$CREW_FLOOR_PING_STALE_AFTER}" \
+  CREW_FLOOR_PING_INTERVAL="$FLOOR_TEST_PING_INTERVAL" CREW_FLOOR_PING_FAILS="$FLOOR_TEST_PING_FAILS" \
+  CREW_FLOOR_PING_TIMEOUT="$FLOOR_TEST_PING_TIMEOUT" PYTHONPATH="$FLOOR/server" python3 -c '
+import time
+from floor.fleet import wedged
+from floor.ping import PING_TIMEOUT_S, PING_FAILS_TO_WEDGE
+now = time.time()
+print(wedged({"ts": now - (2 * (PING_TIMEOUT_S + 5) + 2), "ok": False, "fails": PING_FAILS_TO_WEDGE}, now))'
+}
+t "ping: a wedged heartbeat at the tier's worst published age is still wedged under the suite's bound" \
+  True "$(fs_wedged_at_worst)"
+t "ping: under main's interval default of 8 the same heartbeat reads stale, not wedged (the #626 inversion)" \
+  False "$(fs_wedged_at_worst 8)"
+# ...and the collector the force block talks to was started with that bound:
+# its own environment, read off the running process, not the suite's copy of
+# it, so a launch line that drops or overrides the bound reds here.
+if [ -d /proc/self ] && ! kill -0 "$SRV" 2>/dev/null; then
+  fail "ping: the running collector was started with the suite's stale bound" "the collector (pid $SRV) is not running"
+elif [ -r "/proc/$SRV/environ" ]; then
+  t "ping: the running collector was started with the suite's stale bound" \
+    "CREW_FLOOR_PING_STALE_AFTER=$CREW_FLOOR_PING_STALE_AFTER" \
+    "$(tr '\0' '\n' <"/proc/$SRV/environ" | grep '^CREW_FLOOR_PING_STALE_AFTER=' || echo unset)"
+else
+  skip "ping: the running collector was started with the suite's stale bound" "no /proc on this host to read a process's environment from"
+fi
+# The fix is the suite's environment, never ping.py's derivation (#626's
+# must-fail: widening the production default to fix a test tier): unset, the
+# module still derives interval * (fails + 2), main's 8 at this tier.
+t "ping: ping.py's own default is unchanged, interval * (fails + 2)" \
+  "$(( FLOOR_TEST_PING_INTERVAL * (FLOOR_TEST_PING_FAILS + 2) ))" \
+  "$(env -u CREW_FLOOR_PING_STALE_AFTER CREW_FLOOR_PING_INTERVAL="$FLOOR_TEST_PING_INTERVAL" CREW_FLOOR_PING_FAILS="$FLOOR_TEST_PING_FAILS" \
+     PYTHONPATH="$FLOOR/server" python3 -c 'from floor.ping import PING_STALE_AFTER_S as s; print(s)')"
+t "ping: a longer timeout raises run.sh's derived bound" 30 \
+  "$(FLOOR_TEST_PING_TIMEOUT=9 bash -c 'unset FLOOR_TEST_PING_STALE_AFTER; eval "$(grep -m1 "^FLOOR_TEST_PING_STALE_AFTER=" "$1")"; echo "$FLOOR_TEST_PING_STALE_AFTER"' _ "$HERE/run.sh")"
+
 # The ping tier runs on its own thread and overlays the snapshot at read time,
 # so a healthy box reports a round-trip without the evidence poll re-running.
 # A wedged box fails BOTH tiers, and the two facts must not overwrite each

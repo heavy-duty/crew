@@ -163,7 +163,7 @@ round_run() {  # <script> <roles> <ref>
     DRILL_ROLE_RC="${DRILL_ROLE_RC:-0}" \
     bash "$script" --remote "$REMOTE" --ref "$ref" --roles "$roles" \
       --keep --no-app --no-config-drill \
-      --no-resume-drill --no-attention-drill --no-attention-audit-drill \
+      --no-resume-drill --no-attention-drill --no-attention-audit-drill --no-release-drill \
       --no-hygiene-drill --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1
 }
 
@@ -228,7 +228,7 @@ DRILL_MOVE_TO=""
 if tree_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer \
       --keep --no-app --no-config-drill --no-resume-drill \
-      --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
+      --no-attention-drill --no-attention-audit-drill --no-release-drill --no-hygiene-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then tree_rc=0; else tree_rc=$?; fi
 t drill-tree-round-rc 0 "$tree_rc"
 t drill-tree-role-ships-head "$SECOND" "$(awk '{print $4}' "$ROLE_LOG")"
@@ -237,7 +237,7 @@ t drill-tree-record-names-head 1 \
   "$(grep -cF "## drilled source: $SECOND (tree $SOURCE)" <<<"$tree_out")"
 t drill-tree-phase-zero-names-head 1 \
   "$(grep -cF "phase 0: crew at $SECOND (tree $SOURCE), static checks" <<<"$tree_out")"
-t drill-record-enumerates-all-declared-legs 13 \
+t drill-record-enumerates-all-declared-legs 14 \
   "$(grep -c '^## leg \(executed\|not-executed\) ' <<<"$tree_out")"
 t drill-record-names-browser-exclusion 1 \
   "$(grep -c '^## leg not-executed browser  (skip; --no-app)' <<<"$tree_out")"
@@ -262,7 +262,7 @@ sed 's/hygiene breaker resume/hygiene never-wired breaker resume/' \
 if unwired_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG" \
     DRILL_REMOTE="$REMOTE" bash "$UNWIRED" --tree "$SOURCE" --roles reviewer \
       --no-app --no-config-drill --no-resume-drill \
-      --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
+      --no-attention-drill --no-attention-audit-drill --no-release-drill --no-hygiene-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   unwired_rc=0
 else
@@ -284,7 +284,7 @@ sed 's/hygiene breaker resume/hygiene resume/' \
 if undeclared_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG" \
     DRILL_REMOTE="$REMOTE" bash "$UNDECLARED" --tree "$SOURCE" --roles reviewer \
       --keep --no-app --no-config-drill --no-resume-drill \
-      --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
+      --no-attention-drill --no-attention-audit-drill --no-release-drill --no-hygiene-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   undeclared_rc=0
 else
@@ -303,7 +303,7 @@ sed 's/SUMMARY+=("skip       browser  (--no-app)")/SUMMARY+=("skip       browser
 if no_reason_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG" \
     DRILL_REMOTE="$REMOTE" bash "$NO_REASON" --tree "$SOURCE" --roles reviewer \
       --keep --no-app --no-config-drill --no-resume-drill \
-      --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
+      --no-attention-drill --no-attention-audit-drill --no-release-drill --no-hygiene-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   no_reason_rc=0
 else
@@ -326,7 +326,7 @@ if phase2_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG" \
     DRILL_ROLE_STAGE=phase2 DRILL_ROLE_RC=1 \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer \
       --keep --no-resume-drill --no-attention-drill \
-      --no-attention-audit-drill --no-hygiene-drill \
+      --no-attention-audit-drill --no-release-drill --no-hygiene-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   phase2_rc=0
 else
@@ -358,7 +358,7 @@ if armed_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG" \
     DRILL_SECTION_LOG="$SECTION_LOG" DRILL_REMOTE="$REMOTE" \
     DRILL_SECTION_A_ARMED=1 bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" \
       --roles reviewer --keep --no-app --no-config-drill --no-resume-drill \
-      --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
+      --no-attention-drill --no-attention-audit-drill --no-release-drill --no-hygiene-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   armed_rc=0
 else
@@ -373,7 +373,7 @@ if unreadable_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG"
     DRILL_SECTION_LOG="$SECTION_LOG" DRILL_REMOTE="$REMOTE" \
     DRILL_SECTION_A_UNREADABLE=1 bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" \
       --roles reviewer --keep --no-app --no-config-drill --no-resume-drill \
-      --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
+      --no-attention-drill --no-attention-audit-drill --no-release-drill --no-hygiene-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   unreadable_rc=0
 else
@@ -391,7 +391,7 @@ if browser_skip_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     DRILL_INSTALL_LOG="$INSTALL_LOG" DRILL_SECTION_LOG="$SECTION_LOG" \
     DRILL_BROWSER_STATUS=skip DRILL_REMOTE="$REMOTE" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
-      --no-resume-drill --no-attention-drill --no-attention-audit-drill \
+      --no-resume-drill --no-attention-drill --no-attention-audit-drill --no-release-drill \
       --no-hygiene-drill --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   browser_skip_rc=0
 else
@@ -414,7 +414,7 @@ if app_roster_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     DRILL_APP_LOG="$APP_LOG" DRILL_REMOTE="$REMOTE" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --app-roster "$TMP/armed.roster" --no-resume-drill \
-      --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
+      --no-attention-drill --no-attention-audit-drill --no-release-drill --no-hygiene-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   app_roster_rc=0
 else
@@ -443,7 +443,7 @@ if app_roster_incomplete_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     DRILL_REMOTE="$REMOTE" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --app-roster "$TMP/armed.roster" --no-resume-drill \
-      --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
+      --no-attention-drill --no-attention-audit-drill --no-release-drill --no-hygiene-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   app_roster_incomplete_rc=0
 else
@@ -459,7 +459,7 @@ if app_roster_missing_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     DRILL_APP_LOG="$APP_LOG" DRILL_APP_ROSTER_STATUS=missing DRILL_REMOTE="$REMOTE" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --app-roster "$TMP/armed.roster" --no-resume-drill \
-      --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
+      --no-attention-drill --no-attention-audit-drill --no-release-drill --no-hygiene-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   app_roster_missing_rc=0
 else
@@ -475,7 +475,7 @@ if app_failure_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     DRILL_APP_LOG="$APP_LOG" DRILL_APP_RC=1 DRILL_REMOTE="$REMOTE" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --app-roster "$TMP/armed.roster" --no-resume-drill \
-      --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
+      --no-attention-drill --no-attention-audit-drill --no-release-drill --no-hygiene-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   app_failure_rc=0
 else
@@ -495,7 +495,7 @@ if no_generated_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     DRILL_ROLE_STAGE=none DRILL_ROLE_RC=1 \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --app-roster "$TMP/armed.roster" --no-resume-drill \
-      --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
+      --no-attention-drill --no-attention-audit-drill --no-release-drill --no-hygiene-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   no_generated_rc=0
 else
@@ -532,7 +532,7 @@ if disarmed_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     DRILL_INSTALL_LOG="$INSTALL_LOG" DRILL_SECTION_LOG="$SECTION_LOG" \
     DRILL_APP_STATUS=could-not-compare DRILL_REMOTE="$REMOTE" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
-      --no-resume-drill --no-attention-drill --no-attention-audit-drill \
+      --no-resume-drill --no-attention-drill --no-attention-audit-drill --no-release-drill \
       --no-hygiene-drill --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   disarmed_rc=0
 else
@@ -563,7 +563,7 @@ if phase2_retained_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     DRILL_INSTALL_LOG="$INSTALL_LOG" DRILL_SECTION_LOG="$SECTION_LOG" \
     DRILL_REMOTE="$REMOTE" DRILL_ROLE_STAGE=phase2 DRILL_ROLE_RC=1 \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer \
-      --no-resume-drill --no-attention-drill --no-attention-audit-drill \
+      --no-resume-drill --no-attention-drill --no-attention-audit-drill --no-release-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   phase2_retained_rc=0
 else
@@ -584,7 +584,7 @@ if preinstall_out="$(DRILL_ROLE_LOG="$ROLE_LOG" \
     DRILL_INSTALL_LOG="$INSTALL_LOG" DRILL_SECTION_LOG="$SECTION_LOG" \
     DRILL_REMOTE="$REMOTE" DRILL_ROLE_STAGE=none DRILL_ROLE_RC=1 \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
-      --no-resume-drill --no-attention-drill --no-attention-audit-drill \
+      --no-resume-drill --no-attention-drill --no-attention-audit-drill --no-release-drill \
       --no-hygiene-drill --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then
   preinstall_rc=0
 else
@@ -866,7 +866,7 @@ if tree_report_out="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG
     DRILL_REMOTE="$REMOTE" DRILL_ROLE_RC=2 \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --ref refs/pull/450/head \
       --roles reviewer --keep --no-app --no-config-drill --no-resume-drill \
-      --no-attention-drill --no-attention-audit-drill --no-hygiene-drill \
+      --no-attention-drill --no-attention-audit-drill --no-release-drill --no-hygiene-drill \
       --no-breaker-drill --no-notify-drill --no-fleet-drill 2>&1)"; then :; fi
 t drill-report-tree-round-names-no-pr 0 \
   "$(grep -cE 'PR #[0-9]' <<<"$tree_report_out" || true)"
@@ -909,7 +909,7 @@ runbook_prose_legs() {  # the enumerating sentence, read to its blank line
     | grep -oE '`[a-z][a-z-]*`' | tr -d '`' | sort -u
 }
 
-t drill-runbook-harness-declares-legs 13 "$(runbook_harness_legs | n)"
+t drill-runbook-harness-declares-legs 14 "$(runbook_harness_legs | n)"
 t drill-runbook-documents-every-declared-leg '' \
   "$(comm -23 <(runbook_harness_legs) <(runbook_documented_legs) | paste -sd, -)"
 t drill-runbook-documents-no-undeclared-leg '' \
@@ -1078,6 +1078,7 @@ esac
 EOF
 chmod +x "$MINT_SHIM/box"
 mint_out="$(
+  # shellcheck disable=SC2030  # the shim's PATH belongs to this subshell alone
   export MINT_STATE PATH="$MINT_SHIM:$PATH"
   # shellcheck source=shared/lib/box-mint.sh
   . "$ROOT/shared/lib/box-mint.sh"
@@ -3720,7 +3721,7 @@ fleet_round() {  # <verdict> <rc> [extra args...]
     DRILL_FLEET_LOG="${DRILL_FLEET_LOG:-}" \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --no-app --no-config-drill --no-resume-drill --no-attention-drill \
-      --no-attention-audit-drill --no-hygiene-drill --no-breaker-drill \
+      --no-attention-audit-drill --no-release-drill --no-hygiene-drill --no-breaker-drill \
       --no-notify-drill "$@" 2>&1
 }
 
@@ -3807,7 +3808,7 @@ if FLEET_NOBOX_OUT="$(DRILL_ROLE_LOG="$ROLE_LOG" DRILL_INSTALL_LOG="$INSTALL_LOG
     DRILL_FLEET_VERDICT='ok unused' \
     bash "$HARNESS/rehearsal-all.sh" --tree "$SOURCE" --roles reviewer --keep \
       --no-app --no-config-drill --no-resume-drill --no-attention-drill \
-      --no-attention-audit-drill --no-hygiene-drill --no-breaker-drill \
+      --no-attention-audit-drill --no-release-drill --no-hygiene-drill --no-breaker-drill \
       --no-notify-drill 2>&1)"; then
   FLEET_NOBOX_RC=0
 else
@@ -3824,5 +3825,369 @@ t fleet-leg-is-documented-in-the-runbook 1 \
   "$(runbook_documented_legs | grep -cx fleet)"
 t fleet-leg-is-in-the-runbook-prose 1 \
   "$(runbook_prose_legs | grep -cx fleet)"
+
+
+# --- #762: the release-cut leg's classifiers, and the leg on stubs -----------
+# The leg needs a drill host, a triage box with a fork of its sandbox and a
+# real model session. What is testable here is every verdict it reaches: the
+# classifiers read the duty's real line shapes and the board's real JSON, and
+# the leg itself runs below on a stubbed gh and box, so a red row is proved to
+# reach the verdict file and an opt-out to be a skip, never a silent pass.
+# shellcheck source=drill/rehearsal-release.sh
+. "$ROOT/drill/rehearsal-release.sh"
+RL_REPO=drillhost/crew-drill-triage
+# rl_duty_line NEEDLE [path prefix] — the duty's OWN log line holding NEEDLE,
+# read out of shared/lib/duty-release.sh and rendered with this suite's
+# values. The classifiers match fixed strings; feeding them hand-copied ones
+# would let the duty reword a line and leave the live leg grading `unknown`
+# while every row here stays green (#767 review). Rendered from the source, a
+# reworded duty line reds the classifier rows below.
+rl_duty_line() (
+  # shellcheck disable=SC2034  # read by the eval'd template
+  repo="$RL_REPO" num=17 branch=release/drill1-0.0.2 head=abc1234abc1234 \
+    path="${2:-release-drill/1}" prefix="${3:-drill1-}" RELEASE_VERSION=0.0.2 \
+    RELEASE_MAIN_HEAD=abc1234abc1234 RELEASE_LAST_TAG=drill1-0.0.1 RELEASE_PIN=0.7.11
+  # shellcheck disable=SC2034  # read by the eval'd template
+  name="$repo ${prefix:-<bare>}@$path"
+  tmpl="$(grep -F -- "$1" "$ROOT/shared/lib/duty-release.sh" | grep -oE 'log "[^"]*"' | head -1)"
+  [ -n "$tmpl" ] || { printf 'NO DUTY LINE HOLDS: %s\n' "$1"; return 0; }
+  # shellcheck disable=SC2317  # called by the eval'd template
+  log() { printf '2026-11-05T10:00:00Z %s\n' "$*"; }
+  eval "$tmpl"
+)
+RL_LINE_CUTTING="$(rl_duty_line ' — cutting ')"
+RL_LINE_OPENED="$(rl_duty_line ' opened (')"
+RL_LINE_HELD="$(rl_duty_line 'open and current')"
+RL_LINE_REFUSED="$(rl_duty_line 'was closed without merging')"
+t release-leg-duty-lines-are-rendered-from-the-duty 0 \
+  "$(printf '%s\n' "$RL_LINE_CUTTING" "$RL_LINE_OPENED" "$RL_LINE_HELD" "$RL_LINE_REFUSED" | grep -c '^NO DUTY LINE' | tr -d ' ')"
+RL_OPENED="$RL_LINE_CUTTING
+$RL_LINE_OPENED"
+t release-leg-opened-pr-reads-the-one-cut 17 "$(rehearsal_release_opened_pr "$RL_OPENED" "$RL_REPO")"
+t release-leg-opened-pr-no-cut-is-empty "" \
+  "$(rehearsal_release_opened_pr "2026-11-05T10:00:00Z no release duty: $RL_REPO drill1-@release-drill/1 — CI at abc1234 is red; a cut is bought on a green head" "$RL_REPO")"
+t release-leg-opened-pr-two-cuts-is-empty "" \
+  "$(rehearsal_release_opened_pr "$RL_OPENED
+${RL_LINE_OPENED//#17/#18}" "$RL_REPO")"
+t release-leg-opened-pr-ignores-another-repository "" \
+  "$(rehearsal_release_opened_pr "2026-11-05T10:09:00Z release: ${RL_REPO}2#5 opened (release/x at abc1234) — the approval is a person's; the engine stops here" "$RL_REPO")"
+RL_HELD="$RL_LINE_HELD"
+t release-leg-second-tick-held "held" \
+  "$(rehearsal_release_second_tick "$RL_HELD" "$RL_REPO" release-drill/1 drill1-)"
+t release-leg-second-tick-cutting-again-is-a-cut "cut" \
+  "$(rehearsal_release_second_tick "$RL_HELD
+$RL_OPENED" "$RL_REPO" release-drill/1 drill1-)"
+t release-leg-second-tick-another-track-held-proves-nothing "unknown" \
+  "$(rehearsal_release_second_tick "$RL_HELD" "$RL_REPO" release-drill/2 drill2-)"
+t release-leg-second-tick-silence-proves-nothing "unknown" \
+  "$(rehearsal_release_second_tick "" "$RL_REPO" release-drill/1 drill1-)"
+t release-leg-refusal-recorded "refused" \
+  "$(rehearsal_release_refused "$RL_LINE_REFUSED" "$RL_REPO" 17)"
+t release-leg-withdrawal-is-not-a-refusal "unknown" \
+  "$(rehearsal_release_refused "2026-11-05T10:30:00Z release: $RL_REPO#17 withdrawn (release/drill1-0.0.2) — main moved 1 merge(s) past abc1234; the new head is cut next tick" "$RL_REPO" 17)"
+RL_PULL='{"state":"open","labels":[{"name":"release"}],"base":{"ref":"main"},"head":{"ref":"release/drill1-0.0.2","sha":"f00","repo":{"full_name":"drillbot/crew-drill-triage","owner":{"login":"drillbot"}}}}'
+t release-leg-open-count-one 1 \
+  "$(rehearsal_release_open_count "[$RL_PULL]" release/drill1-0.0.2)"
+t release-leg-open-count-ignores-unlabelled-and-other-branches 1 \
+  "$(rehearsal_release_open_count "[$RL_PULL, $(jq -c '.labels=[]' <<<"$RL_PULL"), $(jq -c '.head.ref="release/x"' <<<"$RL_PULL")]" release/drill1-0.0.2)"
+t release-leg-open-count-two-is-two 2 \
+  "$(rehearsal_release_open_count "[$RL_PULL, $RL_PULL]" release/drill1-0.0.2)"
+t release-leg-pr-shape-ok ok "$(rehearsal_release_pr_shape "$RL_PULL" drillbot release/drill1-0.0.2)"
+t release-leg-pr-shape-no-label "no release label" \
+  "$(rehearsal_release_pr_shape "$(jq -c '.labels=[]' <<<"$RL_PULL")" drillbot release/drill1-0.0.2)"
+t release-leg-pr-shape-wrong-base "base is dev, not main" \
+  "$(rehearsal_release_pr_shape "$(jq -c '.base.ref="dev"' <<<"$RL_PULL")" drillbot release/drill1-0.0.2)"
+t release-leg-pr-shape-not-the-identity-fork "head is on drillbot/crew-drill-triage, not a fork someone owns" \
+  "$(rehearsal_release_pr_shape "$RL_PULL" someone release/drill1-0.0.2)"
+RL_FILES='[{"filename":"release-drill/1/VERSION","status":"modified"},{"filename":"release-drill/1/CHANGELOG.md","status":"modified"},{"filename":"release-drill/1/drills/0.0.2.md","status":"added"},{"filename":"release-drill/1/changelog.d/1.md","status":"removed"}]'
+t release-leg-files-shape-ok ok "$(rehearsal_release_files_shape "$RL_FILES" release-drill/1 0.0.2 1.md)"
+t release-leg-files-shape-fragment-kept "fragment 1.md not consumed" \
+  "$(rehearsal_release_files_shape "$(jq -c 'map(if .filename|endswith("1.md") then .status="modified" else . end)' <<<"$RL_FILES")" release-drill/1 0.0.2 1.md)"
+t release-leg-files-shape-no-drill-record "no drill record drills/0.0.2.md" \
+  "$(rehearsal_release_files_shape "$(jq -c 'map(select(.filename|test("drills/")|not))' <<<"$RL_FILES")" release-drill/1 0.0.2 1.md)"
+t release-leg-files-shape-no-changelog "CHANGELOG.md not modified" \
+  "$(rehearsal_release_files_shape "$(jq -c 'map(select(.filename|endswith("CHANGELOG.md")|not))' <<<"$RL_FILES")" release-drill/1 0.0.2 1.md)"
+
+# The leg on stubs: a PATH `gh` answering from a state directory (the leg's
+# inline predicates run it from child shells, which see no shell function) and
+# a `bx` that answers each duty invocation from the next canned output.
+RL="$TMP/release-leg"
+mkdir -p "$RL/bin"
+cat >"$RL/bin/gh" <<'GH'
+#!/usr/bin/env bash
+# The sandbox as state: $RL/present holds one entry per file on main (PUT
+# makes it, DELETE removes it), $RL/branch-alive is the cut's branch on the
+# fork. A stub that answers every read the same way cannot tell a cleanup
+# that ran from one that did not.
+printf '%s\n' "$*" >>"$RL/gh.log"
+[ "${1:-}" = api ] || exit 0
+shift
+verb=GET
+if [ "$1" = -X ]; then verb="$2"; shift 2; fi
+[ "$1" = --paginate ] && shift
+url="$1"
+# --jq and -f content= as the leg passes them: a file on main is stored with
+# its bytes, so a read can tell a stale shared file from a current one.
+jq_expr="" put_b64=""
+for ((i = 2; i <= $#; i++)); do
+  case "${!i}" in
+    --jq) j=$((i + 1)); jq_expr="${!j}" ;;
+    content=*) put_b64="${!i#content=}" ;;
+  esac
+done
+file="${url#repos/*/*/contents/}"; file="${file%%\?*}"; file="${file//\//%}"
+case "$verb $url" in
+  "GET repos/"*"/git/ref/heads/"*) [ -e "$RL/branch-alive" ]; exit $? ;;
+  "GET repos/"*"/contents/"*"?ref=main") [ -e "$RL/present/$file" ] || exit 1
+    if [ "$jq_expr" = .content ]; then base64 <"$RL/present/$file"; else printf 'sha-%s\n' "$file"; fi ;;
+  "GET repos/"*"/contents/"*"/VERSION?ref="*) printf '%s' "${RL_HEAD_VERSION:-0.0.2}" | base64 ;;
+  "PUT repos/"*"/contents/"*) [ "${RL_PUT_RC:-0}" = 0 ] || exit "$RL_PUT_RC"; printf '%s' "$put_b64" | base64 -d >"$RL/present/$file"
+    printf 'put %s\n' "$file" >>"$RL/puts.log" ;;
+  "DELETE repos/"*"/contents/"*) rm -f "$RL/present/$file" ;;
+  "GET repos/"*"/commits/main") printf 'abc1234abc1234\n' ;;
+  # pulls.next, when present, answers the NEXT board read only: one tick's
+  # board can differ from the other's, so each count row has its own red case.
+  "GET repos/"*"/pulls?state=open"*) if [ -e "$RL/pulls.next" ]; then cat "$RL/pulls.next"; rm -f "$RL/pulls.next"; else cat "$RL/pulls.json"; fi ;;
+  "GET repos/"*"/files"*) cat "$RL/files.json" ;;
+  "GET repos/"*"/pulls/"*) cat "$RL/pull.json" ;;
+esac
+exit 0
+GH
+chmod +x "$RL/bin/gh"
+# rl_run [out1 out2 out3] — the leg once, its rows and its rc; RL_STAMP pins
+# the track's name so the canned duty output can name it.
+rl_run() (
+  # shellcheck disable=SC2030,SC2031  # each run is its own subshell on purpose
+  export RL PATH="$RL/bin:$PATH"
+  ROLE=triage
+  rm -f "$RL/gh.log" "$RL/n"
+  rm -rf "$RL/present" "$RL/puts.log"; mkdir -p "$RL/present"
+  # RL_PRESEED: a sandbox reused from an earlier round, its files already on main.
+  [ -z "${RL_PRESEED:-}" ] || cp -a "$RL_PRESEED/." "$RL/present/"
+  ok()   { printf 'ok   %s\n' "$1"; }
+  fail() { printf 'FAIL %s\n' "$1"; }
+  skip() { printf 'skip %s\n' "$1"; }
+  wait_for() { :; }
+  rehearsal_resolve_builder_fork() { printf 'drillbot/crew-drill-triage\n'; }
+  rehearsal_create_builder_fork() { :; }
+  date() { if [ "${1:-}" = -u ]; then printf '1\n'; else command date "$@"; fi; }
+  bx() {
+    printf 'bx %s\n' "$1" >>"$RL/gh.log"
+    case "$1" in
+      *duty_release*)
+        local n; n=$(( $(cat "$RL/n" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$RL/n"
+        # The duty deletes a refused cut's branch on its third tick; with
+        # RL_BRANCH_LEFT it does not, which the branch row must catch.
+        [ "$n" -ne 3 ] || [ -n "${RL_BRANCH_LEFT:-}" ] || rm -f "$RL/branch-alive"
+        eval "printf '%s\n' \"\${RL_OUT$n:-}\"" ;;
+    esac
+  }
+  touch "$RL/branch-alive"
+  rehearsal_release_drill "$RL_REPO" drillbot
+)
+printf '[%s]\n' "$RL_PULL" >"$RL/pulls.json"
+printf '%s\n' "$RL_PULL" >"$RL/pull.json"
+printf '%s\n' "$RL_FILES" >"$RL/files.json"
+RL_T="release-drill/1"
+export RL_OUT1="$RL_OPENED"
+RL_OUT2="$(rl_duty_line 'open and current' "$RL_T" drill1-)"
+export RL_OUT2
+export RL_OUT3="$RL_LINE_REFUSED"
+RL_STATUS="$TMP/release-leg-verdicts"
+: >"$RL_STATUS"
+if RL_GREEN="$(REHEARSAL_RELEASE_STATUS="$RL_STATUS" rl_run 2>&1)"; then rl_rc=0; else rl_rc=$?; fi
+t release-leg-green-run-returns-0 0 "$rl_rc"
+t release-leg-green-run-has-no-red-row 0 "$(grep -c '^FAIL' <<<"$RL_GREEN" | tr -d ' ')"
+t release-leg-green-run-records-ok "triage ok " "$(cat "$RL_STATUS")"
+# Every graded row ran, in order, and was green: a row deleted from the leg,
+# or one whose red no longer reaches the verdict, changes this list.
+t release-leg-green-run-grades-every-row "release: a fresh track tagged drill1-0.0.1, armed 0.0.2-dev, one fragment merged|\
+release: one tick opened one release PR (#17)|\
+release: the board carries exactly one release PR for the track|\
+release: the PR is the cut — labelled, against main, from drillbot's fork|\
+release: VERSION, CHANGELOG.md and the drill record changed; the fragment consumed|\
+release: VERSION at the PR's head reads 0.0.2|\
+release: a second tick opens nothing — the engine's own cut holds the track|\
+release: still exactly one release PR after the second tick|\
+release: a cut closed unmerged is recorded as refused|\
+release: the refused cut's branch is deleted on the fork|\
+release: the refused track is not cut again" \
+  "$(grep -E '^ok ' <<<"$RL_GREEN" | sed -E 's/^ok +//' | paste -sd'|')"
+# The VERSION at the cut's head is read where the head lives: the box's fork.
+t release-leg-version-read-from-the-fork 1 \
+  "$(grep -cF 'api repos/drillbot/crew-drill-triage/contents/release-drill/1/VERSION?ref=' "$RL/gh.log" | tr -d ' ')"
+t release-leg-seeds-the-track-before-arming-it 1 \
+  "$(grep -c '^ok   release: a fresh track tagged drill1-0.0.1, armed 0.0.2-dev, one fragment merged' <<<"$RL_GREEN" | tr -d ' ')"
+# The first-release edge is an ORDER: VERSION at 0.0.1, then the tag, then
+# VERSION armed 0.0.2-dev. A grep for the tag alone is green with the tag made
+# after the arming, which is a track the duty refuses as the operator's cut.
+rl_line() { grep -nF -- "$1" "$RL/gh.log" | head -1 | cut -d: -f1; }
+RL_AT_001="$(rl_line 'message=drill: track release-drill/1 at 0.0.1')"
+RL_AT_TAG="$(rl_line 'ref=refs/tags/drill1-0.0.1')"
+RL_AT_ARM="$(rl_line 'message=drill: arm release-drill/1 for 0.0.2')"
+t release-leg-tags-between-0.0.1-and-arming "in order" \
+  "$([ -n "$RL_AT_001" ] && [ -n "$RL_AT_TAG" ] && [ -n "$RL_AT_ARM" ] \
+     && [ "$RL_AT_001" -lt "$RL_AT_TAG" ] && [ "$RL_AT_TAG" -lt "$RL_AT_ARM" ] \
+     && echo "in order" || echo "0.0.1@$RL_AT_001 tag@$RL_AT_TAG arm@$RL_AT_ARM")"
+# What the round leaves on the sandbox: the three shared files and nothing of
+# the track — every file the seed registered was deleted by cleanup.
+t release-leg-cleanup-leaves-only-the-shared-files ".ceremony%RELEASES.md .github%workflows%release.yml AGENTS.md" \
+  "$(find "$RL/present" -mindepth 1 -printf '%f\n' | LC_ALL=C sort | paste -sd' ')"
+t release-leg-cleanup-deletes-the-seed-tag 1 \
+  "$(grep -cF 'api -X DELETE repos/drillhost/crew-drill-triage/git/refs/tags/drill1-0.0.1' "$RL/gh.log" | tr -d ' ')"
+t release-leg-cleanup-deletes-the-fork-branch-as-the-box 1 \
+  "$(grep -cF "bx gh api -X DELETE 'repos/drillbot/crew-drill-triage/git/refs/heads/release/drill1-0.0.2'" "$RL/gh.log" | tr -d ' ')"
+t release-leg-cleanup-drops-the-box-track-memory 1 \
+  "$(grep -cF 'bx rm -f ~/duty/.release-cut-drillhost_crew-drill-triage-drill1-' "$RL/gh.log" | tr -d ' ')"
+# A reused sandbox: the shared files the green round left are kept as they
+# are, and a release caller left at another ceremony pin is rewritten to
+# crew's, so a later round never cuts at an earlier round's pin.
+RL_PIN="$(grep -oE 'heavy-duty/ceremony/\.github/workflows/release\.yml@[^[:space:]]+' "$ROOT/.github/workflows/release.yml" | head -1 | sed 's/.*@//')"
+rm -rf "$RL/reused"; cp -a "$RL/present" "$RL/reused"
+REHEARSAL_RELEASE_STATUS="$RL_STATUS" RL_PRESEED="$RL/reused" rl_run >/dev/null 2>&1 || true
+t release-leg-reused-sandbox-keeps-current-shared-files "" \
+  "$(grep -E 'put (\.github%workflows%release\.yml|\.ceremony%RELEASES\.md|AGENTS\.md)$' "$RL/puts.log" | paste -sd' ')"
+sed -i "s|release\.yml@$RL_PIN|release.yml@0.0.0-stale|" "$RL/reused/.github%workflows%release.yml"
+REHEARSAL_RELEASE_STATUS="$RL_STATUS" RL_PRESEED="$RL/reused" rl_run >/dev/null 2>&1 || true
+t release-leg-reused-sandbox-rewrites-a-stale-pin "put .github%workflows%release.yml 1" \
+  "$(grep -E 'put (\.github%workflows%release\.yml|\.ceremony%RELEASES\.md|AGENTS\.md)$' "$RL/puts.log" | paste -sd' ') $(grep -c "release\.yml@$RL_PIN\$" "$RL/present/.github%workflows%release.yml")"
+rm -rf "$RL/reused"
+# Cleanup on its own, as the EXIT trap runs it after a leg died mid-round: the
+# cut still open is closed. The green round's own close (the refusal step)
+# comes before the third tick and proves nothing about this one.
+RL_CLEAN="$(
+  # shellcheck disable=SC2030,SC2031  # this subshell's PATH is its own on purpose
+  export RL PATH="$RL/bin:$PATH"
+  rm -f "$RL/gh.log"; rm -rf "$RL/present"; mkdir -p "$RL/present"
+  touch "$RL/present/release-drill%1%VERSION" "$RL/present/release-drill%1%changelog.d%1.md"
+  bx() { printf 'bx %s\n' "$1" >>"$RL/gh.log"; }
+  REHEARSAL_RELEASE_REPO="$RL_REPO" REHEARSAL_RELEASE_PR=17 REHEARSAL_RELEASE_TAG=drill1-0.0.1
+  REHEARSAL_RELEASE_FORK=drillbot/crew-drill-triage REHEARSAL_RELEASE_BRANCH=release/drill1-0.0.2
+  REHEARSAL_RELEASE_FILES="release-drill/1/VERSION release-drill/1/changelog.d/1.md" REHEARSAL_RELEASE_SLUG=s1
+  rehearsal_release_cleanup
+  printf 'close=%s files=%s fork=%s tag=%s memory=%s\n' \
+    "$(grep -cF "pr close 17 -R $RL_REPO" "$RL/gh.log")" \
+    "$(find "$RL/present" -mindepth 1 | wc -l | tr -d ' ')" \
+    "$(grep -cF "git/refs/heads/release/drill1-0.0.2'" "$RL/gh.log")" \
+    "$(grep -cF 'git/refs/tags/drill1-0.0.1' "$RL/gh.log")" \
+    "$(grep -cF 'bx rm -f ~/duty/.release-cut-s1 ' "$RL/gh.log")"
+)"
+t release-leg-cleanup-unwinds-a-dead-round "close=1 files=0 fork=1 tag=1 memory=1" "$RL_CLEAN"
+# A second tick that cuts again is the defect itself: red, and on the record.
+: >"$RL_STATUS"
+if RL_RED="$(REHEARSAL_RELEASE_STATUS="$RL_STATUS" RL_OUT2="$RL_OUT1" rl_run 2>&1)"; then rl_rc=0; else rl_rc=$?; fi
+t release-leg-second-cut-reds-the-hold-row 1 \
+  "$(grep -c "^FAIL release: a second tick opens nothing" <<<"$RL_RED" | tr -d ' ')"
+t release-leg-second-cut-records-fail 1 "$(grep -c '^triage fail ' "$RL_STATUS" | tr -d ' ')"
+t release-leg-second-cut-returns-1 1 "$rl_rc"
+# Each red case below must reach the leg's verdict, not only print its row:
+# rl_verdict NAME RC checks the leg returned 1 and recorded one `fail`.
+rl_verdict() {
+  t "$1" "rc=1 fail=1" "rc=$2 fail=$(grep -c '^triage fail ' "$RL_STATUS" | tr -d ' ')"
+}
+# A refusal the engine forgets, and a branch it leaves: two rows, both red.
+: >"$RL_STATUS"
+if RL_FORGOT="$(REHEARSAL_RELEASE_STATUS="$RL_STATUS" RL_OUT3="" rl_run 2>&1)"; then rl_rc=0; else rl_rc=$?; fi
+rl_verdict release-leg-forgotten-refusal-records-fail "$rl_rc"
+t release-leg-forgotten-refusal-reds 1 \
+  "$(grep -c '^FAIL release: a cut closed unmerged is recorded as refused' <<<"$RL_FORGOT" | tr -d ' ')"
+# A refused cut whose branch the duty leaves on the fork reds the branch row
+# and only it, with what it read.
+: >"$RL_STATUS"
+if RL_LEFT="$(REHEARSAL_RELEASE_STATUS="$RL_STATUS" RL_BRANCH_LEFT=1 rl_run 2>&1)"; then rl_rc=0; else rl_rc=$?; fi
+rl_verdict release-leg-branch-left-records-fail "$rl_rc"
+t release-leg-branch-left-on-the-fork-reds "  read: refs/heads/release/drill1-0.0.2 still on drillbot/crew-drill-triage|FAIL release: the refused cut's branch is deleted on the fork" \
+  "$(grep -E '^FAIL|read: refs/heads' <<<"$RL_LEFT" | paste -sd'|')"
+# A third tick that refuses AND cuts again reds the not-cut-again row.
+: >"$RL_STATUS"
+if RL_RECUT="$(REHEARSAL_RELEASE_STATUS="$RL_STATUS" RL_OUT3="$RL_LINE_REFUSED
+$RL_LINE_CUTTING" rl_run 2>&1)"; then rl_rc=0; else rl_rc=$?; fi
+rl_verdict release-leg-refused-track-cut-again-records-fail "$rl_rc"
+t release-leg-refused-track-cut-again-reds "FAIL release: the refused track is not cut again" \
+  "$(grep -E '^FAIL' <<<"$RL_RECUT" | paste -sd'|')"
+# A cut whose head still reads the armed VERSION reds the VERSION row.
+: >"$RL_STATUS"
+if RL_UNSTAMPED="$(REHEARSAL_RELEASE_STATUS="$RL_STATUS" RL_HEAD_VERSION=0.0.2-dev rl_run 2>&1)"; then rl_rc=0; else rl_rc=$?; fi
+rl_verdict release-leg-unstamped-version-records-fail "$rl_rc"
+t release-leg-unstamped-version-reds "  read: VERSION reads [0.0.2-dev]|FAIL release: VERSION at the PR's head reads 0.0.2" \
+  "$(grep -E "^FAIL|read: VERSION" <<<"$RL_UNSTAMPED" | paste -sd'|')"
+# A file set that is not the cut reds its row, with what it read.
+: >"$RL_STATUS"
+jq -c 'map(select(.filename|test("drills/")|not))' <<<"$RL_FILES" >"$RL/files.json"
+if RL_SHAPE="$(REHEARSAL_RELEASE_STATUS="$RL_STATUS" rl_run 2>&1)"; then rl_rc=0; else rl_rc=$?; fi
+rl_verdict release-leg-file-set-records-fail "$rl_rc"
+printf '%s\n' "$RL_FILES" >"$RL/files.json"
+t release-leg-file-set-row-reds-with-its-reading 2 \
+  "$( { grep -c '^FAIL release: VERSION, CHANGELOG.md and the drill record changed' <<<"$RL_SHAPE"; \
+        grep -c 'read: no drill record drills/0.0.2.md' <<<"$RL_SHAPE"; } | awk '$1 > 0' | wc -l | tr -d ' ')"
+# Two release PRs on the board red the count row of the tick that reads them,
+# and only it: after tick 1 (the next read alone), then after tick 2 (the
+# first read answered with one, every later one with two). Each reaches the
+# verdict on its own, so neither row's red can hide behind the other's.
+: >"$RL_STATUS"
+printf '[%s,%s]\n' "$RL_PULL" "$RL_PULL" >"$RL/pulls.next"
+if RL_TWO="$(REHEARSAL_RELEASE_STATUS="$RL_STATUS" rl_run 2>&1)"; then rl_rc=0; else rl_rc=$?; fi
+rm -f "$RL/pulls.next"
+t release-leg-two-cuts-after-tick-1-red-only-the-first-count-row "FAIL release: the board carries exactly one release PR for the track" \
+  "$(grep -E '^FAIL' <<<"$RL_TWO" | paste -sd'|')"
+rl_verdict release-leg-two-cuts-after-tick-1-records-fail "$rl_rc"
+: >"$RL_STATUS"
+printf '[%s]\n' "$RL_PULL" >"$RL/pulls.next"
+printf '[%s,%s]\n' "$RL_PULL" "$RL_PULL" >"$RL/pulls.json"
+if RL_TWO2="$(REHEARSAL_RELEASE_STATUS="$RL_STATUS" rl_run 2>&1)"; then rl_rc=0; else rl_rc=$?; fi
+rm -f "$RL/pulls.next"; printf '[%s]\n' "$RL_PULL" >"$RL/pulls.json"
+t release-leg-two-cuts-after-tick-2-red-only-the-second-count-row "FAIL release: still exactly one release PR after the second tick" \
+  "$(grep -E '^FAIL' <<<"$RL_TWO2" | paste -sd'|')"
+rl_verdict release-leg-two-cuts-after-tick-2-records-fail "$rl_rc"
+: >"$RL_STATUS"
+jq -c '.labels=[]' <<<"$RL_PULL" >"$RL/pull.json"
+if RL_UNLABELLED="$(REHEARSAL_RELEASE_STATUS="$RL_STATUS" rl_run 2>&1)"; then rl_rc=0; else rl_rc=$?; fi
+printf '%s\n' "$RL_PULL" >"$RL/pull.json"
+t release-leg-unlabelled-cut-reds-the-shape-row "  read: no release label|FAIL release: the PR is the cut — labelled, against main, from drillbot's fork" \
+  "$(grep -E '^FAIL|read: no release' <<<"$RL_UNLABELLED" | paste -sd'|')"
+rl_verdict release-leg-unlabelled-cut-records-fail "$rl_rc"
+# No cut at all stops the leg at its first row and cleans up.
+: >"$RL_STATUS"
+if REHEARSAL_RELEASE_STATUS="$RL_STATUS" RL_OUT1="" rl_run >/dev/null 2>&1; then rl_rc=0; else rl_rc=$?; fi
+t release-leg-no-cut-returns-1 1 "$rl_rc"
+t release-leg-no-cut-records-fail 1 "$(grep -c '^triage fail the first tick opened no release PR' "$RL_STATUS" | tr -d ' ')"
+# The opt-out and the owner-identity case are skips with a reason.
+: >"$RL_STATUS"
+REHEARSAL_RELEASE_STATUS="$RL_STATUS" REHEARSAL_RELEASE_DRILL=0 rl_run >/dev/null 2>&1
+t release-leg-opt-out-is-a-skip "triage skip --no-release-drill" "$(cat "$RL_STATUS")"
+: >"$RL_STATUS"
+(
+  # shellcheck disable=SC2031  # this subshell's PATH is its own on purpose
+  export RL PATH="$RL/bin:$PATH"
+  ROLE=triage REHEARSAL_RELEASE_STATUS="$RL_STATUS"
+  skip() { :; }
+  rehearsal_release_drill "$RL_REPO" drillhost
+)
+t release-leg-owner-identity-is-a-skip 1 \
+  "$(grep -c '^triage skip box identity drillhost owns the sandbox' "$RL_STATUS" | tr -d ' ')"
+unset RL_OUT1 RL_OUT2 RL_OUT3
+
+# Wiring: sourced and called in the TRIAGE block, after the audit; its cleanup
+# armed in the EXIT trap; its flag, summary and triage gate in rehearsal-all.
+# shellcheck disable=SC2016  # match literal triage-block source text
+RL_BLOCK="$(sed -n '/if \[ "$ROLE" = "triage" \]/,/^[[:space:]]*elif /p' "$ROOT/drill/rehearsal.sh")"
+# shellcheck disable=SC2016  # match literal source text
+t release-leg-sourced-in-triage-block 1 \
+  "$(grep -cF '. "$ROOT/drill/rehearsal-release.sh"' <<<"$RL_BLOCK" | tr -d ' ')"
+# shellcheck disable=SC2016  # match literal source text
+RL_AUDIT_LINE="$(grep -nF 'rehearsal_attention_audit_drill "$SANDBOX"' "$ROOT/drill/rehearsal.sh" | head -1 | cut -d: -f1)"
+# shellcheck disable=SC2016  # match literal source text
+RL_LEG_LINE="$(grep -nF 'rehearsal_release_drill "$SANDBOX"' "$ROOT/drill/rehearsal.sh" | head -1 | cut -d: -f1)"
+t release-leg-follows-the-audit after \
+  "$([ -n "$RL_AUDIT_LINE" ] && [ -n "$RL_LEG_LINE" ] && [ "$RL_AUDIT_LINE" -lt "$RL_LEG_LINE" ] && echo after || echo WRONG)"
+t release-leg-cleanup-armed-in-the-exit-trap 1 \
+  "$(grep -cF 'rehearsal_release_cleanup || true' "$ROOT/drill/rehearsal.sh" | tr -d ' ')"
+t release-leg-all-opt-out-wired 1 "$(grep -cF -- '--no-release-drill) RELEASE_DRILL=0' "$ROOT/drill/rehearsal-all.sh" | tr -d ' ')"
+t release-leg-aggregate-row-gates-on-the-triage-role 1 \
+  "$(grep -cF 'INCOMPLETE release  (triage role omitted)' "$ROOT/drill/rehearsal-all.sh" | tr -d ' ')"
+t release-leg-is-documented-in-the-runbook 1 "$(runbook_documented_legs | grep -cx release)"
+t release-leg-is-in-the-runbook-prose 1 "$(runbook_prose_legs | grep -cx release)"
+t release-leg-names-no-agent-or-box 0 \
+  "$(grep -ciE 'claude|codex|grok|kimi|crew-drill' "$ROOT/drill/rehearsal-release.sh" | tr -d ' ')"
 
 suite_finish
